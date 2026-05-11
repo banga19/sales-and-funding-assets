@@ -1,0 +1,64 @@
+# Gitignore for Sales & Funding Assets
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor config
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Temporary
+*.tmp
+.tmp/
+
+# Google Workspace exports (if saved locally)
+*.pdf (pitch deck exports only if intentionally saved)
+*.pptx
+*.key
+
+# Node modules (if automation scripts added)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Metrics dashboards (live versions in Google Sheets)
+# Keep: METRICS-DASHBOARD.csv template
+# Ignore: Exported CSVs from HubSpot (if stored locally)
+exports/
+backups/
+
+# Optional automation scripts (if added later)
+scripts/output/
+scripts/temp/
+
+# Test data
+test-data/
+fixtures/
