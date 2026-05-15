@@ -49,31 +49,36 @@ cat EXECUTION-KIT.md
 cat EXECUTION-PLAN.md
 ```
 
-### Step 2: Set Up Tooling (60 min)
-- [ ] Create Google Workspace folder: `Sokogate-Sales-Funding/`
-- [ ] Sign up for HubSpot CRM Free (hubspot.com)
+### Step 2: Set Up CRM + Tools (60 min)
+- [ ] Access Sokogate AI dashboard: `https://sokogate-ai.ultimotradingltd.co.ke/` → login
+- [ ] Verify database tables exist (sales_prospects, investors, partnerships)
+- [ ] Import all CSVs via dashboard Import buttons:
+  - Prospects tab → Import (45 records)
+  - Investors tab → Import (25 records)
+  - Partners tab → Import (18 records)
+- [ ] Verify 88 contacts loaded across 3 tabs
 - [ ] Create Calendly link (15-min slots)
-- [ ] Install Mailtrack (email tracking)
-- [ ] Import all CSV files to HubSpot (Contacts → Import)
+- [ ] Create email templates in Gmail drafts (5 templates)
+- [ ] Set up Google Drive folder: `Sokogate-Sales-Funding/`
 
 ### Step 3: Build Pitch Deck (45 min)
 - [ ] Open Google Slides → Create "Sokogate Series A Pitch Deck"
 - [ ] Copy content from `06-PITCH-DECK-FIRST-DRAFT.md`
-- [ ] Add branding (colors, logo, fonts)
+- [ ] Apply branding (Primary: #1E3A8A, Secondary: #EF4444)
 - [ ] Share with advisor for feedback
 
 ### Step 4: Outreach Prep (45 min)
 - [ ] Pick 5 Tier 1 prospects from `01-KENYA-CONSTRUCTION-PROSPECTS.md`
 - [ ] Research each on LinkedIn (decision-maker name, recent news)
 - [ ] Personalize email template from `05-SALES-OUTREACH-TEMPLATES.md`
-- [ ] Load into HubSpot as "New" contacts
+- [ ] In dashboard, set each prospect status to "Contacted" after sending
 
 ---
 
 ## 📋 Execution Plan Summary
 
 **Sprint 0 (Days 1-3)**: Foundation + Tooling
-- CRM setup, email templates, pitch deck build, contact import
+- Dashboard verification, CSV import, email templates, pitch deck build
 
 **Sprint 1 (Days 4-10)**: Outreach Launch
 - 20 emails sent, 5 calls scheduled, LinkedIn outreach
@@ -91,18 +96,21 @@ See `EXECUTION-PLAN.md` for detailed daily breakdown.
 
 ---
 
-## 🛠️ Required Tools (All Free Tier)
+## 🛠️ Required Tools
 
+**Primary CRM**: Sokogate AI Dashboard (your custom built platform)
+- Access: `https://sokogate-ai.ultimotradingltd.co.ke/dashboard`
+- Tabs: Leads, Prospects, Investors, Partners, Metrics
+- Features: One-click CSV import, real-time updates, status tracking, export
+
+**Supporting Tools**:
 | Tool | Purpose | Sign Up |
 |------|---------|---------|
-| HubSpot CRM | Contact management, email tracking | hubspot.com |
-| Google Workspace | Slides, Sheets, Drive | gmail.com |
+| Google Workspace | Slides (pitch deck), Drive (storage), Gmail (outreach) | gmail.com |
 | Calendly | Meeting scheduler | calendly.com |
-| Mailtrack | Email open tracking | mailtrack.io |
-| Zapier (optional) | Automation | zapier.com |
-| Resend (optional) | Email API | resend.com |
+| Mailtrack (optional) | Email open tracking | mailtrack.io |
 
-**No local software installs required** — all browser-based.
+**No HubSpot needed** — using your own Sokogate AI platform (already integrated).
 
 ---
 
@@ -110,14 +118,14 @@ See `EXECUTION-PLAN.md` for detailed daily breakdown.
 
 | Category | Target (30 days) | Tracking |
 |----------|-----------------|----------|
-| Sales pilots signed | 3+ | HubSpot pipeline |
-| Active retailers | 300+ | Metrics dashboard |
-| Pilot revenue MRR | USD 20K+ | Financial tracker |
-| Investor meetings | 4+ | Investor tracker |
-| Term sheets | 1 | Funding tracker |
-| Partnerships signed | 1 | Partnership tracker |
+| Sales pilots signed | 3+ | Sokogate AI dashboard → Prospects tab (Closed Won) |
+| Active retailers | 300+ | Metrics tab + manual count |
+| Pilot revenue MRR | USD 20K+ | Financial notes in Prospects |
+| Investor meetings | 4+ | Investors tab (Meeting Scheduled → Pitched) |
+| Term sheets | 1 | Investors tab (Term Sheet status) |
+| Partnerships signed | 1 | Partners tab (Agreement Signed) |
 
-Update `METRICS-DASHBOARD.csv` daily or weekly.
+Update Metrics tab weekly (Friday EOD).
 
 ---
 
@@ -125,18 +133,18 @@ Update `METRICS-DASHBOARD.csv` daily or weekly.
 
 **Daily** (15 min):
 1. Check email responses
-2. Update HubSpot with activities
+2. Update Sokogate AI dashboard with activities (change statuses, add notes)
 3. Send scheduled outreach
-4. Log metrics
+4. Log metrics in Metrics tab or Google Sheet
 
 **Weekly** (Friday, 30 min):
-1. Review KPI dashboard
-2. Update CSV trackers
+1. Review KPI dashboard (Metrics tab)
+2. Update CSV trackers (export from dashboard as backup)
 3. Plan next week's outreach batches
 4. Document learnings
 
 **Monthly** (1 hr):
-1. Review pipeline health
+1. Review pipeline health (filter by status across all tabs)
 2. Update financial projections
 3. Refresh investor/partner lists
 4. Plan next month's priorities
@@ -152,7 +160,7 @@ Update `METRICS-DASHBOARD.csv` daily or weekly.
 - Sales Lead: Prospect outreach + discovery calls
 - Ops Lead: Pilot fulfillment + metrics tracking
 
-Divide tasks in HubSpot (assign contacts to team members).
+Divide tasks in the Sokogate AI dashboard (filter by prospect type; no built-in assignment yet, but notes field can indicate owner).
 
 ---
 
@@ -160,10 +168,12 @@ Divide tasks in HubSpot (assign contacts to team members).
 
 This documentation project is related to:
 
-- **/home/apop/sokogate-ai/** — AI chat application (could embed CRM dashboard)
+- **/home/apop/sokogate-ai/** — Contains the dashboard CRM (already integrated with sales_prospects, investors, partnerships tables)
 - **/home/apop/sokogate-calc/** — Calculator app (could add ROI calculator for prospects)
 
-See `EXECUTION-PLAN.md` Section 8 for Phase 2 automation opportunities.
+See `EXECUTION-PLAN.md` Section 8; also review `CRM-USAGE-GUIDE.md` for dashboard walkthrough.
+
+**Integration status**: ✅ Fully built — dashboard tabs + API routes + CSV import all operational at `https://sokogate-ai.ultimotradingltd.co.ke/`
 
 ---
 
@@ -171,7 +181,7 @@ See `EXECUTION-PLAN.md` Section 8 for Phase 2 automation opportunities.
 
 | File | Purpose | When to Use |
 |------|---------|-------------|
-| `00-MASTER-SUMMARY.md` | One-page overview of everything | Morning standup, investor summary |
+| `00-MASTER-SUMmary.md` | One-page overview of everything | Morning standup, investor summary |
 | `01-KENYA-CONSTRUCTION-PROSPECTS.md` | 45 sales targets with contact info | Daily outreach |
 | `02-SERIES-A-INVESTORS-EAST-AFRICA.md` | 25 investor research dossiers | Fundraising prep |
 | `03-INVESTOR-PITCH-DECK-OUTLINE.md` | 15-slide structure + speaker notes | Deck building |
@@ -182,16 +192,18 @@ See `EXECUTION-PLAN.md` Section 8 for Phase 2 automation opportunities.
 | `08-30-DAY-ACTION-PLAN.md` | Week-by-week execution calendar | Daily planning |
 | `EXECUTION-KIT.md` | Usage guide + quick reference | Onboarding |
 | `EXECUTION-PLAN.md` | Comprehensive step-by-step project plan | Strategic planning |
+| `CRM-USAGE-GUIDE.md` | Dashboard walkthrough + daily workflow | CRM operations |
 
 ---
 
 ## ⚠️ Important Notes
 
 - **All files are Markdown** — Open with any text editor or VS Code
-- **CSV files** — Import to HubSpot, Google Sheets, or Excel
+- **CSV files** — Used by dashboard import endpoints (read automatically) and for manual backup
 - **Email templates** — Personalize for each prospect (don't send generic!)
 - **Pitch deck** — Must be built in Google Slides (not a standalone file)
-- **Tracking** — Update HubSpot daily, CSVs weekly
+- **Metrics tracking** — Update dashboard Metrics tab weekly (Friday EOD)
+- **CRM** — All activity goes in the Sokogate AI dashboard; no external tool needed
 
 ---
 

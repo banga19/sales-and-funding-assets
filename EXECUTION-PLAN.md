@@ -97,8 +97,8 @@ Total: 15 files, ~200 KB, 100% Markdown + CSV (no proprietary formats)
 - ✅ Metrics framework (KPIs defined)
 
 **What We Need to Operationalize**:
-- ⚠️ CRM system (not defined — use Google Sheets? HubSpot? Custom?)
-- ⚠️ Email automation tool (Lemlist/HubSpot mentioned, not installed)
+- ⚠️ CRM system (already built — use Sokogate AI dashboard)
+- ⚠️ Email automation tool (Resend/Lemlist optional, not installed yet)
 - ⚠️ Pitch deck in presentable format (Google Slides required, not built)
 - ⚠️ Contact information enrichment (emails/phones missing for many prospects)
 - ⚠️ Scheduling system (Calendly link not created)
@@ -112,45 +112,40 @@ Total: 15 files, ~200 KB, 100% Markdown + CSV (no proprietary formats)
 
 ### 2.1 Recommended Tool Stack (WSL2 Ubuntu-24.04 Compatible)
 
-| Function | Recommendation | Rationale | Installation |
-|----------|----------------|-----------|--------------|
-| **CRM** | HubSpot Free Tier | Built-in email tracking, pipelines, automation, integrates with Gmail | Web-based (no install) |
-| **Email Tracking** | HubSpot Sales Hub or Mailtrack.io | Open/click tracking, templates, sequencing | Browser extension |
-| **Scheduling** | Calendly (Free) | Automatic meeting booking, timezone aware | Web-based |
-| **Document Collaboration** | Google Workspace (Docs/Sheets/Slides) | Real-time editing, templates, sharing | Web-based |
-| **Project Management** | Trello or Asana Free | Kanban boards, task assignment, due dates | Web-based |
-| **Database** | PostgreSQL (via Neon or Supabase) | If building custom CRM, link to sokogate-ai backend | `sudo apt install postgresql` or cloud |
-| **Automation** | Zapier / Make (Integromat) | Connect CSV → CRM, email triggers, webhook automation | Web-based |
-| **Presentation** | Google Slides | Pitch deck builder, presenter view, sharing | Web-based |
-| **File Storage** | Google Drive / Dropbox | Centralized asset repository | Web-based |
+| Function | Recommendation | Rationale | Status |
+|----------|----------------|-----------|--------|
+| **CRM** | Sokogate AI Dashboard | Already built — access at `/dashboard` | ✅ Already in place |
+| **Email Tracking** | Gmail + Mailtrack (optional) | Simple, works with any CRM | Install as needed |
+| **Scheduling** | Calendly (Free) | Web-based, embeds in emails | Free tier available |
+| **Metrics Dashboard** | Google Sheets (manual) + Dashboard Metrics tab | Dual tracking | Both available |
+| **Pitch Deck** | Google Slides | Collaborative, shareable | Free with Google account |
+| **CSV Import** | Dashboard import buttons (one-click) | Built into sokogate-ai | ✅ Already in place |
+| **Email Sending** | Gmail (manual) or Resend API (automated later) | Start manual, automate later | Flexible |
 
-**No heavy local installations required** — majority are SaaS tools accessible via browser.
+**No heavy local installations required** — majority are SaaS tools accessible via browser. Your custom CRM handles all prospect/investor/partner tracking.
 
 ### 2.2 Integration Points with Existing Sokogate Codebases
 
-**sokogate-ai** (`/home/apop/sokogate-ai/`) integration opportunities:
+**CRM SYSTEM**: Your custom Sokogate AI sales agent at `https://sokogate-ai.ultimotradingltd.co.ke/` is your fully functional CRM. All data syncs directly to your Neon PostgreSQL database and is manageable via the dashboard at `/dashboard`.
 
-1. **Lead Capture Dashboard**
-   - Build admin panel to view prospect/ investor/ partner pipelines
-   - Sync CSV data to PostgreSQL (existing Neon DB likely configured)
-   - Display metrics from METRICS-DASHBOOT.csv in real-time charts
+**Already Implemented** (ready to use):
+- New database tables: `sales_prospects`, `investors`, `partnerships`, `weekly_metrics`
+- New API routes (full CRUD): `/api/prospects`, `/api/investors`, `/api/partnerships`, `/api/metrics`
+- New dashboard tabs: "Prospects", "Investors", "Partners", "Metrics" (accessible via `/dashboard` after login)
+- CSV import endpoints: `/api/prospects/import`, `/api/investors/import`, `/api/partnerships/import` — reads directly from `~/sales-and-funding-assets/*.csv`
+- Real-time sync via WebSocket (React Query)
 
-2. **Automated Email Sending**
-   - Use existing Twilio integration (in sokogate-ai) for email/ SMS follow-ups
-   - Resend API already in dependencies — could automate outreach sequences
+**What This Means**:
+✅ No HubSpot needed — use your own platform  
+✅ All data lives in your Neon PostgreSQL database  
+✅ Dashboard accessible at `https://sokogate-ai.ultimotradingltd.co.ke/dashboard` after login  
+✅ Mobile-friendly (already built)  
+✅ One-click CSV import from the dashboard (import buttons present on each tab)  
+✅ Export to CSV available (Export button on each command center view)  
+✅ Status tracking, search, filtering all built-in  
 
-3. **Investor Portal**
-   - Password-protected section for investor updates
-   - Share pitch deck, metrics, portfolio company news
-   - Automate investor reporting (monthly)
-
-4. **Partner/Prospect Self-Service**
-   - Public landing page for partnership inquiries
-   - Forms that populate TRACKER-PROSPECTS.csv automatically
-
-**sokogate-calc** (`/home/apop/sokogate-calc/`) integration:
-- Could embed ROI calculator for prospects (show 15-20% savings)
-- Generate PDF quotes directly from platform
+**Phase 1 (Sprint 0)**: Use the Sokogate AI dashboard directly — no external CRM setup required  
+**Phase 2 (Post-Day 30)**: Extend automation via API scripts if needed
 
 ### 2.3 Environment Setup Checklist
 
@@ -179,36 +174,42 @@ pip3 install pandas  # for CSV manipulation
 ## 3. PHASED ROADMAP — 5 SPRINTS (30 DAYS TO FIRST MILESTONE)
 
 ### **SPRINT 0: FOUNDATION & TOOLING (DAYS 1-3)**
-**Objective**: Set up operational infrastructure before outreach begins  
+**Objective**: Verify CRM integration + import data + prep outreach infrastructure  
 **Duration**: 3 days  
 **Owner**: Founder/Operator  
 **Deliverables**:
-- [ ] Google Workspace setup (Gmail, Sheets, Slides, Drive folders)
-- [ ] HubSpot CRM free tier account created + pipeline configured
-- [ ] Calendly booking link generated (15-min slots)
-- [ ] Email templates folder organized (5 templates personalized)
+- [ ] Access Sokogate AI dashboard: Log into `https://sokogate-ai.ultimotradingltd.co.ke/` → `/dashboard`
+- [ ] Verify database tables exist: `sales_prospects`, `investors`, `partnerships`, `weekly_metrics` (run migration 003 if needed)
+- [ ] Import CSV data via dashboard buttons (one-click):
+  - [ ] Prospect import (TRACKER-PROSPECTS.csv → 45 records)
+  - [ ] Investor import (TRACKER-INVESTORS.csv → 25 records)
+  - [ ] Partnership import (TRACKER-PARTNERSHIPS.csv → 18 records)
+- [ ] Verify imports: Check each tab (Prospects, Investors, Partners) shows data
+- [ ] Calendly booking link generated (15-min slots) — `calendly.com/yourlink`
+- [ ] Email templates folder organized in Gmail drafts (5 templates personalized)
 - [ ] Drive folder structure created:
   ```
   Sokogate-Sales-Funding/
   ├── 00-Strategic-Docs/ (original markdown files)
   ├── 01-Pitch-Deck/ (Google Slides + exports)
-  ├── 02-CRM-Exports/ (CSV backups from HubSpot)
+  ├── 02-CRM-Exports/ (CSV backups from Sokogate AI dashboard)
   ├── 03-Outreach-Templates/ (customized emails)
   ├── 04-Tracking/ (live metrics dashboard)
   └── 05-Legal/ (term sheets, agreements)
   ```
-- [ ] CRM data entry: Import all 45 prospects + 25 investors + 18 partners into HubSpot
-- [ ] Tracking spreadsheet: Set up live METRICS-DASHBOARD in Google Sheets (daily updates)
-- [ ] Git commit: Initialize repo with README explaining structure
+- [ ] Metrics dashboard: Set up live METRICS-DASHBOARD in Google Sheets (daily sync from CRM)
+- [ ] Pitch deck: Build Google Slides from 06-PITCH-DECK-FIRST-DRAFT.md (15 slides)
+- [ ] Git commit: Initialize repo with README + all organized files
 
 **Dependencies**:
-- Internet access for SaaS tools
-- Gmail account for outreach
+- Internet access + Sokogate AI dashboard login credentials
 - Google account for Drive/Slides
+- Calendly account (free tier)
 
 **Success Criteria**:
-- All 88 contacts (45+25+18) loaded into HubSpot with proper labels
+- All 88 contacts (45+25+18) loaded into Sokogate AI dashboard (Prospects, Investors, Partners tabs)
 - Email templates ready to send (first batch of 10 personalized)
+- Pitch deck skeleton complete in Google Slides
 - Metrics dashboard live with Week 1 targets
 
 ---
@@ -354,9 +355,6 @@ npm install -g typescript ts-node nodemon
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 
-# HubSpot API (if integrating CRM)
-HUBSPOT_API_KEY=...
-
 # Database (if syncing to Postgres)
 DATABASE_URL=postgresql://...
 
@@ -371,23 +369,22 @@ CALENDLY_API_KEY=...
 
 **Network Considerations**:
 - WSL2 shares Windows network — no special firewall rules typically
-- Ensure Windows host allows outbound connections to SaaS tools (HubSpot, Google, Calendly)
+- Ensure Windows host allows outbound connections to SaaS tools (Google, Calendly)
 - If behind corporate VPN, configure split-tunneling for WSL2
 
 ### 4.2 Service Dependencies
 
 | Service | Purpose | Free Tier? | Account Needed |
 |---------|---------|-----------|----------------|
-| HubSpot CRM | Contact management + email tracking | Yes (free) | hubspot.com |
-| Google Workspace | Slides, Sheets, Drive | Yes (personal) | gmail.com |
+| Sokogate AI Dashboard | CRM (prospects, investors, partners, metrics) | ✅ (already owned) | Access via ultimotradingltd.co.ke |
+| Google Workspace | Slides, Sheets, Drive, Gmail | Yes (personal) | gmail.com |
 | Calendly | Scheduling | Yes (free) | calendly.com |
-| Mailtrack/Lemlist | Email open tracking | Freemium | mailtrack.io |
-| Zapier | Automation (CSV → CRM) | Yes (100 tasks/month) | zapier.com |
+| Mailtrack/Lemlist | Email open tracking (optional) | Freemium | mailtrack.io |
 | Stripe/Payment | Pilot order processing | Yes | stripe.com |
-| Twilio | SMS/voice follow-ups | Yes (trial credits) | twilio.com |
-| Resend | Email sending API | Yes (free tier) | resend.com |
+| Twilio | SMS/voice follow-ups (optional) | Yes (trial credits) | twilio.com |
+| Resend | Email sending API (for automation later) | Yes (free tier) | resend.com |
 
-**Estimated Setup Time**: 2-4 hours (mostly signups + configuration)
+**Estimated Setup Time**: 1-2 hours (mostly Calendly + Drive setup)
 
 ### 4.3 Integration Dependencies
 
@@ -396,11 +393,11 @@ CALENDLY_API_KEY=...
 - API routes: Could add `/api/prospects`, `/api/investors`, `/api/metrics`
 - Authentication: Use existing NextAuth for admin dashboard
 
-**Automation Scripts** (Python/Node.js):
-- `scripts/csv-to-hubspot.js` — Import CSV to HubSpot API
-- `scripts/daily-metrics.js` — Pull HubSpot data → update METRICS-DASHBOARD.csv
-- `scripts/email-sender.js` — Send personalized bulk emails (via Resend API)
-- `scripts/pitch-deck-generator.js` — Auto-generate customized slides
+**Automation Scripts** (Node.js — optional Phase 2):
+- `scripts/send-bulk-emails.js` — Send personalized emails via Resend API
+- `scripts/daily-metrics-sync.js` — Pull from dashboard API → Google Sheets
+- `scripts/pitch-deck-generator.js` — Auto-populate slides for each prospect
+- `scripts/follow-up-reminders.js` — Cron-based follow-up scheduler
 
 ---
 
@@ -410,26 +407,26 @@ CALENDLY_API_KEY=...
 
 | Day | Task | Owner | Estimated Time | Output |
 |-----|------|-------|---------------|--------|
-| D1 | Create Google Workspace folder structure | Founder | 30 min | Organized Drive |
-| D1 | Sign up for HubSpot CRM Free | Founder | 15 min | HubSpot account |
-| D1 | Configure HubSpot pipelines (Sales, Investors, Partnerships) | Founder | 45 min | 3 pipelines |
+| D1 | Log into Sokogate AI dashboard (`/dashboard`) | Founder | 10 min | Dashboard access confirmed |
+| D1 | Verify database tables exist (run migration if needed) | Founder | 15 min | Tables confirmed |
+| D1 | Import prospects CSV via dashboard `/api/prospects/import` | Founder | 30 min | 45 prospects loaded |
+| D1 | Import investors CSV via dashboard `/api/investors/import` | Founder | 20 min | 25 investors loaded |
+| D1 | Import partnerships CSV via dashboard `/api/partnerships/import` | Founder | 15 min | 18 partners loaded |
+| D1 | Verify data: Check each tab shows records | Founder | 15 min | Data confirmed |
 | D1 | Create Calendly booking link (15-min slots) | Founder | 10 min | calendly.com/yourlink |
-| D1 | Install Mailtrack browser extension | Founder | 5 min | Email tracking enabled |
-| D1 | Create email templates in Gmail (drafts) | Founder | 30 min | 5 template drafts |
-| D1 | Import CSV to HubSpot (via CSV import tool) | Founder | 45 min | 88 contacts loaded |
-| D1 | Tag contacts by tier (T1, T2, T3) and type (prospect, investor, partner) | Founder | 30 min | Segmented lists |
-| D2 | Build Google Sheets metrics dashboard | Founder | 1 hr | Live metrics tracker |
-| D2 | Create Google Slides pitch deck skeleton | Founder | 1 hr | 15 blank slides |
-| D2 | Copy content from 06-PITCH-DECK-FIRST-DRAFT.md into slides | Founder | 45 min | All text populated |
-| D2 | Add branding (colors, fonts, logo) to slides | Founder | 30 min | Visual design |
-| D2 | Record practice pitch (video) | Founder | 30 min | Self-review |
-| D3 | Research missing contact info (Hunter.io, LinkedIn) | Founder | 1 hr | 20+ enriched records |
+| D1 | Create email templates in Gmail (drafts) — 5 templates | Founder | 30 min | 5 template drafts |
+| D1 | Set up Google Drive folder structure (Sokogate-Sales-Funding/) | Founder | 20 min | Organized Drive |
+| D2 | Build Google Slides pitch deck from 06-PITCH-DECK-FIRST-DRAFT.md | Founder | 1.5 hrs | 15-slide deck |
+| D2 | Apply Sokogate branding (colors #1E3A8A, #EF4444) + logo | Founder | 30 min | Visual design |
+| D2 | Practice pitch delivery (record 2 run-throughs) | Founder | 45 min | Practice video |
+| D2 | Research missing contact info (top 10 prospects) | Founder | 45 min | Enriched records |
 | D3 | Write personalized email intros for top 10 prospects | Founder | 45 min | 10 unique emails |
-| D3 | Set up Zapier automation: CSV → HubSpot (optional) | Founder | 30 min | Auto-sync |
-| D3 | Commit code to git repo | Founder | 15 min | Versioned assets |
+| D3 | Set up METRICS-DASHBOARD in Google Sheets (template) | Founder | 30 min | Live tracker |
+| D3 | Test CRM: Update 5 prospect statuses to "Contacted" | Founder | 15 min | CRM validated |
+| D3 | Commit code to git repo (initial commit) | Founder | 15 min | Versioned assets |
 
-**Total Sprint 0 Time**: ~8-9 hours  
-**Go/No-Go Criteria**: All 88 contacts in CRM, email templates ready, pitch deck 90% done
+**Total Sprint 0 Time**: ~6-7 hours  
+**Go/No-Go Criteria**: All 88 contacts in dashboard, email templates ready, pitch deck started, metrics tracker live
 
 ---
 
@@ -446,7 +443,7 @@ CALENDLY_API_KEY=...
 | D7 | Send Batch 3: 5 Tier 3 sales emails | Founder | 30 min | Emails sent |
 | D7 | Send 2 investor cold emails | Founder | 15 min | Emails sent |
 | D8 | Follow-up sequence: Day 5 follow-ups for non-responders | Founder | 30 min | Follow-ups sent |
-| D8 | Update HubSpot: Log all activities, change statuses | Founder | 20 min | CRM current |
+| D8 | Update CRM: Log all activities in dashboard, change statuses | Founder | 20 min | CRM current |
 | D9 | Discovery call #1 (if scheduled) | Founder | 30 min | Call notes |
 | D9 | Discovery call #2 (if scheduled) | Founder | 30 min | Call notes |
 | D10 | Discovery call #3 (if scheduled) | Founder | 30 min | Call notes |
@@ -526,7 +523,7 @@ CALENDLY_API_KEY=...
 | D29 | Send due diligence package to 2 interested investors | Founder | 1 hr | Package sent |
 | D30 | Term sheet negotiation call (if applicable) | Founder | 45 min | Term sheet draft |
 | D30 | Weekly metrics review + Week 5 planning | Founder | 45 min | Plan drafted |
-| D30 | Update all trackers (CSV files + HubSpot) | Founder | 30 min | Data current |
+| D30 | Update all trackers (CSV files + dashboard metrics) | Founder | 30 min | Data current |
 
 **Total Sprint 4 Time**: ~7-8 hours  
 **KPI Check** (EOD D30):
@@ -549,7 +546,7 @@ CALENDLY_API_KEY=...
 | **Pilot customers delay signature** | Medium | Medium | Offer time-limited incentives (first month 50% off), simplify agreement |
 | **Partnership negotiations stall** | Medium | Medium | Approach backup partners from Tier 2 list, adjust revenue share terms |
 | **CRM/data fragmentation** | Low | Medium | Daily discipline: log every interaction before end of day |
-| **Tooling setup delays** | Low | Low | Use manual Google Sheets as fallback if HubSpot setup delayed |
+| **Tooling setup delays** | Low | Low | Use manual Google Sheets as fallback if dashboard access delayed |
 | **Founder bandwidth constraints** | High | High | Block 2-3 hours/day exclusively for sales/fundraising, no meetings on focus days |
 
 ### 6.2 Escalation Triggers
@@ -620,37 +617,30 @@ WEEK | DATE | METRIC | TARGET | ACTUAL | STATUS
 
 ---
 
-## 8. AUTOMATION OPPORTUNITIES (PHASE 2)
+## 8. AUTOMATION OPPORTUNITIES (PHASE 2 — Post-Day 30)
 
-Once manual execution is underway (post-Day 30), consider automating:
+Your Sokogate AI dashboard already includes:
+- ✅ Full CRUD for prospects, investors, partnerships, metrics
+- ✅ CSV import buttons (one-click from `~/sales-and-funding-assets/`)
+- ✅ Export to CSV on every command center view
+- ✅ Real-time updates via WebSocket
+- ✅ Status tracking, tier filters, search
 
-1. **Email Sequencing** — Use Resend API + Node.js cron job to send follow-ups automatically
-2. **Metrics Sync** — Sync HubSpot → Google Sheets daily via Zapier or custom script
-3. **Lead Capture** — Web form → HubSpot → Slack notification
-4. **Pitch Deck Personalization** — Script to auto-populate slides with prospect name/company
-5. **Investor Update Emails** — Monthly automated email with metrics snapshot
-6. **SMS Follow-ups** — Use Twilio to send SMS after email if no open in 48h
+**Phase 2 Enhancements** (after initial 30-day sprint):
+1. **Email Sequencing** — Use Resend API + Node.js cron to send automated follow-ups based on prospect status
+2. **Metrics Sync** — Auto-push dashboard metrics to Google Sheets (Zapier webhook or custom script)
+3. **Lead Capture** — Web form → API → dashboard (already have leads endpoint for chat-generated leads)
+4. **SMS Follow-ups** — Twilio integration for WhatsApp/SMS reminders
+5. **Investor Update Emails** — Monthly automated digest with KPI snapshot
 
-**Suggested Implementation Language**: Node.js (in `/home/apop/sokogate-ai/apps/web/` or standalone `/home/apop/sales-and-funding-tools/`)
+**Suggested Implementation**: Build as separate `sales-automation/` service or extend sokogate-ai `/app` with new API routes.
 
-**Sample Automation Structure**:
-```
-sales-automation/
-├── package.json
-├── .env
-├── scripts/
-│   ├── import-csv-to-hubspot.js
-│   ├── daily-metrics-report.js
-│   ├── send-bulk-emails.js
-│   └── generate-pitch-deck.js
-├── lib/
-│   ├── hubspot-client.js
-│   ├── google-sheets.js
-│   └── email-templates.js
-└── README.md
-```
+**Integration Already Available**:
+- `/api/prospects/import` — reads TRACKER-PROSPECTS.csv automatically
+- `/api/investors/import` — reads TRACKER-INVESTORS.csv automatically
+- `/api/partnerships/import` — reads TRACKER-PARTNERSHIPS.csv automatically
 
-**Installation**: `npm install @hubspot/api-client googleapis resend dotenv`
+To trigger imports: Click "Import CSV" buttons in dashboard or POST to those endpoints.
 
 ---
 
@@ -696,13 +686,13 @@ git push -u origin main
 ### 10.1 Immediate Actions (Today — D1)
 
 1. [ ] Review this execution plan in full
-2. [ ] Create Google Workspace account + folder structure
-3. [ ] Set up HubSpot CRM (free tier)
-4. [ ] Create Calendly link
-5. [ ] Install email tracking extension
-6. [ ] Import all CSV data to HubSpot
-7. [ ] Tag all 88 contacts properly
-8. [ ] Build pitch deck in Google Slides (copy from 06-PITCH-DECK-FIRST-DRAFT.md)
+2. [ ] Access Sokogate AI dashboard (`https://sokogate-ai.ultimotradingltd.co.ke/`)
+3. [ ] Verify database tables exist (sales_prospects, investors, partnerships, weekly_metrics)
+4. [ ] Import all 3 CSVs via dashboard import buttons (Prospects, Investors, Partners tabs)
+5. [ ] Verify 88 contacts loaded (45 prospects, 25 investors, 18 partners)
+6. [ ] Tag/label records by tier (T1-T9) and status ("Not Started")
+7. [ ] Create Calendly booking link (15-min slots)
+8. [ ] Build Google Slides pitch deck (copy from 06-PITCH-DECK-FIRST-DRAFT.md)
 9. [ ] Practice pitch 3x (record yourself)
 10. [ ] Commit all organized files to git
 
@@ -713,19 +703,19 @@ git push -u origin main
 - [ ] Send 3 partnership intro emails
 - [ ] Send 2 investor cold emails
 - [ ] Send 5 LinkedIn connection requests
-- [ ] Update CRM with all activities
+- [ ] Log all activities in Sokogate AI dashboard (update status to "Contacted")
 - [ ] Follow up on any responses
-- [ ] Schedule discovery calls for Week 2
+- [ ] Schedule discovery calls for Week 2 (use Calendly)
 
 ### 10.3 Week 2 Actions (D8-D14)
 
 - [ ] Conduct 5-7 discovery calls
-- [ ] Propose pilots to 2-3 hot prospects
-- [ ] Request warm intros to 3 investors
-- [ ] Conduct first investor meeting
-- [ ] Send partnership follow-ups
+- [ ] Propose pilots to 2-3 hot prospects (update status to "Negotiating")
+- [ ] Request warm intros to 3 investors (update investor status)
+- [ ] Conduct first investor meeting (log in dashboard)
+- [ ] Send partnership follow-ups (update partner status)
 - [ ] Finalize pitch deck visuals
-- [ ] Update metrics dashboard
+- [ ] Update metrics dashboard (both Sokogate AI Metrics tab + Google Sheets)
 
 ### 10.4 Week 3+ Actions (D15-D30)
 
@@ -753,39 +743,74 @@ git push -u origin main
 
 **Long-term Value**:
 - Systematic, repeatable sales + fundraising process
-- CRM database of 88+ qualified contacts
+- CRM database of 88+ qualified contacts (in Sokogate AI dashboard)
 - Pitch deck reusable for future rounds
 - Metrics framework for investor reporting
 - Playbook for team scaling
+
+**Your CRM Advantage**:
+- Custom-built platform — no monthly SaaS fees
+- Full data ownership (PostgreSQL on Neon)
+- Real-time sync with existing Sokogate AI web app
+- Mobile-ready, no extra licensing
+- CSV import/export built-in
 
 ---
 
 ## 12. APPENDICES
 
-### Appendix A: Tool Quick-Start Guides
+### Appendix A: Sokogate AI Dashboard Quick-Start
 
-**HubSpot CRM Free Setup**:
-1. Sign up at hubspot.com
-2. Create 3 pipelines: Sales, Investors, Partnerships
-3. Import CSV: Contacts → Import → File (CSV) → Map fields
-4. Create properties: Tier, Status, Last Contacted, Next Action
-5. Set up email tracking: Install HubSpot Sales Chrome extension
+**Dashboard Access & Login**:
+1. Navigate to: `https://sokogate-ai.ultimotradingltd.co.ke/`
+2. Sign in with your credentials (NextAuth authentication)
+3. Click "Dashboard" in the sidebar or go to `/dashboard`
+4. You'll see 6 tabs: Leads, Analytics, Prospects, Investors, Partners, Metrics
+
+**Import CSV Data (One-Click)**:
+1. Go to **Prospects** tab → Click "Import CSV" button (top right)
+2. Confirm import — reads `TRACKER-PROSPECTS.csv` automatically
+3. Wait for success message (45 records imported)
+4. Repeat for **Investors** tab → Import (25 records)
+5. Repeat for **Partners** tab → Import (18 records)
+6. Verify in table view that all records appear with correct tiers (T1-T9)
+
+**Manual Entry (if needed)**:
+- Click "Create [Entity]" button on any command center tab
+- Fill form (required fields marked *)
+- Submit — appears instantly in table
+
+**Update Statuses**:
+- Click any row to open detail modal
+- Change status dropdown (e.g., "Not Started" → "Contacted")
+- Add notes in the Notes field
+- Changes auto-save via PATCH API
+
+**Export to CSV**:
+- Click "Export CSV" button on any tab
+- Downloads current view (filters applied) as CSV
+
+**Metrics Dashboard**:
+- **Metrics** tab shows weekly KPI tracker
+- Click metric row to edit target/actual values
+- Status color-coded: Pending (gray), In Progress (blue), Completed (green), Missed (red)
+- Manually update weekly or integrate with Google Sheets later
 
 **Google Slides Pitch Deck**:
 1. Go to slides.google.com → Create new presentation
 2. Title: "Sokogate Series A Pitch Deck — May 2026"
-3. Duplicate 15 slides per structure in 03-INVESTOR-PITCH-DECK-OUTLINE.md
-4. Copy content from 06-PITCH-DECK-FIRST-DRAFT.md (fully written)
-5. Insert: Logo, charts, customer photos, product screenshots
-6. Share with advisors: Get "Commenter" access for feedback
-7. Present: Use Presenter Mode with speaker notes
+3. Copy 15-slide structure from 03-INVESTOR-PITCH-DECK-OUTLINE.md
+4. Copy full content from 06-PITCH-DECK-FIRST-DRAFT.md
+5. Apply branding: Primary #1E3A8A, Secondary #EF4444
+6. Add logo, charts, product screenshots if available
+7. Share with advisors for comments
 
 **Calendly Integration**:
 1. Sign up at calendly.com
-2. Create event type: "Sokogate Intro Call" — 15 min
+2. Create event: "Sokogate Intro Call" — 15 min
 3. Set availability: Weekdays 9am-5pm EAT
 4. Connect Google Calendar
-5. Copy booking link: `https://calendly.com/yourname/sokogate-intro`
+5. Copy link: `https://calendly.com/yourname/sokogate-intro`
 6. Add to email signature + outreach templates
 
 ### Appendix B: Email Template Customization Checklist
@@ -807,10 +832,10 @@ For each prospect email:
    - Update METRICS-DASHBOARD.csv
    - Compare to targets
 
-2. **Pipeline Review** (15 min):
-   - HubSpot: what moved this week?
-   - Prospects advancing to next stage?
-   - Deals stuck? Why?
+  2. **Pipeline Review** (15 min):
+      - Sokogate AI dashboard: what moved this week?
+      - Prospects advancing to next stage?
+      - Deals stuck? Why?
 
 3. **Feedback Loop** (10 min):
    - What messaging worked best?
@@ -834,7 +859,7 @@ For each prospect email:
 The `sales-and-funding-assets` project contains a world-class business development strategy. The documentation is **complete and ready**. The gap between strategy and execution is purely operational: tooling, CRM, email automation, and disciplined execution.
 
 **Your 30-Day Path**:
-1. **Days 1-3**: Set up tools (HubSpot, Google Workspace, Calendly)
+1. **Days 1-3**: Verify dashboard + import data + set up tools (Google Workspace, Calendly)
 2. **Days 4-10**: Launch outreach (20 emails, 5 calls, start pipeline)
 3. **Days 11-17**: Build deck + conduct investor meetings
 4. **Days 18-24**: Close pilots + advance partnerships

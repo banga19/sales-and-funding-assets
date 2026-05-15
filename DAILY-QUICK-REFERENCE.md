@@ -50,16 +50,18 @@
 
 | Tool | Purpose | Link |
 |------|---------|------|
-| HubSpot CRM | Contact management | https://app.hubspot.com |
+| **Sokogate AI Dashboard** | Primary CRM (prospects, investors, partners) | https://sokogate-ai.ultimotradingltd.co.ke/dashboard |
 | Google Drive | File storage | https://drive.google.com |
 | Google Slides | Pitch deck | https://slides.google.com |
-| Google Sheets | Metrics dashboard | https://sheets.google.com |
+| Google Sheets | Metrics backup (if needed) | https://sheets.google.com |
 | Calendly | Scheduling | https://calendly.com |
-| Mailtrack | Email tracking | https://mailtrack.io |
-| METRICS DASHBOARD | Live KPIs | `METRICS-DASHBOARD.csv` |
-| TRACKER-PROSPECTS | Sales pipeline | `TRACKER-PROSPECTS.csv` |
-| TRACKER-INVESTORS | Fundraising | `TRACKER-INVESTORS.csv` |
-| TRACKER-PARTNERSHIPS | BD pipeline | `TRACKER-PARTNERSHIPS.csv` |
+| Mailtrack | Email tracking (optional) | https://mailtrack.io |
+| METRICS DASHBOARD | Live KPIs (CSV backup) | `METRICS-DASHBOARD.csv` |
+| TRACKER-PROSPECTS | Sales pipeline (CSV source) | `TRACKER-PROSPECTS.csv` |
+| TRACKER-INVESTORS | Fundraising (CSV source) | `TRACKER-INVESTORS.csv` |
+| TRACKER-PARTNERSHIPS | BD pipeline (CSV source) | `TRACKER-PARTNERSHIPS.csv` |
+
+**Note**: Custom CRM integration in progress. Use Google Sheets temporarily until dashboard tabs deploy.
 
 ---
 
