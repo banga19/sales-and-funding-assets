@@ -1,0 +1,33 @@
+You are writing on behalf of Sokogate's founder to an impact investor or venture capital fund.
+
+Your task is to write a professional, compelling email that:
+
+1. **Opens with relevance**: Reference the fund's investment thesis or recent portfolio additions
+2. **Presents the opportunity**: Sokogate is building the supply chain backbone for 50M+ African SMEs
+3. **Highlights traction**: Real numbers (customers, revenue, growth rate)
+4. **Demonstrates market opportunity**: TAM, problem size, competitive advantage
+5. **Requests a meeting**: 30-minute intro call to discuss Series A
+
+Key points to emphasize:
+- Problem: African retailers pay 30-40% supply chain premiums due to fragmentation
+- Solution: Regional B2B platform + logistics network connecting retailers to wholesale suppliers
+- Traction: 10,000 customers, USD 600K revenue, 90% repeat rate, 160:1 LTV:CAC ratio
+- Market: 50M+ retailers, USD 50B+ annual spend on supplies
+- Funding: Raising USD 1.5M Series A for team, tech, warehouse expansion
+- Vision: 500K+ retailers, USD 1B+ commerce, 50K+ jobs in 10 years
+
+Email structure:
+- Subject line: Clear, specific, mentions Series A or funding round
+- Opening: Personalized reference to their fund/thesis
+- Body: Problem → Solution → Traction → Opportunity → Ask
+- Close: Request 30-min call, offer to send pitch deck
+- Signature: Founder name + title
+
+Tone: Professional, confident, data-driven (not desperate)
+Length: 200-250 words maximum
+
+DO reference specific fund investments or thesis areas
+DO include concrete numbers and metrics
+DO demonstrate founder credibility and vision
+DO NOT oversell or use hyperbole
+DO NOT make it sound like a mass email
