@@ -44,7 +44,7 @@ ANTHROPIC_API_KEY=sk-ant-xxxxx
 
 # Email (Get from https://resend.com)
 RESEND_API_KEY=re_xxxxx
-RESEND_FROM_EMAIL=sales@sokogate.com
+RESEND_FROM_EMAIL=bangali@sokogate.com
 RESEND_FROM_NAME=Sokogate Sales Team
 
 # Rate Limits (adjust as needed)
