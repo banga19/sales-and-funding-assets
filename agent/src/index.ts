@@ -7,6 +7,7 @@ import { db } from './database/db.client';
 import { emailService } from './channels/email.service';
 import { whatsappService } from './channels/whatsapp.service';
 import { personalizationService } from './agents/personalization';
+import agentRoutes from './api/routes/agent.routes';
 
 class SalesAgent {
   private app: Express;
@@ -25,7 +26,14 @@ class SalesAgent {
   private setupMiddleware(): void {
     // Security
     this.app.use(helmet());
-    this.app.use(cors());
+    
+    // CORS - Allow frontend to connect
+    this.app.use(cors({
+      origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    }));
 
     // Body parsing
     this.app.use(express.json());
@@ -141,6 +149,9 @@ class SalesAgent {
       logger.info('Calendly webhook received', { body: req.body });
       res.sendStatus(200);
     });
+
+    // Mount agent routes
+    this.app.use('/api/agent', agentRoutes);
 
     // 404 handler
     this.app.use((req: Request, res: Response) => {

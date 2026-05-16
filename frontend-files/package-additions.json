@@ -1,0 +1,22 @@
+{
+  "dependencies_to_add": {
+    "axios": "^1.6.7",
+    "react-router-dom": "^6.22.0",
+    "@tanstack/react-query": "^5.20.0",
+    "recharts": "^2.12.0",
+    "date-fns": "^3.3.1",
+    "lucide-react": "^0.344.0"
+  },
+  "devDependencies_to_add": {
+    "@types/react-router-dom": "^5.3.3",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.35",
+    "autoprefixer": "^10.4.17"
+  },
+  "scripts_to_add": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  }
+}
