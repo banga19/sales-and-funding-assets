@@ -65,10 +65,10 @@ export interface Partner extends BaseContact {
 
 export type Contact = Prospect | Investor | Partner;
 
-export interface ContactWithConversation extends Contact {
+export type ContactWithConversation = Contact & {
   conversation?: Conversation;
   last_message?: Message;
-}
+};
 
 // Conversation Types
 export type ConversationStage = 

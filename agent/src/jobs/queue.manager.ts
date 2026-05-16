@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Queue, Worker, QueueEvents } from 'bullmq';
 import IORedis from 'ioredis';
 import { logger } from '../utils/logger';

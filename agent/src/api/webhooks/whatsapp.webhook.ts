@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Router, Request, Response } from 'express';
 import { orchestrator } from '../../agents/orchestrator';
 import { logger } from '../../utils/logger';

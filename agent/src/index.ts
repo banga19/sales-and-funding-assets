@@ -48,19 +48,26 @@ class SalesAgent {
     // Health check
     this.app.get('/api/health', async (req: Request, res: Response) => {
       try {
+        const dbHealth = await db.healthCheck();
+        const emailHealth = await emailService.healthCheck();
+        const whatsappHealth = agentConfig.features.whatsapp ? await whatsappService.healthCheck() : true;
+        const claudeHealth = await personalizationService.healthCheck();
+        
         const health = {
-          status: 'healthy',
+          status: dbHealth.healthy && emailHealth && whatsappHealth && claudeHealth ? 'healthy' : 'unhealthy',
           timestamp: new Date().toISOString(),
           checks: {
-            database: await db.healthCheck(),
-            email: await emailService.healthCheck(),
-            whatsapp: agentConfig.features.whatsapp ? await whatsappService.healthCheck() : true,
-            claude: await personalizationService.healthCheck(),
+            database: {
+              healthy: dbHealth.healthy,
+              error: dbHealth.error,
+            },
+            email: emailHealth,
+            whatsapp: whatsappHealth,
+            claude: claudeHealth,
           },
         };
 
-        const allHealthy = Object.values(health.checks).every((check) => check === true);
-        const statusCode = allHealthy ? 200 : 503;
+        const statusCode = health.status === 'healthy' ? 200 : 503;
 
         res.status(statusCode).json(health);
       } catch (error) {
@@ -173,11 +180,28 @@ class SalesAgent {
         return;
       }
 
-      // Test database connection
-      const dbHealthy = await db.healthCheck();
-      if (!dbHealthy) {
-        throw new Error('Database connection failed');
+      // Initialize and test database connection
+      logger.info('Initializing database connection...');
+      await db.initialize();
+      
+      const dbHealth = await db.healthCheck();
+      if (!dbHealth.healthy) {
+        logger.error('Database connection failed at startup', {
+          error: dbHealth.error,
+          details: dbHealth.details,
+          troubleshooting: [
+            'Verify DATABASE_URL in .env file',
+            'Check database password is correct',
+            'Ensure SSL is configured (required for Supabase)',
+            'Verify network connectivity to database host',
+            'Check IP allowlist in database dashboard',
+            'Try resetting database password in Supabase'
+          ]
+        });
+        throw new Error(`Database connection failed: ${dbHealth.error}`);
       }
+      
+      logger.info('Database connection verified successfully');
 
       // Start Express server
       this.app.listen(this.port, () => {

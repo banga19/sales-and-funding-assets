@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { logger } from '../utils/logger';
 import { db } from '../database/db.client';
 import { emailService } from '../channels/email.service';

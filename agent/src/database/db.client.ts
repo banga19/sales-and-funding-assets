@@ -13,6 +13,9 @@ class DatabaseClient {
       max: agentConfig.database.pool.max,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
+      ssl: {
+        rejectUnauthorized: false // Required for Supabase and most cloud PostgreSQL providers
+      }
     });
 
     // Handle pool errors
@@ -31,6 +34,40 @@ class DatabaseClient {
       DatabaseClient.instance = new DatabaseClient();
     }
     return DatabaseClient.instance;
+  }
+
+  /**
+   * Connect to database with retry logic
+   */
+  private async connectWithRetry(maxRetries = 3, delay = 2000): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const client = await this.pool.connect();
+        client.release();
+        logger.info('Database connection established', { attempt });
+        return;
+      } catch (error: any) {
+        logger.warn(`Connection attempt ${attempt}/${maxRetries} failed`, {
+          error: error.message,
+          code: error.code
+        });
+        
+        if (attempt === maxRetries) {
+          throw new Error(`Failed to connect after ${maxRetries} attempts: ${error.message} (${error.code})`);
+        }
+        
+        // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, delay * attempt));
+      }
+    }
+  }
+
+  /**
+   * Initialize and verify database connection
+   */
+  public async initialize(): Promise<void> {
+    await this.connectWithRetry();
+    logger.info('Database client initialized successfully');
   }
 
   /**
@@ -94,13 +131,41 @@ class DatabaseClient {
   /**
    * Check database connection health
    */
-  public async healthCheck(): Promise<boolean> {
+  public async healthCheck(): Promise<{ healthy: boolean; error?: string; details?: any }> {
     try {
       const result = await this.query('SELECT 1 as health');
-      return result.rows[0]?.health === 1;
-    } catch (error) {
-      logger.error('Database health check failed', { error });
-      return false;
+      const healthy = result.rows[0]?.health === 1;
+      return { healthy };
+    } catch (error: any) {
+      const errorDetails = {
+        code: error.code,
+        message: error.message,
+        severity: error.severity,
+        detail: error.detail,
+        hint: error.hint,
+        routine: error.routine,
+      };
+      
+      // Mask password in connection string for logging
+      const maskedConnectionString = agentConfig.database.url.replace(/:[^:@]+@/, ':****@');
+      
+      logger.error('Database health check failed', {
+        error: errorDetails,
+        connectionString: maskedConnectionString,
+        troubleshooting: [
+          'Verify DATABASE_URL in .env file',
+          'Check database password is correct',
+          'Ensure SSL is configured (required for Supabase)',
+          'Verify network connectivity to database host',
+          'Check IP allowlist in database dashboard'
+        ]
+      });
+      
+      return {
+        healthy: false,
+        error: `${error.code || 'UNKNOWN'}: ${error.message}`,
+        details: errorDetails
+      };
     }
   }
 

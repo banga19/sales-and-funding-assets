@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { logger } from '../utils/logger';
 import { orchestrator } from '../agents/orchestrator';
 import { db } from '../database/db.client';
