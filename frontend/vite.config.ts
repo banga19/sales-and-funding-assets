@@ -1,36 +1,47 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-export default defineConfig(({ mode }) => {
-  // Load .env*, .env.local, .env.[mode] — merge on top of OS env vars
-  const env = loadEnv(mode, process.cwd(), '');
+// Vite loads .env*, .env.local, .env.[mode] before building the config object.
+// process.env.VITE_* is therefore already available at config evaluation time.
+const VITE_API_BASE_URL  = process.env.VITE_API_BASE_URL  || '/api';
+const VITE_API_TIMEOUT   = process.env.VITE_API_TIMEOUT   || '10000';
+const API_TARGET          = process.env.VITE_API_TARGET   || 'http://localhost:3002';
 
-  return {
-    plugins: [react()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  define: {
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(VITE_API_BASE_URL),
+    'import.meta.env.VITE_API_TIMEOUT':    JSON.stringify(VITE_API_TIMEOUT),
+  },
+  server: {
+    port: 3001,
+    strictPort: true,
+    proxy: {
+      // All /api/* calls ──────────────────────────────────────────────────────────
+      // DEVELOPMENT (default): /api/* → Agent (port 3002)
+      //   The Agent owns /api/health, /api/status, /api/agent/*, /api/contacts/*
+      //   and every endpoint the frontend needs with live data.
+      //
+      // PRODUCTION override:     set VITE_API_TARGET to the backend URL in
+      //   frontend/.env.production (e.g. https://api.sokogate.com)
+      // ─────────────────────────────────────────────────────────────────────────
+
+      // Contacts/CMS routes  → Agent (port 3002)  [primary target]
+      '/api': {
+        target: API_TARGET,
+        changeOrigin: true,
+      },
+      // Webhooks (WhatsApp / Email provider callbacks) → no change needed
+      '/webhooks': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
       },
     },
-    define: {
-      // Expose selected env vars to the client bundle as import.meta.env
-      'import.meta.env.VITE_API_BASE_URL': JSON.stringify(
-        env.VITE_API_BASE_URL || '/api'
-      ),
-      'import.meta.env.VITE_API_TIMEOUT': JSON.stringify(
-        env.VITE_API_TIMEOUT ?? '10000'
-      ),
-    },
-    server: {
-      port: 3001,
-      strictPort: true,
-      proxy: {
-        '/api': {
-          target: env.VITE_API_TARGET || 'http://localhost:3000',
-          changeOrigin: true,
-        },
-      },
-    },
-  };
+  },
 });

@@ -1,7 +1,6 @@
 {
   "name": "sales-and-funding-assets",
   "version": "1.0.0",
-  "type": "module",
   "description": "Sokogate Sales & Funding Agent — full-stack: agent, backend API, react dashboard",
   "packageManager": "npm>=10.0.0",
   "engines": {
@@ -15,26 +14,32 @@
   ],
   "scripts": {
     "dev": "npm run dev:all",
-    "dev:all": "concurrently -n agent,backend,frontend -c green,blue,magenta -p \"[{name}]\""roc \"npm:run dev:agent --workspace agent\" \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
+    "dev:all": "npm-run-all --parallel dev:agent dev:backend dev:frontend",
     "dev:agent": "npm run dev --workspace agent",
     "dev:backend": "npm run dev --workspace backend",
     "dev:frontend": "npm run dev --workspace frontend",
-    "build": "npm run build:all --workspace frontend && npm run build --workspace backend && npm run build --workspace agent",
-    "build:all": "npm run build --workspaces --if-present -- --mode=production",
+    "build": "npm run build --workspaces --if-present",
+    "build:agent": "npm run build --workspace agent",
+    "build:backend": "npm run build --workspace backend",
+    "build:frontend": "npm run build --workspace frontend",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present -- --passWithNoTests",
-    "db:up": "docker compose -f infra/docker/docker-compose.db.yml up -d",
-    "db:down": "docker compose -f infra/docker/docker-compose.db.yml down",
-    "db:logs": "docker compose -f infra/docker/docker-compose.db.yml logs -f",
-    "infra:up": "concurrently -n db,redis -c green,cyan \"npm run db:up\" \"docker compose -f infra/docker/docker-compose.db.yml up -d redis\"",
-    "infra:down": "docker compose -f infra/docker/docker-compose.db.yml down -v",
-    "infra:clean": "npm run infra:down && docker volume prune -f",
+    "format": "prettier --write agent/src backend/src frontend/src",
+    "db:start": "npm run infra:up",
+    "db:stop": "npm run infra:down",
+    "db:status": "npm run infra:status",
     "db:migrate": "npm run migrate --workspace agent",
-    "db:seed": "node scripts/seed-dev.js"
+    "db:seed": "node scripts/seed-dev.js",
+    "infra:up": "docker compose -f infra/docker/docker-compose.db.yml up -d",
+    "infra:down": "docker compose -f infra/docker/docker-compose.db.yml down",
+    "infra:clean": "docker compose -f infra/docker/docker-compose.db.yml down -v",
+    "infra:reset": "npm run infra:clean && npm run infra:up",
+    "infra:status": "docker compose -f infra/docker/docker-compose.db.yml ps"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "npm-run-all": "^4.1.5"
   },
   "preferWorkspaces": true
 }

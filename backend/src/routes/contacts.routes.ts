@@ -1,5 +1,6 @@
 import { type Request, type Response } from 'express';
 import { contactStore, messageStore } from '../services/store.js';
+import type { ContactType, ContactStage } from '../types/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Shared contact CRUD helpers
@@ -9,8 +10,8 @@ import { contactStore, messageStore } from '../services/store.js';
 export const listContacts = (req: Request, res: Response) => {
   const { type, stage, search, page = '1', pageSize = '20' } = req.query;
   const contacts = contactStore.list({
-    type: type as string | undefined,
-    stage: stage as string | undefined,
+    type: type as ContactType | undefined,
+    stage: stage as ContactStage | undefined,
     search: search as string | undefined,
   });
   const pg = Math.max(1, parseInt(String(page), 10) || 1);

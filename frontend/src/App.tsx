@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Activity, Database, Mail, MessageSquare, Bot, AlertCircle, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Activity,
+  Database,
+  Mail,
+  MessageSquare,
+  Bot,
+  AlertCircle,
+  RefreshCw,
+  Eye,
+} from 'lucide-react';
 import { apiClient } from './api/client';
 import { HealthCheck, AgentStatus } from './types';
 import './App.css';
@@ -30,37 +39,119 @@ const SOK = {
   warning:       '#F59E0B',
 };
 
-function App() {
-  const [health, setHealth] = useState<HealthCheck | null>(null);
-  const [status, setStatus] = useState<AgentStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+/* ─────────────────────────────────────────────
+   DEMO MODE — toggle via VITE_DEMO_MODE=1 in frontend/.env
+   When enabled the dashboard falls back to realistic mock
+   data whenever the backend is unreachable; it always shows
+   something — no blank error screens.
+───────────────────────────────────────────── */
+const DEMO_MODE = String((import.meta.env as any).VITE_DEMO_MODE ?? '0') === '1';
 
-  const fetchData = async () => {
+/* ── Mock data (realistic sample values) ── */
+const MOCK_HEALTH: HealthCheck = {
+  status:       'healthy',
+  timestamp:    new Date().toISOString(),
+  checks: {
+    database: { healthy: true },
+    email:    true,
+    whatsapp: true,
+    claude:   true,
+  },
+};
+
+const MOCK_STATUS: AgentStatus = {
+  enabled:  true,
+  dryRun:   false,
+  features: {
+    whatsapp:          true,
+    email:             true,
+    autoFollowup:      true,
+    autoScheduling:    true,
+    sentimentAnalysis: false,
+    objectionHandling: false,
+  },
+  rateLimits: {
+    email:    { remaining: 78,  limit: 100 },
+    whatsapp: { remaining: 30,  limit: 200 },
+  },
+};
+
+/* ───────────────────────────────────────────── */
+
+function App() {
+  const [health, setHealth]             = useState<HealthCheck | null>(null);
+  const [status, setStatus]             = useState<AgentStatus | null>(null);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate]     = useState<Date>(new Date());
+  const [isDemo, setIsDemo]             = useState(false);
+  const [demoVisible, setDemoVisible]   = useState(false);
+
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [healthData, statusData] = await Promise.all([
-        apiClient.getHealth(),
-        apiClient.getStatus(),
-      ]);
-      setHealth(healthData);
-      setStatus(statusData);
+
+      // Status is always needed for the dashboard — fetch first, independently.
+      // Health and status are fetched separately so one endpoint's failure
+      // (e.g. /api/health still returning 503 on restart) doesn't block the other.
+      let statusData: AgentStatus | null = null;
+      try {
+        statusData = await apiClient.getStatus();
+        setStatus(statusData);
+        setIsDemo(false);
+      } catch (statusErr: any) {
+        console.warn('[App] /api/status error:', statusErr.message);
+        if (!DEMO_MODE) {
+          setError('Agent status unavailable: ' + (statusErr.response?.data?.error || statusErr.message));
+        }
+      }
+
+      // Health check — 503 just means "agent running but some components
+      // not ready yet"; we still show the dashboard with a yellow badge.
+      try {
+        const healthData = await apiClient.getHealth();
+        setHealth(healthData);
+      } catch (healthErr: any) {
+        const code = healthErr.response?.status;
+        if (code === 503) {
+          console.warn('[App] Agent /api/health returned 503 — agent is running but some checks are not ready yet');
+          setHealth({
+            status: 'unhealthy',
+            timestamp: new Date().toISOString(),
+            checks: {
+              database: { healthy: false, error: 'Connection not confirmed' },
+              email:    false,
+              whatsapp: false,
+              claude:   false,
+            },
+          });
+        } else {
+          console.warn('[App] /api/health network error:', healthErr.message);
+          if (!DEMO_MODE && !statusData) {
+            setError('Backend unreachable: ' + (healthErr.response?.data?.error || healthErr.message));
+          }
+        }
+      }
+
+      if (DEMO_MODE && !statusData) {
+        console.warn('[App] Backend unreachable — using demo data');
+        setHealth(MOCK_HEALTH);
+        setStatus(MOCK_STATUS);
+        setIsDemo(true);
+      }
+
       setLastUpdate(new Date());
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to fetch data');
-      console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchData]);
 
   /* ── Helpers ── */
 
@@ -111,8 +202,10 @@ function App() {
     );
   }
 
-  /* ── Error ── */
-  if (error && !health) {
+  /* ── Error ──
+     In demo mode we continue rendering with mock data instead of
+     showing the full error screen — so the UI is always visible. */
+  if (error && !isDemo && !status) {
     return (
       <div
         className="min-h-screen flex items-center justify-center"
@@ -146,6 +239,22 @@ function App() {
           >
             Retry Connection
           </button>
+          {DEMO_MODE && (
+            <button
+              onClick={() => {
+                setDemoVisible(true);
+                setHealth(MOCK_HEALTH);
+                setStatus(MOCK_STATUS);
+                setIsDemo(true);
+                setLastUpdate(new Date());
+              }}
+              className="btn btn-ghost mt-3 w-full"
+              style={{ width: '100%' }}
+            >
+              <Eye className="w-4 h-4 mr-2" />
+              Show Demo Dashboard
+            </button>
+          )}
           <div
             className="mt-4 p-4 rounded-lg"
             style={{
@@ -191,7 +300,6 @@ function App() {
           }}
         >
           <div className="flex items-center" style={{ gap: '0.75rem' }}>
-            {/* Bot icon — Sokogate Indigo */}
             <Bot className="w-8 h-8" style={{ color: SOK.primary }} />
 
             <div>
@@ -215,6 +323,19 @@ function App() {
           </div>
 
           <div className="flex items-center" style={{ gap: '1rem' }}>
+            {/* Demo Mode badge */}
+            {isDemo && (
+              <span
+                className="badge"
+                style={{
+                  backgroundColor: '#FEF3C7',
+                  color: '#92400E',
+                }}
+              >
+                Demo Data
+              </span>
+            )}
+
             <div className="text-right" style={{ fontSize: '0.75rem', color: SOK.textMuted }}>
               <p>Last Updated</p>
               <p
@@ -236,7 +357,7 @@ function App() {
                   animation: loading ? 'sok-spin 1s linear infinite' : 'none',
                 }}
               />
-              {loading ? 'Refreshing…' : 'Refresh'}
+              {loading ? 'Refreshing\u2026' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -317,6 +438,11 @@ function App() {
                     {health.checks.database.error}
                   </p>
                 )}
+                {isDemo && !health?.checks.database.error && (
+                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
+                    Connected — Demo
+                  </p>
+                )}
               </div>
 
               {/* Email */}
@@ -348,6 +474,11 @@ function App() {
                   </div>
                   {health && statusDot(health.checks.email)}
                 </div>
+                {isDemo && (
+                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
+                    Active — Demo
+                  </p>
+                )}
               </div>
 
               {/* WhatsApp */}
@@ -379,9 +510,14 @@ function App() {
                   </div>
                   {health && statusDot(health.checks.whatsapp)}
                 </div>
-                {!health?.checks.whatsapp && (
+                {(!health?.checks.whatsapp) && !isDemo && (
                   <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
                     Configure credentials in .env
+                  </p>
+                )}
+                {isDemo && (
+                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
+                    Active — Demo
                   </p>
                 )}
               </div>
@@ -415,9 +551,14 @@ function App() {
                   </div>
                   {health && statusDot(health.checks.claude)}
                 </div>
-                {!health?.checks.claude && (
+                {(!health?.checks.claude) && !isDemo && (
                   <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
                     Add API credits
+                  </p>
+                )}
+                {isDemo && (
+                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
+                    Enabled — Demo
                   </p>
                 )}
               </div>
@@ -425,7 +566,7 @@ function App() {
           </div>
         </section>
 
-        {/* ─── Agent Status ─── */}
+        {/* ─── Agent Configuration ─── */}
         {status && (
           <section className="mb-8">
             <h2
@@ -484,29 +625,29 @@ function App() {
               </div>
 
               {/* Rate Limits */}
-              <div
-                className="card"
-                style={{ padding: '1.5rem' }}
-              >
-                <h3
-                  className="font-semibold mb-4"
-                  style={{ color: SOK.neutral, fontSize: '1rem' }}
+              {status.rateLimits.email && (
+                <div
+                  className="card"
+                  style={{ padding: '1.5rem' }}
                 >
-                  Rate Limits
-                  <span
-                    style={{
-                      fontSize: '0.75rem',
-                      color: SOK.textMuted,
-                      fontWeight: 400,
-                      marginLeft: '0.5rem',
-                    }}
+                  <h3
+                    className="font-semibold mb-4"
+                    style={{ color: SOK.neutral, fontSize: '1rem' }}
                   >
-                    (Today)
-                  </span>
-                </h3>
+                    Rate Limits
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        color: SOK.textMuted,
+                        fontWeight: 400,
+                        marginLeft: '0.5rem',
+                      }}
+                    >
+                      (Today)
+                    </span>
+                  </h3>
 
-                {/* Email rate bar */}
-                {status.rateLimits.email && (
+                  {/* Email rate bar */}
                   <div className="mb-5">
                     <div className="flex items-center justify-between mb-2">
                       <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>
@@ -516,7 +657,7 @@ function App() {
                         className="text-sm font-semibold"
                         style={{ color: SOK.neutral }}
                       >
-                        {status.rateLimits.email.remaining}/{status.rateLimits.email.limit}
+                        {status.rateLimits.email.remaining} / {status.rateLimits.email.limit}
                       </span>
                     </div>
                     {/* Track */}
@@ -540,44 +681,44 @@ function App() {
                       />
                     </div>
                   </div>
-                )}
 
-                {/* WhatsApp rate bar */}
-                {status.rateLimits.whatsapp && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>
-                        WhatsApp
-                      </span>
-                      <span
-                        className="text-sm font-semibold"
-                        style={{ color: SOK.neutral }}
-                      >
-                        {status.rateLimits.whatsapp.remaining}/{status.rateLimits.whatsapp.limit}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        width: '100%',
-                        height: '0.5rem',
-                        background: SOK.borderSoft,
-                        borderRadius: '9999px',
-                        overflow: 'hidden',
-                      }}
-                    >
+                  {/* WhatsApp rate bar — render iff available */}
+                  {status.rateLimits.whatsapp && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>
+                          WhatsApp
+                        </span>
+                        <span
+                          className="text-sm font-semibold"
+                          style={{ color: SOK.neutral }}
+                        >
+                          {status.rateLimits.whatsapp.remaining} / {status.rateLimits.whatsapp.limit}
+                        </span>
+                      </div>
                       <div
                         style={{
-                          width: `${progressPct(status.rateLimits.whatsapp.remaining, status.rateLimits.whatsapp.limit)}%`,
-                          height: '100%',
-                          background: `linear-gradient(90deg, ${SOK.primary}, ${SOK.primaryB})`,
+                          width: '100%',
+                          height: '0.5rem',
+                          background: SOK.borderSoft,
                           borderRadius: '9999px',
-                          transition: 'width 400ms ease',
+                          overflow: 'hidden',
                         }}
-                      />
+                      >
+                        <div
+                          style={{
+                            width: `${progressPct(status.rateLimits.whatsapp.remaining, status.rateLimits.whatsapp.limit)}%`,
+                            height: '100%',
+                            background: `linear-gradient(90deg, ${SOK.primary}, ${SOK.primaryB})`,
+                            borderRadius: '9999px',
+                            transition: 'width 400ms ease',
+                          }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -651,6 +792,15 @@ function App() {
                   </div>
                 ))}
               </div>
+
+              {isDemo && (
+                <p
+                  className="mt-4 text-xs text-center"
+                  style={{ color: SOK.textMuted }}
+                >
+                  Values shown are demo placeholders — connect your backend to see live data.
+                </p>
+              )}
             </div>
           </section>
         )}
@@ -685,21 +835,24 @@ function App() {
               {[
                 {
                   icon: Mail,
-                  label: 'Send Test Email',
-                  desc: 'Test email service configuration',
+                  label: isDemo ? 'Test Email (Demo)' : 'Send Test Email',
+                  desc:  isDemo ? 'Demo mode — actions disabled' : 'Test email service configuration',
                   color: SOK.primary,
+                  disabled: isDemo,
                 },
                 {
                   icon: Activity,
-                  label: 'View Logs',
-                  desc: 'Check recent agent activity',
+                  label: isDemo ? 'View Logs (Demo)' : 'View Logs',
+                  desc:  isDemo ? 'Demo mode — actions disabled' : 'Check recent agent activity',
                   color: '#8B5CF6',
+                  disabled: isDemo,
                 },
                 {
                   icon: Database,
-                  label: 'View Contacts',
-                  desc: 'Manage prospects and leads',
+                  label: isDemo ? 'View Contacts (Demo)' : 'View Contacts',
+                  desc:  isDemo ? 'Demo mode — actions disabled' : 'Manage prospects and leads',
                   color: '#0EA5E9',
+                  disabled: isDemo,
                 },
               ].map((action, i) => (
                 <button
@@ -710,12 +863,16 @@ function App() {
                     border: 'none',
                     borderBottom: i < 2 ? `1px solid ${SOK.border}` : 'none',
                     borderRight: i !== 2 ? `1px solid ${SOK.border}` : 'none',
-                    cursor: 'pointer',
+                    cursor: action.disabled ? 'not-allowed' : 'pointer',
                     textAlign: 'left',
                     transition: 'background 150ms',
+                    opacity: action.disabled ? 0.6 : 1,
                   }}
+                  onClick={() => !action.disabled && alert(`${action.label} — not yet wired to a page`)}
                   onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.background = SOK.surfaceMuted;
+                    if (!action.disabled) {
+                      (e.currentTarget as HTMLElement).style.background = SOK.surfaceMuted;
+                    }
                   }}
                   onMouseLeave={e => {
                     (e.currentTarget as HTMLElement).style.background = 'transparent';

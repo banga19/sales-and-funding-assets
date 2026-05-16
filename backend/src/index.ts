@@ -43,7 +43,7 @@ app.get('/health', (_req, res) => {
   res.json({
     status: 'healthy',
     service: 'sokogate-backend',
-    environment: config.nodeEnv,
+    environment: config.NODE_ENV,
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
   });
@@ -59,19 +59,19 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   logger.error('Unhandled error', { error: err.message });
   res.status(500).json({
     error: 'Internal server error',
-    message: config.nodeEnv === 'development' ? err.message : undefined,
+    message: config.NODE_ENV === 'development' ? err.message : undefined,
     timestamp: new Date().toISOString(),
   });
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────────
-const port = config.port;
+const port = config.PORT;
 
 app.listen(port, () => {
   logger.info('Sokogate Sales & Funding Agent backend started', {
     port,
-    environment: config.nodeEnv,
-    dryRun: config.agentDryRun,
+    environment: config.NODE_ENV,
+    dryRun: config.AGENT_DRY_RUN,
     features: config.features,
     rateLimits: config.rateLimits,
     nContacts: parseInt(String(process.env.SEED_CONTACTS || '5'), 10),

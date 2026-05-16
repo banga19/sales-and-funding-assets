@@ -1,18 +1,45 @@
 /**
- * ApiClient — single Axios instance for all backend calls.
+ * ApiClient — single Axios instance for all API calls.
  *
- * Environment variables (Vite-safe, via import.meta.env):
- *   VITE_API_BASE_URL  — full URL (prod) or empty string (dev, Vite proxy handles routing)
- *   VITE_API_TIMEOUT   — request timeout in ms (default 10 000)
+ * Routes served by the Agent at localhost:3002:
+ *   GET  /api/health        → health with per-check status (503 = partial failure)
+ *   GET  /api/status        → agent config: features, rateLimits, uptime
+ *   POST /api/agent/trigger → manual action trigger
+ *   GET  /api/agent/status
+ *   GET  /api/agent/meeting/stats
+ *   POST /api/agent/outreach/trigger
+ *   GET  /api/agent/outreach/stats
+ *   POST /api/agent/outreach/pause/:id
+ *   POST /api/agent/outreach/resume/:id
+ *   POST /api/agent/followup/trigger
+ *   GET  /api/agent/followup/stats
+ *   POST /api/agent/meeting/suggest/:id
+ *   POST /api/agent/meeting/confirm/:id
+ *   POST /api/agent/meeting/reminders/trigger
+ *   GET  /api/agent/metrics
+ *   GET  /api/agent/metrics/summary
+ *   POST /api/agent/metrics/sync
+ *   GET  /api/agent/conversations/:id
+ *   GET  /api/agent/scheduled-actions
  *
- * Dev workflow:
- *   Frontend (localhost:3001)
- *     └─ Vite proxy  /api/*  ──────────────────►  Backend (localhost:3000/api/*)
+ * Routes served by the Backend at localhost:3000:
+ *   GET  /health            → bare health (no /api prefix)
+ *   GET  /status            → basic status (no features, no rateLimits)
+ *   GET  /api/contacts      → contact CRUD, pipeline stages, messages
+ *   GET  /api/metrics       → metrics for a date range
+ *   GET  /api/metrics/summary
+ *   POST /api/metrics/sync
  *
- * Production workflow:
- *   Frontend (Vercel / static host)
- *     └─ axios        /api/*  ──────────────────►  Backend (/api proxy path)
- *                                                (VITE_API_BASE_URL must be a full URL)
+ * Vite dev proxy (frontend/vite.config.ts → server.proxy['/api']):
+ *   /api/*  → http://localhost:3002  (Agent — the fully-featured endpoint)
+ *
+ * Production:
+ *   VITE_API_BASE_URL must be a full URL, e.g.
+ *     https://api.sokogate.com   (baseURL='/')  or
+ *     https://api.sokogate.com/api  (baseURL='/api')
+ *
+ *   When baseURL='/api'  →  axios.get('/status') resolves to
+ *   https://api.sokogate.com/api/status
  */
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
@@ -59,19 +86,19 @@ class ApiClient {
     );
   }
 
-  // Health check
+  // Health check  →  GET /health   (baseURL=/api  →  /api/health)
   async getHealth() {
     const response = await this.client.get('/health');
     return response.data;
   }
 
-  // Agent status
+  // Agent status   →  GET /status   (baseURL=/api  →  /api/status)
   async getStatus() {
     const response = await this.client.get('/status');
     return response.data;
   }
 
-  // Trigger agent action
+  // Trigger agent action  →  POST /agent/trigger
   async triggerAction(action: string, contactId: string) {
     const response = await this.client.post('/agent/trigger', {
       action,

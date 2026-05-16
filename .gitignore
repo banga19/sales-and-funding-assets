@@ -16,29 +16,56 @@ Thumbs.db
 *.swo
 *~
 
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Temporary
-*.tmp
-.tmp/
-
-# Google Workspace exports (if saved locally)
-*.pdf (pitch deck exports only if intentionally saved)
-*.pptx
-*.key
-
-# Node modules (if automation scripts added)
+# ── NPM / Monorepo
 node_modules/
 package-lock.json
 yarn.lock
+.pnpm-store/
+dist/
+build/
+*.tsbuildinfo
+
+# ── Environment files  ──  MUST NOT COMMIT: secrets, DB passwords, API keys
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+
+# All workspace env files
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+backend/.env
+backend/.env.local
+agent/.env
+agent/.env.local
+
+# example/ template files are never contains secrets — committed for reference
+# .env.example files ARE committed; copy to .env and add secrets locally
+
+# ── Agent secrets & DB
+agent/.env
+agent/.env.*.local
+agent/logs/
+agent/data/
+agent/uploads/
+
+# ── Backup / exports / fixtures
+*.bak
+*.backup
+*.old
+*.tmp
+.tmp/
+test-data/
+fixtures/
+exports/
+backups/
+
+# Google Workspace exports (if saved locally)
+*.pdf
+*.pptx
+*.key
 
 # Python caches
 __pycache__/
@@ -48,17 +75,37 @@ __pycache__/
 # Logs
 *.log
 npm-debug.log*
+agent/logs/*.log
 
 # Metrics dashboards (live versions in Google Sheets)
 # Keep: METRICS-DASHBOARD.csv template
-# Ignore: Exported CSVs from HubSpot (if stored locally)
-exports/
-backups/
+# Ignore: Exported CSVs from external tools
+service-credential*.json
+*.credentials.json
+*.secret.json
 
 # Optional automation scripts (if added later)
 scripts/output/
 scripts/temp/
 
-# Test data
-test-data/
-fixtures/
+# Docker volumes (do not commit; data only relevant to local dev)
+infra/docker/pgdata/
+infra/docker/redisdata/
+
+# Docker Compose local overrides
+.DS_Store
+.project
+.settings/
+
+# Coveralls / Jest coverage
+coverage/
+.nyc_output/
+
+# prettier cache
+.cache/
+
+# Build artifacts
+frontend/dist/
+frontend/build/
+agent/dist/
+backend/dist/

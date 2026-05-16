@@ -3,15 +3,9 @@ import { metricsStore } from '../services/store.js';
 import { outreachStore } from '../services/store.js';
 import { followupStore } from '../services/store.js';
 import { meetingStore } from '../services/store.js';
-import { outreachActions } from './agent.routes.js';
-import { contactActions } from './contacts.routes.js';
-import { metricsActions } from './metrics.routes.js';
 import { config } from '../config/agent.config.js';
 
-// Re-export route handlers so they can share stores
-export { outreachActions } from './agent.routes.js';
-export { contactActions } from './contacts.routes.js';
-export { metricsActions } from './metrics.routes.js';
+// Agent routes — stores shared inline to avoid circular re-export
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Agent routes
@@ -21,8 +15,8 @@ export { metricsActions } from './metrics.routes.js';
 export const getAgentStatus = (_req: Request, res: Response) => {
   const uptime = process.uptime();
   res.json({
-    enabled: config.agentEnabled,
-    dryRun: config.agentDryRun,
+    enabled: config.AGENT_ENABLED,
+    dryRun: config.AGENT_DRY_RUN,
     uptime: Math.round(uptime * 100) / 100,
     timestamp: new Date().toISOString(),
   });

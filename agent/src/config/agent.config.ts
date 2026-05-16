@@ -6,7 +6,7 @@ export const agentConfig = {
   // Agent Settings
   enabled: process.env.AGENT_ENABLED === 'true',
   dryRun: process.env.AGENT_DRY_RUN === 'true',
-  port: parseInt(process.env.AGENT_PORT || '3001', 10),
+  port: parseInt(process.env.AGENT_PORT || '3002', 10),
   
   // Scheduling
   dailyOutreachTime: process.env.AGENT_DAILY_OUTREACH_TIME || '09:00',

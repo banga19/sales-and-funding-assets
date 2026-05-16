@@ -1,17 +1,9 @@
+/* ============================================
+   Frontend Global Reset
+   (App.css / Sokogate brand tokens loaded separately)
+   ============================================ */
+
 @import "tailwindcss";
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
-
-/* Made with Bob */
+/* Don't override App.css body styles — they set the correct
+   font-family and background for this branded dashboard. */
