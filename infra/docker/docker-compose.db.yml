@@ -1,0 +1,57 @@
+# docker-compose for local infrastructure:
+#   - PostgreSQL 17  (persisted, with Sokogate DB + agent tables)
+#   - Redis 7         (BullMQ job-queue backing store)
+#
+# Prerequisite: Docker Desktop running   (includes Docker Compose v2)
+# Bring up:   docker compose -f infra/docker/docker-compose.db.yml up -d
+# Tear down: docker compose -f infra/docker/docker-compose.db.yml down -v
+# Logs:      docker compose -f infra/docker/docker-compose.db.yml logs -f
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: sokogate-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: sokogate
+      POSTGRES_PASSWORD: sokogate-dev-change-me
+      POSTGRES_DB: sokogate
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sokogate"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks: [app-net]
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sokogate-redis
+    restart: unless-stopped
+    command: redis-server --requirepass sokogate-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "sokogate-redis-dev", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    networks: [app-net]
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  app-net:
+    driver: bridge

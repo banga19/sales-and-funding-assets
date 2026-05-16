@@ -1,14 +1,33 @@
+/**
+ * ApiClient — single Axios instance for all backend calls.
+ *
+ * Environment variables (Vite-safe, via import.meta.env):
+ *   VITE_API_BASE_URL  — full URL (prod) or empty string (dev, Vite proxy handles routing)
+ *   VITE_API_TIMEOUT   — request timeout in ms (default 10 000)
+ *
+ * Dev workflow:
+ *   Frontend (localhost:3001)
+ *     └─ Vite proxy  /api/*  ──────────────────►  Backend (localhost:3000/api/*)
+ *
+ * Production workflow:
+ *   Frontend (Vercel / static host)
+ *     └─ axios        /api/*  ──────────────────►  Backend (/api proxy path)
+ *                                                (VITE_API_BASE_URL must be a full URL)
+ */
+
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000/api';
-const API_TIMEOUT = parseInt(process.env.REACT_APP_API_TIMEOUT || '10000', 10);
+// RUNTIME_ENV is injected by vite.config.ts via the `define` block above.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const API_BASE_URL: string = (import.meta.env as any).VITE_API_BASE_URL ?? '/api';
+const API_TIMEOUT: number = parseInt((import.meta.env as any).VITE_API_TIMEOUT ?? '10000', 10);
 
 class ApiClient {
   private client: AxiosInstance;
 
   constructor() {
     this.client = axios.create({
-      baseURL: API_URL,
+      baseURL: API_BASE_URL,
       timeout: API_TIMEOUT,
       headers: {
         'Content-Type': 'application/json',

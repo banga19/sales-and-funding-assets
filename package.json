@@ -1,0 +1,40 @@
+{
+  "name": "sales-and-funding-assets",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sokogate Sales & Funding Agent — full-stack: agent, backend API, react dashboard",
+  "packageManager": "npm>=10.0.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "frontend",
+    "backend",
+    "agent"
+  ],
+  "scripts": {
+    "dev": "npm run dev:all",
+    "dev:all": "concurrently -n agent,backend,frontend -c green,blue,magenta -p \"[{name}]\""roc \"npm:run dev:agent --workspace agent\" \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
+    "dev:agent": "npm run dev --workspace agent",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build:all --workspace frontend && npm run build --workspace backend && npm run build --workspace agent",
+    "build:all": "npm run build --workspaces --if-present -- --mode=production",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present -- --passWithNoTests",
+    "db:up": "docker compose -f infra/docker/docker-compose.db.yml up -d",
+    "db:down": "docker compose -f infra/docker/docker-compose.db.yml down",
+    "db:logs": "docker compose -f infra/docker/docker-compose.db.yml logs -f",
+    "infra:up": "concurrently -n db,redis -c green,cyan \"npm run db:up\" \"docker compose -f infra/docker/docker-compose.db.yml up -d redis\"",
+    "infra:down": "docker compose -f infra/docker/docker-compose.db.yml down -v",
+    "infra:clean": "npm run infra:down && docker volume prune -f",
+    "db:migrate": "npm run migrate --workspace agent",
+    "db:seed": "node scripts/seed-dev.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "preferWorkspaces": true
+}
