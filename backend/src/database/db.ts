@@ -4,14 +4,23 @@ import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 
 type PgPoolConfig = {
   connectionString: string;
-  ssl?: { rejectUnauthorized: boolean };
+  ssl?: { rejectUnauthorized: boolean } | false;
   max?: number; min?: number;
   idleTimeoutMillis?: number; connectionTimeoutMillis?: number;
 };
 
+const isCloudDB = process.env.NODE_ENV === 'production';
+
+const getSslConfig = (): { ssl: { rejectUnauthorized: false } } | { ssl: false } | undefined => {
+  // Local PostgreSQL never speaks SSL; only use SSL when connected to a managed cloud
+  // provider (e.g. Supabase) in production.
+  if (isCloudDB) return { ssl: { rejectUnauthorized: false } };
+  return { ssl: false };
+};
+
 const DEFAULT_CFG: PgPoolConfig = {
   connectionString: process.env.DATABASE_URL || '',
-  ssl:               process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : { rejectUnauthorized: false },
+  ...getSslConfig(),
   max:               parseInt(process.env.DB_POOL_MAX || '10', 10),
   min:               parseInt(process.env.DB_POOL_MIN ||  '2', 10),
   idleTimeoutMillis:       30_000,
@@ -25,7 +34,7 @@ function getConfig(): PgPoolConfig {
   return {
     ...DEFAULT_CFG,
     connectionString: process.env.DATABASE_URL || DEFAULT_CFG.connectionString,
-    ssl:   process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : { rejectUnauthorized: false },
+    ...getSslConfig(),
     max:   parseInt(process.env.DB_POOL_MAX || '10', 10),
     min:   parseInt(process.env.DB_POOL_MIN ||  '2', 10),
   };

@@ -61,7 +61,17 @@ import('pg').then(async ({ Client }) => {
       console.warn('⚠ 001_init.sql not found — skipping schema step');
     }
 
-    // ── 2. Seed conversations + contacts record ───────────────────────────
+    // ── 2. Seed scraper tables ──────────────────────────────────────────────────
+    const scraperSqlPath = resolve(process.cwd(), 'infra', 'docker', '002_add_scraper_tables.sql');
+    if (existsSync(scraperSqlPath)) {
+      const scraperSql = readFileSync(scraperSqlPath, 'utf-8');
+      await client.query(scraperSql);
+      console.log('✓ Scraper schema applied (infra/docker/002_add_scraper_tables.sql)');
+    } else {
+      console.warn('⚠ 002_add_scraper_tables.sql not found — skipping scraper schema step');
+    }
+
+    // ── 3. Seed conversations + contacts record ────────────────────────────────
     const seedContacts = [
       { contactId: 'c-001', contactType: 'prospect',  stage: 'engaged',   sentiment: 'positive' },
       { contactId: 'c-002', contactType: 'investor',  stage: 'qualified', sentiment: 'positive' },
@@ -78,7 +88,7 @@ import('pg').then(async ({ Client }) => {
     }
     console.log(`✓ Seeded ${seedContacts.length} conversations`);
 
-    // ── 3. Seed message_history ───────────────────────────────────────────
+    // ── 4. Seed message_history ───────────────────────────────────────────────
     const seedMessages = [
       { contactId: 'c-001', channel: 'email', direction: 'outbound',
         content: 'Hi James — can we schedule a 15-min quick call about your excavator financing?' },
@@ -100,7 +110,7 @@ import('pg').then(async ({ Client }) => {
     }
     console.log(`✓ Seeded ${seedMessages.length} messages`);
 
-    // ── 4. Seed scheduled_actions ─────────────────────────────────────────
+    // ── 5. Seed scheduled_actions ────────────────────────────────────────────
     const seedActions = [
       { contactId: 'c-001', actionType: 'send_followup', scheduledFor: new Date(Date.now() + 72 * 3600_000) },
       { contactId: 'c-002', actionType: 'schedule_meeting', scheduledFor: new Date(Date.now() + 7 * 86400_000) },
@@ -121,7 +131,7 @@ import('pg').then(async ({ Client }) => {
     }
     console.log(`✓ Seeded ${seedActions.length} scheduled actions`);
 
-    // ── 5. Seed agent_metrics ─────────────────────────────────────────────
+    // ── 6. Seed agent_metrics ────────────────────────────────────────────────
     const today = new Date().toISOString().slice(0, 10);
     const seedMetrics = [
       { name: 'emails_sent',            value: 12,  contactType: 'prospect', channel: 'email' },

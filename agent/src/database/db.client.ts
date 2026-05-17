@@ -7,15 +7,20 @@ class DatabaseClient {
   private static instance: DatabaseClient;
 
   private constructor() {
+    // Local PostgreSQL does not speak SSL; only send SSL when NODE_ENV=production
+    // (cloud / Supabase). Setting ssl:false is what actually disables the TLS upgrade
+    // attempt that causes "server does not support SSL connections".
+    const sslDisabled = process.env.NODE_ENV === 'production'
+      ? { rejectUnauthorized: false }
+      : false;
+
     this.pool = new Pool({
       connectionString: agentConfig.database.url,
       min: agentConfig.database.pool.min,
       max: agentConfig.database.pool.max,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
-      ssl: {
-        rejectUnauthorized: false // Required for Supabase and most cloud PostgreSQL providers
-      }
+      ssl: sslDisabled,
     });
 
     // Handle pool errors

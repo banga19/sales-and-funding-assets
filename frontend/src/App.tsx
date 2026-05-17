@@ -82,7 +82,139 @@ const MOCK_STATUS: AgentStatus = {
   },
 };
 
-/* ───────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   MODULE-LEVEL DESIGN TOKENS & REUSABLE COMPONENTS
+   Defined once, used everywhere  — single source of truth
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── StatCard ── all System Health service cards share this layout */
+
+const statCardBase: React.CSSProperties = {
+  background:   SOK.surface,
+  border:       `1px solid ${SOK.border}`,
+  borderRadius: '0.75rem',
+  padding:      '1.25rem',
+  transition:   'border-color 200ms, box-shadow 200ms',
+  cursor:       'default',
+};
+const _hovBorder = `${SOK.primary}`;
+const _hovShadow = '0 4px 14px rgba(96,91,229,.10)';
+const _rstBorder = SOK.border;
+const _rstShadow = 'none';
+
+function StatCard({ hovered, ...props }: { hovered?: boolean } & React.HTMLAttributes<HTMLDivElement>) {
+  /* When used as a plain card (no hover tracking) just render the base style */
+  if (!hovered) {
+    return <div {...props} style={{ ...statCardBase, ...(props.style || {}) }} />;
+  }
+  const style: React.CSSProperties = {
+    ...statCardBase,
+    borderColor: _hovBorder, boxShadow: _hovShadow,
+    ...(props.style || {}),
+  };
+  return <div {...props} style={style} />;
+}
+
+/* ── StatusDot / statusBadge ── reused across all sections */
+
+function StatusDot({ healthy }: { healthy: boolean }) {
+  const dot: React.CSSProperties = {
+    width: '0.5rem', height: '0.5rem', borderRadius: '50%',
+    display: 'inline-block', flexShrink: 0,
+    backgroundColor: healthy ? SOK.success : SOK.error,
+    boxShadow: healthy
+      ? '0 0 0 2px rgba(16,185,129,.2)'
+      : '0 0 0 2px rgba(220,38,38,.2)',
+  };
+  return <span style={dot} />;
+}
+
+const statusDot = (healthy?: boolean) => <StatusDot healthy={!!healthy} />;
+
+function OverallStatusBadge({ healthy }: { healthy: boolean }) {
+  const style: React.CSSProperties = {
+    backgroundColor: healthy ? '#D1FAE5' : '#FEE2E2',
+    color:           healthy ? '#065F46' : '#991B1B',
+  };
+  return <span className="badge" style={style}>{healthy ? 'Healthy' : 'Unhealthy'}</span>;
+}
+
+/* ── DemoNotice ── thin wrapper for every "— Demo" caption inside cards */
+
+function DemoNotice({ text }: { text: string }) {
+  return <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>{text}</p>;
+}
+
+/* ── SettingBadge / ProgressBar ── Agent Configuration section */
+
+type BadgeType = 'success' | 'warning' | 'muted';
+const badgeColors: Record<BadgeType, React.CSSProperties> = {
+  success: { backgroundColor: '#D1FAE5', color: '#065F46' },
+  warning: { backgroundColor: '#FEF3C7', color: '#92400E' },
+  muted:   { backgroundColor: SOK.surfaceRaised, color: SOK.textMuted },
+};
+function SettingBadge({ value, type }: { value: string; type: BadgeType }) {
+  return <span className="badge" style={badgeColors[type]}>{value}</span>;
+}
+
+export const progressPct = (remaining?: number, limit?: number) =>
+  limit ? Math.round(((remaining ?? 0) / limit) * 100) : 0;
+
+export function progressColor(remaining?: number, limit?: number): string {
+  const pct = progressPct(remaining, limit);
+  if (!limit || pct === 0) return SOK.borderSoft;
+  if (pct < 5)  return SOK.error;
+  if (pct < 30) return SOK.warning;
+  return `linear-gradient(90deg, ${SOK.primary}, ${SOK.primaryB})`;
+}
+
+function ProgressBar({ remaining, limit }: { remaining: number; limit: number }) {
+  const pct  = progressPct(remaining, limit);
+  const fill: React.CSSProperties = {
+    width:  `${pct}%`,
+    height: '100%',
+    background: progressColor(remaining, limit),
+    borderRadius: '9999px',
+    transition: 'width 400ms ease',
+  };
+  const track: React.CSSProperties = {
+    width: '100%', height: '0.5rem',
+    background: SOK.borderSoft,
+    borderRadius: '9999px', overflow: 'hidden',
+  };
+  return <div style={track}><div style={fill} /></div>;
+}
+
+function FeatureRow({ feature, enabled }: { feature: string; enabled: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  const rowStyle: React.CSSProperties = {
+    padding: '0.75rem 1rem',
+    borderRadius: '0.5rem',
+    border: `1px solid ${hovered ? SOK.primary + '60' : SOK.borderSoft}`,
+    background: SOK.surfaceRaised,
+    transition: 'border-color 200ms',
+    cursor: 'default',
+  };
+  const badgeStyle: React.CSSProperties = {
+    backgroundColor: enabled ? '#D1FAE5' : '#F3F4F6',
+    color:           enabled ? '#065F46' : '#6B7280',
+    fontSize:        '0.6875rem',
+  };
+  return (
+    <div
+      style={rowStyle}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500, textTransform: 'capitalize' }}>
+        {feature.replace(/([A-Z])/g, ' $1').trim()}
+      </span>
+      <span className="badge" style={badgeStyle}>{enabled ? 'On' : 'Off'}</span>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════ */
 
 function App() {
   const [health, setHealth]             = useState<HealthCheck | null>(null);
@@ -219,34 +351,7 @@ function App() {
     }
   };
 
-  /* ── Helpers ── */
-
-  const statusDot = (healthy?: boolean) => (
-    <span
-      className="status-dot"
-      style={{
-        backgroundColor: healthy ? SOK.success : SOK.error,
-        boxShadow: healthy
-          ? '0 0 0 2px rgba(16,185,129,.2)'
-          : '0 0 0 2px rgba(220,38,38,.2)',
-      }}
-    />
-  );
-
-  const statusBadge = (healthy: boolean) => (
-    <span
-      className="badge"
-      style={{
-        backgroundColor: healthy ? '#D1FAE5' : '#FEE2E2',
-        color: healthy ? '#065F46' : '#991B1B',
-      }}
-    >
-      {healthy ? 'Healthy' : 'Unhealthy'}
-    </span>
-  );
-
-  const progressPct = (remaining?: number, limit?: number) =>
-    limit ? Math.round(((remaining ?? 0) / limit) * 100) : 0;
+  /* ── Element-specific state transitions — App render helpers are at module level ── */
 
   /* ── Loading ── */
   if (loading && !health) {
@@ -466,30 +571,12 @@ function App() {
                   Overall Status
                 </span>
               </div>
-              {health && statusBadge(health.status === 'healthy')}
+               {health && <OverallStatusBadge healthy={health.status === 'healthy'} />}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
               {/* Database */}
-              <div
-                className="stat-card"
-                style={{
-                  background: SOK.surface,
-                  border: `1px solid ${SOK.border}`,
-                  borderRadius: '0.75rem',
-                  padding: '1.25rem',
-                  transition: 'border-color 200ms, box-shadow 200ms',
-                  cursor: 'default',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.primary;
-                  (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(96,91,229,.1)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.border;
-                  (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                }}
-              >
+              <StatCard key="db">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center" style={{ gap: '0.5rem' }}>
                     <Database className="w-5 h-5" style={{ color: SOK.primary }} />
@@ -505,32 +592,12 @@ function App() {
                   </p>
                 )}
                 {isDemo && !health?.checks.database.error && (
-                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
-                    Connected — Demo
-                  </p>
+                  <DemoNotice text="Connected — Demo" />
                 )}
-              </div>
+              </StatCard>
 
               {/* Email */}
-              <div
-                className="stat-card"
-                style={{
-                  background: SOK.surface,
-                  border: `1px solid ${SOK.border}`,
-                  borderRadius: '0.75rem',
-                  padding: '1.25rem',
-                  transition: 'border-color 200ms, box-shadow 200ms',
-                  cursor: 'default',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.primary;
-                  (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(96,91,229,.1)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.border;
-                  (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                }}
-              >
+              <StatCard key="email">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center" style={{ gap: '0.5rem' }}>
                     <Mail className="w-5 h-5" style={{ color: SOK.primary }} />
@@ -540,33 +607,11 @@ function App() {
                   </div>
                   {health && statusDot(health.checks.email)}
                 </div>
-                {isDemo && (
-                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
-                    Active — Demo
-                  </p>
-                )}
-              </div>
+                {isDemo && <DemoNotice text="Active — Demo" />}
+              </StatCard>
 
               {/* WhatsApp */}
-              <div
-                className="stat-card"
-                style={{
-                  background: SOK.surface,
-                  border: `1px solid ${SOK.border}`,
-                  borderRadius: '0.75rem',
-                  padding: '1.25rem',
-                  transition: 'border-color 200ms, box-shadow 200ms',
-                  cursor: 'default',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.primary;
-                  (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(96,91,229,.1)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.border;
-                  (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                }}
-              >
+              <StatCard key="wa">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center" style={{ gap: '0.5rem' }}>
                     <MessageSquare className="w-5 h-5" style={{ color: SOK.primary }} />
@@ -576,38 +621,16 @@ function App() {
                   </div>
                   {health && statusDot(health.checks.whatsapp)}
                 </div>
-                {(!health?.checks.whatsapp) && !isDemo && (
+                {!health?.checks.whatsapp && !isDemo && (
                   <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
                     Configure credentials in .env
                   </p>
                 )}
-                {isDemo && (
-                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
-                    Active — Demo
-                  </p>
-                )}
-              </div>
+                {isDemo && <DemoNotice text="Active — Demo" />}
+              </StatCard>
 
               {/* Claude AI */}
-              <div
-                className="stat-card"
-                style={{
-                  background: SOK.surface,
-                  border: `1px solid ${SOK.border}`,
-                  borderRadius: '0.75rem',
-                  padding: '1.25rem',
-                  transition: 'border-color 200ms, box-shadow 200ms',
-                  cursor: 'default',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.primary;
-                  (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(96,91,229,.1)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = SOK.border;
-                  (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                }}
-              >
+              <StatCard key="claude">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center" style={{ gap: '0.5rem' }}>
                     <Bot className="w-5 h-5" style={{ color: SOK.primary }} />
@@ -617,17 +640,13 @@ function App() {
                   </div>
                   {health && statusDot(health.checks.claude)}
                 </div>
-                {(!health?.checks.claude) && !isDemo && (
+                {!health?.checks.claude && !isDemo && (
                   <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
                     Add API credits
                   </p>
                 )}
-                {isDemo && (
-                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
-                    Enabled — Demo
-                  </p>
-                )}
-              </div>
+                {isDemo && <DemoNotice text="Enabled — Demo" />}
+              </StatCard>
             </div>
           </div>
         </section>
@@ -665,27 +684,11 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div className="flex items-center justify-between">
                     <span style={{ color: SOK.textSec, fontSize: '0.875rem' }}>Agent Enabled</span>
-                    <span
-                      className="badge"
-                      style={{
-                        backgroundColor: status.enabled ? '#D1FAE5' : SOK.surfaceRaised,
-                        color: status.enabled ? '#065F46' : SOK.textMuted,
-                      }}
-                    >
-                      {status.enabled ? 'Yes' : 'No'}
-                    </span>
+                    <SettingBadge value={status.enabled ? 'Yes' : 'No'} type={status.enabled ? 'success' : 'muted'} />
                   </div>
                   <div className="flex items-center justify-between">
                     <span style={{ color: SOK.textSec, fontSize: '0.875rem' }}>Dry Run Mode</span>
-                    <span
-                      className="badge"
-                      style={{
-                        backgroundColor: status.dryRun ? '#FEF3C7' : SOK.surfaceRaised,
-                        color: status.dryRun ? '#92400E' : SOK.textMuted,
-                      }}
-                    >
-                      {status.dryRun ? 'Yes' : 'No'}
-                    </span>
+                    <SettingBadge value={status.dryRun ? 'Yes' : 'No'} type={status.dryRun ? 'warning' : 'muted'} />
                   </div>
                 </div>
               </div>
@@ -716,71 +719,24 @@ function App() {
                   {/* Email rate bar */}
                   <div className="mb-5">
                     <div className="flex items-center justify-between mb-2">
-                      <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>
-                        Email
-                      </span>
-                      <span
-                        className="text-sm font-semibold"
-                        style={{ color: SOK.neutral }}
-                      >
+                      <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>Email</span>
+                      <span className="text-sm font-semibold" style={{ color: SOK.neutral }}>
                         {status.rateLimits.email.remaining} / {status.rateLimits.email.limit}
                       </span>
                     </div>
-                    {/* Track */}
-                    <div
-                      style={{
-                        width: '100%',
-                        height: '0.5rem',
-                        background: SOK.borderSoft,
-                        borderRadius: '9999px',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${progressPct(status.rateLimits.email.remaining, status.rateLimits.email.limit)}%`,
-                          height: '100%',
-                          background: `linear-gradient(90deg, ${SOK.primary}, ${SOK.primaryB})`,
-                          borderRadius: '9999px',
-                          transition: 'width 400ms ease',
-                        }}
-                      />
-                    </div>
+                    <ProgressBar remaining={status.rateLimits.email.remaining} limit={status.rateLimits.email.limit} />
                   </div>
 
                   {/* WhatsApp rate bar — render iff available */}
                   {status.rateLimits.whatsapp && (
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>
-                          WhatsApp
-                        </span>
-                        <span
-                          className="text-sm font-semibold"
-                          style={{ color: SOK.neutral }}
-                        >
+                        <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>WhatsApp</span>
+                        <span className="text-sm font-semibold" style={{ color: SOK.neutral }}>
                           {status.rateLimits.whatsapp.remaining} / {status.rateLimits.whatsapp.limit}
                         </span>
                       </div>
-                      <div
-                        style={{
-                          width: '100%',
-                          height: '0.5rem',
-                          background: SOK.borderSoft,
-                          borderRadius: '9999px',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: `${progressPct(status.rateLimits.whatsapp.remaining, status.rateLimits.whatsapp.limit)}%`,
-                            height: '100%',
-                            background: `linear-gradient(90deg, ${SOK.primary}, ${SOK.primaryB})`,
-                            borderRadius: '9999px',
-                            transition: 'width 400ms ease',
-                          }}
-                        />
-                      </div>
+                      <ProgressBar remaining={status.rateLimits.whatsapp.remaining} limit={status.rateLimits.whatsapp.limit} />
                     </div>
                   )}
                 </div>
@@ -818,44 +774,7 @@ function App() {
                 }}
               >
                 {Object.entries(status.features).map(([feature, enabled]) => (
-                  <div
-                    key={feature}
-                    className="flex items-center justify-between"
-                    style={{
-                      padding: '0.75rem 1rem',
-                      borderRadius: '0.5rem',
-                      border: `1px solid ${SOK.borderSoft}`,
-                      background: SOK.surfaceRaised,
-                      transition: 'border-color 200ms',
-                    }}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLElement).style.borderColor = SOK.primary + '60';
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLElement).style.borderColor = SOK.borderSoft;
-                    }}
-                  >
-                    <span
-                      style={{
-                        color: SOK.textSec,
-                        fontSize: '0.8125rem',
-                        fontWeight: 500,
-                        textTransform: 'capitalize',
-                      }}
-                    >
-                      {feature.replace(/([A-Z])/g, ' $1').trim()}
-                    </span>
-                    <span
-                      className="badge"
-                      style={{
-                        backgroundColor: enabled ? '#D1FAE5' : '#F3F4F6',
-                        color: enabled ? '#065F46' : '#6B7280',
-                        fontSize: '0.6875rem',
-                      }}
-                    >
-                      {enabled ? 'On' : 'Off'}
-                    </span>
-                  </div>
+                  <FeatureRow key={feature} feature={feature} enabled={enabled} />
                 ))}
               </div>
 

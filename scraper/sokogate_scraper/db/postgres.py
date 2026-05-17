@@ -51,15 +51,15 @@ class Base(DeclarativeBase):
 # ── ORM models ─────────────────────────────────────────────────────────────────
 
 class ProductORM(Base):
-    __tablename__  = "products"
+    __tablename__  = "scraped_products"
     __table_args__ = (
-        Index("idx_products_category",      "category"),
-        Index("idx_products_in_stock",      "in_stock"),
-        Index("idx_products_last_scraped",  "last_scraped_at"),
-        Index("idx_products_is_active",     "is_active"),
-        Index("idx_products_name_gin",      "name", postgresql_using="gin",
+        Index("idx_scraped_products_category",      "category"),
+        Index("idx_scraped_products_in_stock",      "in_stock"),
+        Index("idx_scraped_products_last_scraped",  "last_scraped_at"),
+        Index("idx_scraped_products_is_active",     "is_active"),
+        Index("idx_scraped_products_name_gin",      "name", postgresql_using="gin",
               postgresql_ops={"name": "gin_trgm_ops"}),
-        Index("idx_products_tags_gin",      "tags", postgresql_using="gin"),
+        Index("idx_scraped_products_tags_gin",      "tags", postgresql_using="gin"),
     )
 
     id:             Mapped[str] = mapped_column(UUID, primary_key=True, default=uuid4)
@@ -84,7 +84,7 @@ class ProductORM(Base):
                                                       onupdate=lambda: datetime.now(timezone.utc))
     is_active:      Mapped[bool] = mapped_column(nullable=False, default=True, index=True)
 
-    # Relationship
+    # Relationships
     price_history: Mapped[list["PriceHistoryORM"]] = relationship(
         "PriceHistoryORM", back_populates="product", cascade="all, delete-orphan"
     )
@@ -92,14 +92,9 @@ class ProductORM(Base):
 
 class PriceHistoryORM(Base):
     __tablename__  = "price_history"
-    __table_args__ = (
-        Index("idx_price_history_product_observed", "product_id", "observed_at"),
-        Index("idx_price_history_observed",  "observed_at"),
-        Index("idx_price_history_scrape_run", "scrape_run_id"),
-    )
 
     id:             Mapped[str] = mapped_column(UUID, primary_key=True, default=uuid4)
-    product_id:     Mapped[str] = mapped_column(UUID, ForeignKey("products.id", ondelete="CASCADE"), index=True, nullable=False)
+    product_id:     Mapped[str] = mapped_column(UUID, ForeignKey("scraped_products.id", ondelete="CASCADE"), index=True, nullable=False)
     price:          Mapped[float] = mapped_column(NUMERIC(12, 2), nullable=False)
     currency:       Mapped[str] = mapped_column(Text, nullable=False, default="KES")
     in_stock:       Mapped[bool] = mapped_column(nullable=False)
