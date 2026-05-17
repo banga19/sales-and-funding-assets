@@ -57,6 +57,7 @@ class ScraperConfig(BaseSettings):
     scraper_use_playwright: bool   = Field(default=False)
     scraper_playwright_headless: bool = Field(default=True)
     scraper_disable_web_security: bool = Field(default=False)
+    scraper_verify_ssl:       bool = Field(default=False, description="Set True to enforce HTTPS cert verification; set False to bypass for sites with self-signed certs")
     scraper_cookies_file: str     = Field(default="scraper/stealth/cookies.json")
 
     # ── Database ────────────────────────────────────────────────────────────────

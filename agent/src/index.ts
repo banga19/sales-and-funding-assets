@@ -153,6 +153,79 @@ class SalesAgent {
     // Mount agent routes
     this.app.use('/api/agent', agentRoutes);
 
+    // ── Real-Time Product Sourcing ───────────────────────────────────────────────
+    // POST /api/products/scripe — trigger autonomous crawl of sokogate.com
+    this.app.post('/api/products/scrape', async (req: Request, res: Response) => {
+      try {
+        const { orchestrator } = await import('./agents/orchestrator');
+        const result = await orchestrator.sourceProductData();
+        res.status(202).json({
+          success: true,
+          message: `Sourcing triggered — ${result.productsUpserted} product(s) upserted`,
+          runId: result.runId,
+          productsFound: result.productsFound,
+          productsUpserted: result.productsUpserted,
+          durationMs: result.durationMs,
+        });
+      } catch (error: any) {
+        logger.error('Product scrape trigger failed', { error });
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // GET /api/products — list products from the database
+    this.app.get('/api/products', async (req: Request, res: Response) => {
+      try {
+        const { category, inStock, search, page = '1', pageSize = '20' } = req.query;
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let idx = 1;
+        if (category)  { conditions.push(`category ILIKE $${idx++}`); params.push(`%${category}%`); }
+        if (inStock !== undefined) { conditions.push(`in_stock = $${idx++}`); params.push(inStock === 'true'); }
+        if (search)   { conditions.push(`name ILIKE $${idx++}`);   params.push(`%${search}%`); }
+        const where  = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const pg     = Math.max(1, parseInt(String(page), 10) || 1);
+        const ps     = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
+        const offset = (pg - 1) * ps;
+        const [countRes, dataRes, catRes] = await Promise.all([
+          db.query(`SELECT COUNT(*) AS count FROM scraped_products ${where}`, params),
+          db.query(`SELECT * FROM scraped_products ${where} ORDER BY last_scraped_at DESC LIMIT $${idx++} OFFSET $${idx++}`, [...params, ps, offset]),
+          db.query(`SELECT DISTINCT category FROM scraped_products WHERE category IS NOT NULL ORDER BY category`),
+        ]);
+        const specsJsonToArr = (row: any) => {
+          try { return Object.entries(JSON.parse(row.specifications || '{}')).map(([k, v]: [string, string]) => ({ key: k, value: v })); }
+          catch { return []; }
+        };
+        const data = (dataRes.rows ?? []).map((row: any) => ({
+          id: row.id, name: row.name, description: row.description || '', price: row.price_current,
+          category: row.category || 'General', images: row.images ?? [],
+          specifications: specsJsonToArr(row), inStock: row.in_stock, sourceUrl: row.source_url,
+          scrapedAt: row.last_scraped_at, createdAt: row.created_at, updatedAt: row.updated_at,
+        }));
+        res.json({
+          data, total: +(countRes.rows[0]?.count || 0), page: pg, pageSize: ps,
+          categories: (catRes.rows ?? []).map((r: any) => r.category).filter(Boolean),
+          scrapedAt: data.length > 0 ? data[0].scrapedAt : null,
+        });
+      } catch (error: any) {
+        logger.error('List products failed', { error });
+        res.status(500).json({ error: 'Failed to list products', message: error.message });
+      }
+    });
+
+    // GET /api/products/scrape/status — live scrape progress
+    this.app.get('/api/products/scrape/status', async (_req: Request, res: Response) => {
+      try {
+        const { orchestrator } = await import('./agents/orchestrator');
+        const status = orchestrator.getScrapeStatus();
+        const { rows } = await db.query<{ count: string }>('SELECT COUNT(*) AS count FROM scraped_products');
+        res.json({ success: true, phase: status.phase, message: status.message, productCount: +(rows[0]?.count || 0), scrapedAt: status.scrapedAt });
+      } catch (error: any) {
+        logger.error('Scrape status failed', { error });
+        res.status(500).json({ error: 'Failed to get scrape status', message: error.message });
+      }
+    });
+
     // 404 handler
     this.app.use((req: Request, res: Response) => {
       res.status(404).json({

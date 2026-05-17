@@ -34,6 +34,7 @@ from typing import Any
 
 import httpx
 import structlog
+import tenacity
 from bs4 import BeautifulSoup  # optional, we use it for fallback parsing
 
 log = structlog.get_logger()
@@ -149,6 +150,39 @@ def _delay_jitter(base_ms: int) -> float:
     return (base_ms * 0.5 + (base_ms * 1.0 * __import__("random").random())) / 1000.0
 
 
+# ── tenacity retry helpers ───────────────────────────────────────────────────────
+
+_RETRY_EXC = (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError)
+_RETRY_STOP = tenacity.stop_after_attempt(3)
+_RETRY_WAIT = tenacity.wait_exponential(multiplier=1, min=1, max=30)
+
+async def _tenacity_retry(fetch_coro):
+    """
+    Execute ``fetch_coro`` (an awaitable that returns an ``httpx.Response``)
+    with tenacity's ``AsyncRetrying`` policy.
+
+    Retries on:
+    - Network errors (timeout, connection refused, DNS failure)
+    - HTTP 429 too-many-requests
+    - HTTP 5xx server errors
+
+    Raises the last exception after all attempts are exhausted.
+    """
+    async for attempt in tenacity.AsyncRetrying(
+        stop    = _RETRY_STOP,
+        wait    = _RETRY_WAIT,
+        retry   = tenacity.retry_if_exception_type(_RETRY_EXC)
+                | tenacity.retry_if_exception(
+                      lambda e: isinstance(e, httpx.HTTPStatusError)
+                      and e.response.status_code in (429, 500, 502, 503, 504)
+                  ),
+        reraise = True,
+    ):
+        with attempt:
+            return await attempt.retry(fetch_coro)
+    raise RuntimeError("unreachable — all retries exhausted")
+
+
 # ── Parser class ───────────────────────────────────────────────────────────────
 
 class WooCommerceParser:
@@ -177,6 +211,7 @@ class WooCommerceParser:
         limiter:          Any   = None, # TokenBucket
         request_delay_ms: int   = 800,
         run_id:           str | None = None,
+        verify_ssl:       bool  = False,
     ):
         self.base_url      = base_url
         self.origin        = str(httpx.URL(base_url).origin)
@@ -186,6 +221,7 @@ class WooCommerceParser:
         self.proxy_pool    = proxy_pool
         self.limiter       = limiter
         self._delay_ms     = request_delay_ms
+        self._verify_ssl   = verify_ssl
         self.run_id        = run_id
         self.http_get_count = 0        # for scrape_runs.page_fetches
 
@@ -204,11 +240,12 @@ class WooCommerceParser:
             "Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
         return httpx.AsyncClient(
-            proxies       = proxies,
-            headers       = headers,
-            timeout       = 25.0,
+            proxies        = proxies,
+            headers        = headers,
+            timeout        = 25.0,
             follow_redirects = True,
-            http2         = True,
+            http2          = True,
+            verify         = self._verify_ssl,
         )
 
     # ── Crawling ────────────────────────────────────────────────────────────────
@@ -230,7 +267,8 @@ class WooCommerceParser:
                 detail_urls = await self._collect_detail_urls(listing_url)
                 if detail_urls:
                     urls.update(detail_urls)
-                    break if len(urls) >= self.max_products
+                    if len(urls) >= self.max_products:
+                        break
             if urls:
                 break   # take the first selector set that yields results
 
@@ -264,7 +302,9 @@ class WooCommerceParser:
                 await asyncio.sleep(_delay_jitter(self._delay_ms))
 
                 try:
-                    resp = await client.get(url)
+                    resp = await _tenacity_retry(
+                        client.get(url)
+                    )
                     self.http_get_count += 1
                     if resp.status_code != 200:
                         continue
@@ -288,7 +328,9 @@ class WooCommerceParser:
 
         async with self._client() as client:
             try:
-                resp = await client.get(page_url)
+                resp = await _tenacity_retry(
+                    client.get(page_url)
+                )
                 self.http_get_count += 1
                 if resp.status_code != 200:
                     return []
@@ -345,7 +387,9 @@ class WooCommerceParser:
 
         async with self._client() as client:
             try:
-                resp = await client.get(url, timeout=httpx.Timeout(30.0, connect=10.0))
+                resp = await _tenacity_retry(
+                    client.get(url, timeout=httpx.Timeout(30.0, connect=10.0))
+                )
                 self.http_get_count += 1
                 if resp.status_code == 429:
                     log.warning("scrape.rate_limited", url=url)

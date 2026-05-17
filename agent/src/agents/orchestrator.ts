@@ -18,6 +18,7 @@ import {
   GeneratedMessage,
   IncomingMessage,
 } from '../types/message.types';
+import { sourceProductData, getLiveStatus, subscribe as subscribeScrape } from '../services/product-source.service';
 
 /**
  * Agent Orchestrator
@@ -566,6 +567,62 @@ class AgentOrchestrator {
       partner: 'Partnership Opportunity',
     };
     return subjects[contactType] || 'Hello from Sokogate';
+  }
+
+  // ─── Product Sourcing ─────────────────────────────────────────────────────────
+
+  /**
+   * Autonomous product sourcing: crawl sokogate.com, parse comprehensive product
+   * data (name, description, pricing, specs, high-res imagery), and upsert every
+   * record into the PostgreSQL scraped_products table.
+   *
+   * Progress (phase / message / product count) is relayed through the
+   * real-time publish/subscribe bus inside product-source.service.ts so that any
+   * HTTP handler — or the frontend via SSE / polling — can observe it live.
+   *
+   * Returns the aggregate result when the run is complete.
+   */
+  public async sourceProductData(): Promise<{
+    runId: string;
+    productsFound: number;
+    productsUpserted: number;
+    durationMs: number;
+  }> {
+    logger.info('[orchestrator] Autonomous product sourcing triggered');
+    const startTime = Date.now();
+
+    try {
+      const result = await sourceProductData();
+
+      const elapsed = Date.now() - startTime;
+      logger.info('[orchestrator] Product sourcing complete', {
+        runId:          result.runId,
+        productsFound:  result.productsFound,
+        productsUpserted: result.productsUpserted,
+        durationMs:     result.durationMs,
+      });
+
+      return { ...result, durationMs: elapsed };
+    } catch (err: any) {
+      logger.error('[orchestrator] Autonomous product sourcing failed', { error: err.message });
+      return { runId: 'unknown', productsFound: 0, productsUpserted: 0, durationMs: Date.now() - startTime };
+    }
+  }
+
+  /**
+   * Returns the current live scrape status so REST handlers (and tentative
+   * SSE clients) can relay it to the frontend without re-triggering a run.
+   */
+  public getScrapeStatus(): ReturnType<typeof getLiveStatus> {
+    return getLiveStatus();
+  }
+
+  /**
+   * Subscribe to real-time scrape progress updates.
+   * Returns an unsubscribe function.
+   */
+  public onScrapeProgress(cb: (status: ReturnType<typeof getLiveStatus>) => void): () => void {
+    return subscribeScrape(cb);
   }
 }
 

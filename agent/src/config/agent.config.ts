@@ -115,6 +115,17 @@ export const agentConfig = {
     },
     logLevel: process.env.LOG_LEVEL || 'info',
   },
+
+  // ── Sokogate Product Sourcing ──────────────────────────────────────────────────
+  sokogate: {
+    baseUrl:             process.env.SOKOGATE_BASE_URL || 'https://sokogate.com',
+    maxPages:            parseInt(process.env.SCRAPER_MAX_PAGES    || '10', 10),
+    maxProductsPerRun:   parseInt(process.env.SCRAPER_MAX_PRODUCTS || '50', 10),
+    requestDelayMs:      parseInt(process.env.SCRAPER_REQUEST_DELAY_MS || '800', 10),
+    scrapeTimeoutMs:     parseInt(process.env.SCRAPER_TIMEOUT_MS   || '120000', 10),
+    autoSourceEnabled:   process.env.ENABLE_AUTO_PRODUCT_SOURCING === 'true',
+    autoSourceIntervalH: parseInt(process.env.AUTO_SOURCE_INTERVAL_HOURS || '24', 10),
+  },
 };
 
 // Validation

@@ -437,21 +437,92 @@ def list_categories():
 
 @app.get("/api/v1/products/price-alerts")
 def get_price_alerts(
-    since_hours: int = Query(24, ge=1, le=720, description="Only return changes in this many hours"),
+    since_hours:    int   = Query(24,  ge=1, le=720, description="Only return changes in this many hours"),
     min_change_pct: float = Query(0.0, ge=0, le=100, description="Minimum % change to include"),
 ):
     """
-    Return products whose price changed since the previous scrape within the given window.
+    Return products whose price changed within the given time window.
 
-    Intended for admin / ops dashboards.
+    Joins ``price_history`` → ``products`` and computes the delta between the
+    most-recent observation and the one immediately before it, then filters by
+    ``min_change_pct``.
     """
     from datetime import timedelta
+    from sqlalchemy import and_, func as sa_func
+    from sqlalchemy.orm import aliased
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+
     with SyncSession() as session:
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
-        # Gets rows from price_history joined to product
-        # returning products with a non-null price_delta
-        pass  # economy: full JOIN query on price_history in production
-    return {"alerts": [], "count": 0, "window_hours": since_hours}
+        # Sub-query: latest price_history row per product within the window
+        latest_ph = (
+            select(
+                PriceHistoryORM.product_id,
+                PriceHistoryORM.price,
+            )
+            .where(PriceHistoryORM.observed_at >= cutoff)
+            .order_by(PriceHistoryORM.product_id, PriceHistoryORM.observed_at.desc())
+            .distinct(PriceHistoryORM.product_id)
+            .subquery()
+        )
+
+        # Sub-query: previous-latest price_history row per product (before the cutoff)
+        prev_ph = (
+            select(
+                PriceHistoryORM.product_id,
+                PriceHistoryORM.price.label("prev_price"),
+            )
+            .where(PriceHistoryORM.observed_at < cutoff)
+            .order_by(PriceHistoryORM.product_id, PriceHistoryORM.observed_at.desc())
+            .distinct(PriceHistoryORM.product_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                ProductORM.id,
+                ProductORM.name,
+                ProductORM.source_url,
+                ProductORM.category,
+                ProductORM.price_current,
+                ProductORM.images,
+                latest_ph.c.price.label("new_price"),
+                prev_ph.c.prev_price,
+            )
+            .join(latest_ph, ProductORM.id == latest_ph.c.product_id)
+            .outerjoin(prev_ph, ProductORM.id == prev_ph.c.product_id)
+            .where(ProductORM.is_active == True)
+        )
+
+        threshold = float(min_change_pct) / 100.0
+        rows = session.execute(stmt).all()
+
+        alerts = []
+        for row in rows:
+            product_id, name, url, category, current, images, new_price, prev_price = row
+            if prev_price is None or new_price is None:
+                continue
+            if prev_price == 0:
+                continue
+            pct = abs(float(new_price) - float(prev_price)) / float(prev_price)
+            if pct < threshold:
+                continue
+            direction = "up" if float(new_price) > float(prev_price) else "down"
+            alerts.append({
+                "product_id":    str(product_id),
+                "name":          name,
+                "url":           url,
+                "category":      category,
+                "old_price":     float(prev_price),
+                "new_price":     float(new_price),
+                "pct_change":    round(pct * 100, 2),
+                "currency":      "KES",
+                "direction":     direction,
+                "images":        images or [],
+                "observed_at":   datetime.now(timezone.utc).isoformat(),
+            })
+
+    return {"alerts": alerts, "count": len(alerts), "window_hours": since_hours}
 
 
 # ── All endpoints registered ────────────────────────────────────────────────────

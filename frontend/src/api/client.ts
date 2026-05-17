@@ -61,9 +61,16 @@ class ApiClient {
       },
     });
 
-    // Request interceptor
+    // Request interceptor — inject JWT token
     this.client.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
+        const token =
+          typeof localStorage !== 'undefined'
+            ? localStorage.getItem('token')
+            : null;
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
         console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
         return config;
       },
@@ -73,14 +80,38 @@ class ApiClient {
       }
     );
 
-    // Response interceptor
+    // Response interceptor — handle auth errors + refresh tokens
     this.client.interceptors.response.use(
       (response) => {
         console.log(`[API] Response ${response.status}:`, response.data);
         return response;
       },
-      (error: AxiosError) => {
+      async (error: AxiosError) => {
         console.error('[API] Response error:', error.response?.data || error.message);
+        if (error.response?.status === 401 && !(error.config as any)?._retry) {
+          (error.config as any)._retry = true;
+          try {
+            const refreshToken =
+              typeof localStorage !== 'undefined'
+                ? localStorage.getItem('refreshToken')
+                : null;
+            if (!refreshToken) throw new Error('No refresh token');
+            const { data } = await this.client.post('/auth/refresh', { refreshToken });
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('token', data.accessToken ?? data.token);
+            }
+            if (error.config?.headers) {
+              error.config.headers.Authorization = `Bearer ${data.accessToken ?? data.token}`;
+            }
+            return this.client.request(error.config as InternalAxiosRequestConfig);
+          } catch {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.removeItem('token');
+              localStorage.removeItem('refreshToken');
+            }
+            window.location.href = '/login';
+          }
+        }
         return Promise.reject(error);
       }
     );
