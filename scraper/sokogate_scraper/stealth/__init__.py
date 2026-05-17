@@ -1,0 +1,1 @@
+# scraper/sokogate_scraper/stealth/__init__.py

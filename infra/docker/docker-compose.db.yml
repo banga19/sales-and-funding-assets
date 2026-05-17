@@ -1,6 +1,7 @@
 # docker-compose for local infrastructure:
-#   - PostgreSQL 17  (persisted, with Sokogate DB + agent tables)
-#   - Redis 7         (BullMQ job-queue backing store)
+#   - PostgreSQL 17  (sokogate DB + agent tables + scraper tables)
+#   - Redis 7         (BullMQ  +  Celery broker)
+#   - Sokogate scraper service (Python / Playwright / Celery Beat scheduler)
 #
 # Prerequisite: Docker Desktop running   (includes Docker Compose v2)
 # Bring up:   docker compose -f infra/docker/docker-compose.db.yml up -d
@@ -23,11 +24,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./scraper/migrations/002_add_scraper_tables.sql:/docker-entrypoint-initdb.d/002_add_scraper_tables.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sokogate"]
       interval: 2s
-      timeout: 5s
-      retries: 10
+      timeout: 5s       retries: 10
       start_period: 15s
     networks: [app-net]
 
@@ -48,9 +49,95 @@ services:
       retries: 10
     networks: [app-net]
 
+  # ── Sokogate Scraper ────────────────────────────────────────────────────────
+  scraper:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.scraper
+    container_name: sokogate-scraper
+    restart: unless-stopped
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        poetry run sokogate-worker -A sokogate_scraper.scheduler.celery_app worker
+          --concurrency 4 --loglevel info &
+        poetry run sokogate-worker -A sokogate_scraper.scheduler.celery_app beat
+          --loglevel info &
+        wait
+      "
+    environment:
+      - POSTGRES_HOST=sokogate-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=sokogate
+      - POSTGRES_PASSWORD=sokogate-dev-change-me
+      - POSTGRES_DB=sokogate
+      - REDIS_URL=redis://:sokogate-redis-dev@sokogate-redis:6379/0
+      - CELERY_BROKER_URL=redis://:sokogate-redis-dev@sokogate-redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:sokogate-redis-dev@sokogate-redis:6379/1
+      - SOKOGATE_BASE_URL=https://sokogate.com
+      - SCRAPER_MAX_CONCURRENCY=4
+      - SCRAPER_MAX_PAGES_PER_RUN=10
+      - SCRAPER_MAX_PRODUCTS_PER_RUN=50
+      - SCRAPER_REQUEST_DELAY_MS=800
+      - SCRAPER_PROXY_ENABLED=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./scraper:/app/scraper:ro
+      - scraper_stealth:/app/scraper/stealth
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD-SHELL", "poetry run python -c 'import redis; r=redis.Redis(host=\"sokogate-redis\",port=6379,password=\"sokogate-redis-dev\"); r.ping()'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Scraper API (FastAPI — trigger, status, price alerts) ────────────────────
+  scraper-api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.scraper
+    container_name: sokogate-scraper-api
+    restart: unless-stopped
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn sokogate_scraper.api.main:app
+          --host 0.0.0.0 --port 8000
+          --workers 2
+      "
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_HOST=sokogate-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=sokogate
+      - POSTGRES_PASSWORD=sokogate-dev-change-me
+      - POSTGRES_DB=sokogate
+      - REDIS_URL=redis://:sokogate-redis-dev@sokogate-redis:6379/0
+      - CELERY_BROKER_URL=redis://:sokogate-redis-dev@sokogate-redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:sokogate-redis-dev@sokogate-redis:6379/1
+      - SOKOGATE_BASE_URL=https://sokogate.com
+      - FASTAPI_PORT=8000
+      - FASTAPI_CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      scraper:
+        condition: service_healthy
+    volumes:
+      - ./scraper:/app/scraper:ro
+    networks: [app-net]
+
 volumes:
   pgdata:
   redisdata:
+  scraper_stealth:
 
 networks:
   app-net:

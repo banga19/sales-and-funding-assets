@@ -1,0 +1,1 @@
+# scraper/sokogate_scraper/db/__init__.py
