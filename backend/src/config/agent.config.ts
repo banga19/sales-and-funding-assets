@@ -4,6 +4,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
   CORS_ORIGINS: z.string().default('http://localhost:3001,http://localhost:3000,http://localhost:3002'),
+  SOKOGATE_BASE_URL: z.string().default('https://sokogate.com'),
 
   AGENT_ENABLED: z.coerce.boolean().default(true),
   AGENT_DRY_RUN: z.coerce.boolean().default(true),
@@ -17,6 +18,7 @@ const envSchema = z.object({
   FEATURE_AUTO_SCHEDULING: z.coerce.boolean().default(true),
   FEATURE_SENTIMENT_ANALYSIS: z.coerce.boolean().default(true),
   FEATURE_OBJECTION_HANDLING: z.coerce.boolean().default(true),
+  FEATURE_PRODUCT_SCRAPING: z.coerce.boolean().default(true),
 });
 
 const result = envSchema.safeParse(process.env);

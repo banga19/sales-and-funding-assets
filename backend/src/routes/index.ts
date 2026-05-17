@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as agent from './agent.routes.js';
 import * as contacts from './contacts.routes.js';
 import * as metrics from './metrics.routes.js';
+import * as products from './products.routes.js';
 
 const router = Router();
 
@@ -33,5 +34,12 @@ router.put('/contacts/:id', contacts.updateContact);
 router.delete('/contacts/:id', contacts.deleteContact);
 router.get('/contacts/:id/messages', contacts.getContactMessages);
 router.post('/contacts/:id/messages', contacts.addContactMessage);
+
+// ── Product Scraping ───────────────────────────────────────────────────────────
+router.post('/products/scrape',      products.triggerScrape as any);
+router.get('/products',             products.listProducts);
+router.get('/products/:id',         products.getProduct);
+router.get('/products/scrape/status', products.getScrapeStatusRoute);
+router.delete('/products/:id',      products.deleteProduct);
 
 export default router;

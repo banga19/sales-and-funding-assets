@@ -184,6 +184,39 @@ class ApiClient {
     return response.data;
   }
 
+  // ─── Product Scraping ─────────────────────────────────────────────────────────
+  /**
+   * Trigger a crawl of sokogate.com. Returns immediately with a 202 Accepted.
+   * Poll GET /products to watch progress.
+   */
+  async triggerScrape(baseUrl?: string, maxPages?: number): Promise<any> {
+    const body: Record<string, any> = {};
+    if (baseUrl)  body.baseUrl  = baseUrl;
+    if (maxPages) body.maxPages = maxPages;
+    return this.client.post('/products/scrape', body);
+  }
+
+  /** GET /products  – full in-memory product catalogue */
+  async getProducts(page: number = 1, pageSize: number = 20): Promise<any> {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    return this.client.get(`/products?${params}`);
+  }
+
+  /** GET /products/scrape/status  – live scrape progress */
+  async getScrapeStatus(): Promise<any> {
+    return this.client.get('/products/scrape/status');
+  }
+
+  /** GET /products/:id  – single product detail */
+  async getProduct(id: string): Promise<any> {
+    return this.client.get(`/products/${id}`);
+  }
+
+  /** DELETE /products/:id  – remove a product from the store */
+  async deleteProduct(id: string): Promise<any> {
+    return this.client.delete(`/products/${id}`);
+  }
+
   // Generic GET request
   async get<T = any>(endpoint: string): Promise<T> {
     const response = await this.client.get<T>(endpoint);

@@ -8,9 +8,15 @@ import {
   AlertCircle,
   RefreshCw,
   Eye,
+  Package,
+  Image as ImageIcon,
+  Search,
+  XCircle,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 import { apiClient } from './api/client';
-import { HealthCheck, AgentStatus } from './types';
+import type { HealthCheck, AgentStatus, Product, ScrapeStatusResponse } from './types';
 import './App.css';
 
 /* ──────────────────────────────────
@@ -81,11 +87,14 @@ const MOCK_STATUS: AgentStatus = {
 function App() {
   const [health, setHealth]             = useState<HealthCheck | null>(null);
   const [status, setStatus]             = useState<AgentStatus | null>(null);
+  const [products, setProducts]         = useState<Product[]>([]);
+  const [scrapeStatus, setScrapeStatus] = useState<ScrapeStatusResponse | null>(null);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
   const [lastUpdate, setLastUpdate]     = useState<Date>(new Date());
   const [isDemo, setIsDemo]             = useState(false);
   const [demoVisible, setDemoVisible]   = useState(false);
+  const [isScraping, setIsScraping]     = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -142,6 +151,31 @@ function App() {
       }
 
       setLastUpdate(new Date());
+
+      // ── Product Scrape Status (only when backend is reachable) ──────────────
+      try {
+        const scrapeStatusData: ScrapeStatusResponse = await apiClient.getScrapeStatus();
+        setScrapeStatus(scrapeStatusData);
+
+        // If a scrape just completed, refresh the product list
+        if (
+          scrapeStatusData.phase === 'complete' &&
+          scrapeStatusData.productCount > products.length
+        ) {
+          const prodData: any = await apiClient.getProducts();
+          setProducts(prodData.data ?? []);
+        }
+      } catch {
+        // Silently ignore if /products/scrape/status isn't implemented yet
+      }
+
+      // ── Product List ──────────────────────────────────────────────────────────
+      try {
+        const prodData: any = await apiClient.getProducts();
+        if (prodData?.data) setProducts(prodData.data);
+      } catch {
+        // Silently ignore if /products endpoint isn't available yet
+      }
     } finally {
       setLoading(false);
     }
@@ -152,6 +186,38 @@ function App() {
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  // Additionally poll scrape status every 2 s while a scrape is in-flight
+  useEffect(() => {
+    if (!scrapeStatus || scrapeStatus.phase === 'idle') return;
+    const poller = setInterval(async () => {
+      try {
+        const next: any = await apiClient.getScrapeStatus();
+        setScrapeStatus(next);
+        if (next.phase === 'complete') {
+          const prodR: any = await apiClient.getProducts();
+          setProducts(prodR?.data ?? []);
+          setIsScraping(false);
+        }
+      } catch {
+        // noop
+      }
+    }, 2000);
+    const rawPhase = scrapeStatus?.phase;
+    setIsScraping(rawPhase === 'discovering' || rawPhase === 'scraping');
+    return () => clearInterval(poller);
+  }, [scrapeStatus?.phase]);
+
+  // ── Handle: trigger scrape ───────────────────────────────────────────────────
+  const handleTriggerScrape = async (): Promise<void> => {
+    try {
+      setIsScraping(true);
+      await apiClient.triggerScrape();
+    } catch (err: any) {
+      console.error('[App] Scrape trigger failed:', err.message);
+      setIsScraping(false);
+    }
+  };
 
   /* ── Helpers ── */
 
@@ -625,7 +691,7 @@ function App() {
               </div>
 
               {/* Rate Limits */}
-              {status.rateLimits.email && (
+              {status?.rateLimits?.email && (
                 <div
                   className="card"
                   style={{ padding: '1.5rem' }}
@@ -899,6 +965,256 @@ function App() {
                 </button>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ─── Real-Time Product Sourcing ─── */}
+        <section>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <h2 className="section-title" style={{ fontFamily: "'Poppins', 'Segoe UI', sans-serif", color: SOK.neutral }}>
+              Real-Time Product Sourcing
+            </h2>
+            <button
+              onClick={handleTriggerScrape}
+              disabled={isScraping || isDemo}
+              className="btn btn-primary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                opacity: isScraping || isDemo ? 0.6 : 1,
+                cursor: isScraping || isDemo ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isScraping
+                ? <><Loader2 className="w-4 h-4" style={{ animation: 'sok-spin 1s linear infinite' }} /> Crawling sokogate.com…</>
+                : <><Search className="w-4 h-4" /> Scrape Products</>
+              }
+            </button>
+          </div>
+
+          <div className="card" style={{ padding: '1.5rem', background: SOK.surface, border: `1px solid ${SOK.border}`, borderRadius: '0.75rem' }}>
+
+            {/* Scrape status bar */}
+            {scrapeStatus && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  padding: '0.625rem 1rem',
+                  borderRadius: '0.5rem',
+                  marginBottom: '1rem',
+                  background:
+                    scrapeStatus.phase === 'error'   ? '#FEE2E2' :
+                    scrapeStatus.phase === 'complete' ? '#D1FAE5' :
+                    SOK.surfaceRaised,
+                  border: `1px solid ${
+                    scrapeStatus.phase === 'error'   ? SOK.error :
+                    scrapeStatus.phase === 'complete' ? SOK.success : SOK.border
+                  }40`,
+                }}
+              >
+                {scrapeStatus.phase === 'complete' && <CheckCircle2 className="w-4 h-4" style={{ color: SOK.success, flexShrink: 0 }} />}
+                {scrapeStatus.phase === 'error'    && <XCircle  className="w-4 h-4" style={{ color: SOK.error,   flexShrink: 0 }} />}
+                {isScraping                          && <Loader2  className="w-4 h-4" style={{ color: SOK.primary, flexShrink: 0, animation: 'sok-spin 1s linear infinite' }} />}
+                {scrapeStatus.phase === 'idle'     && <Activity className="w-4 h-4" style={{ color: SOK.textMuted, flexShrink: 0 }} />}
+                <span style={{ fontSize: '0.8125rem', color: SOK.textSec, flex: 1 }}>
+                  {scrapeStatus.message}
+                  {scrapeStatus.productCount > 0 && (
+                    <strong style={{ color: SOK.neutral, marginLeft: '0.5rem' }}>
+                      ({scrapeStatus.productCount} product{scrapeStatus.productCount !== 1 ? 's' : ''} in store)
+                    </strong>
+                  )}
+                </span>
+              </div>
+            )}
+
+            {isDemo && !scrapeStatus && (
+              <div style={{ marginBottom: '1rem', padding: '0.625rem 1rem', borderRadius: '0.5rem', background: '#FEF3C7', border: '1px solid #FCD34D', fontSize: '0.8125rem', color: '#92400E' }}>
+                Demo mode — product scraping is simulated. Connect your backend to scrape live product data from sokogate.com.
+              </div>
+            )}
+
+            {products.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: SOK.textMuted }}>
+                <Package className="w-10 h-10 mx-auto mb-3" style={{ opacity: 0.3 }} />
+                <p style={{ fontSize: '0.9375rem', fontWeight: 500, marginBottom: '0.25rem', color: SOK.neutral }}>
+                  No products yet
+                </p>
+                <p style={{ fontSize: '0.8125rem' }}>
+                  Click <strong>Scrape Products</strong> to autonomously crawl sokogate.com and populate this catalogue.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: '0.75rem', fontSize: '0.8125rem', color: SOK.textMuted }}>
+                  Showing {products.length} product{products.length !== 1 ? 's' : ''}
+                  {scrapeStatus?.scrapedAt && (
+                    <> — last updated {new Date(scrapeStatus.scrapedAt).toLocaleTimeString()}</>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem' }}>
+                  {products.map((product) => (
+                    <div
+                      key={product.id}
+                      style={{
+                        border: `1px solid ${SOK.borderSoft}`,
+                        borderRadius: '0.75rem',
+                        overflow: 'hidden',
+                        transition: 'border-color 200ms, box-shadow 200ms',
+                        background: SOK.surface,
+                        cursor: 'default',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor   = SOK.primary + '70';
+                        e.currentTarget.style.boxShadow     = '0 4px 16px rgba(96,91,229,.10)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor   = SOK.borderSoft;
+                        e.currentTarget.style.boxShadow     = 'none';
+                      }}
+                    >
+                      {/* Image area */}
+                      <div
+                        style={{
+                          height: '9rem',
+                          background: SOK.surfaceRaised,
+                          borderBottom: `1px solid ${SOK.borderSoft}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {product.images.length > 0 ? (
+                          <img
+                            src={product.images[0]}
+                            alt={product.name}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                            loading="lazy"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <ImageIcon className="w-8 h-8" style={{ color: SOK.borderSoft }} />
+                        )}
+                      </div>
+
+                      {/* Card body */}
+                      <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {/* Category + in-stock badges */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: '0.6875rem',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              color: SOK.primary,
+                              background: SOK.surfaceRaised,
+                              padding: '0.125rem 0.5rem',
+                              borderRadius: '9999px',
+                              border: `1px solid ${SOK.border}`,
+                            }}
+                          >
+                            {product.category}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '0.6875rem',
+                              fontWeight: 500,
+                              color:   product.inStock ? '#065F46'    : '#991B1B',
+                              background: product.inStock ? '#D1FAE5' : '#FEE2E2',
+                              padding: '0.125rem 0.5rem',
+                              borderRadius: '9999px',
+                              border: `1px solid ${product.inStock ? '#A7F3D0' : '#FECACA'}`,
+                            }}
+                          >
+                            {product.inStock ? 'In Stock' : 'Out of Stock'}
+                          </span>
+                        </div>
+
+                        /* Product name */
+                        <p style={{ fontSize: '0.875rem', fontWeight: 600, color: SOK.neutral, lineHeight: 1.4 }}>
+                          {product.name}
+                        </p>
+
+                        /* Price */
+                        {product.price && (
+                          <p style={{ fontSize: '1.0625rem', fontWeight: 700, color: SOK.primary }}>
+                            KSh {product.price}
+                          </p>
+                        )}
+
+                        /* Description snippet */
+                        <p
+                          style={{
+                            fontSize: '0.75rem',
+                            color: SOK.textMuted,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {product.description}
+                        </p>
+
+                        /* Specifications chips */
+                        {product.specifications.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.25rem' }}>
+                            {product.specifications.slice(0, 3).map((spec) => (
+                              <span
+                                key={spec.key}
+                                style={{
+                                  fontSize: '0.6875rem',
+                                  color: SOK.textSec,
+                                  background: SOK.surfaceMuted,
+                                  border: `1px solid ${SOK.borderSoft}`,
+                                  padding: '0.125rem 0.375rem',
+                                  borderRadius: '0.25rem',
+                                }}
+                              >
+                                {spec.value}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        /* Visit source link */
+                        {product.sourceUrl && (
+                          <a
+                            href={product.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: '0.75rem',
+                              color: SOK.primary,
+                              textDecoration: 'none',
+                              marginTop: 'auto',
+                              paddingTop: '0.5rem',
+                              borderTop: `1px solid ${SOK.borderSoft}`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                            onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                          >
+                            View on sokogate.com &rarr;
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </section>
       </main>

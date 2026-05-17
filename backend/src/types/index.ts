@@ -81,3 +81,27 @@ export interface ApiError {
   error: string;
   message?: string;
 }
+
+// ─── Product Types ──────────────────────────────────────────────────────────────
+
+export interface ProductSpecification {
+  key:   string;
+  value: string;
+}
+
+export interface Product {
+  id:               string;
+  name:             string;
+  description:      string;
+  price:            string;
+  category:         string;
+  images:           string[];
+  specifications:   ProductSpecification[];
+  inStock:          boolean;
+  sourceUrl:        string;
+  scrapedAt:        string;
+  createdAt:        string;
+  updatedAt:        string;
+}
+
+// Made with Bob

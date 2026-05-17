@@ -19,6 +19,8 @@ export const getAgentStatus = (_req: Request, res: Response) => {
     dryRun: config.AGENT_DRY_RUN,
     uptime: Math.round(uptime * 100) / 100,
     timestamp: new Date().toISOString(),
+    features: config.features,
+    rateLimits: config.rateLimits,
   });
 };
 

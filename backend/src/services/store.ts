@@ -1,11 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Contact, ContactType, ContactStage, Message } from '../types/index.js';
+import type { Contact, ContactType, ContactStage, Message, Product } from '../types/index.js';
 
 // ── In-Memory Storage ──────────────────────────────────────────────────────────
 
 interface Store {
   contacts: Map<string, Contact>;
   messages: Map<string, Message>;
+  products: Map<string, Product>;
   metrics: {
     totalContacts: number;
     activeContacts: number;
@@ -16,6 +17,9 @@ interface Store {
     whatsappReplied: number;
     meetingsScheduled: number;
     conversions: number;
+    productsScraped: number;
+    lastScrapedAt: string | null;
+    scrapeStatus: string;
   };
   outreachStats: { triggered: number; paused: number; resumed: number };
   followupStats: { triggered: number; cancelled: number };
@@ -27,6 +31,7 @@ interface Store {
 const store: Store = {
   contacts: new Map(),
   messages: new Map(),
+  products: new Map(),
   metrics: {
     totalContacts: 0,
     activeContacts: 0,
@@ -37,6 +42,9 @@ const store: Store = {
     whatsappReplied: 0,
     meetingsScheduled: 0,
     conversions: 0,
+    productsScraped: 0,
+    lastScrapedAt: null,
+    scrapeStatus: 'idle',
   },
   outreachStats: { triggered: 0, paused: 0, resumed: 0 },
   followupStats: { triggered: 0, cancelled: 0 },
@@ -276,5 +284,59 @@ export const rateLimitStore = {
   },
   whatsappRemaining(configLimit: number): number {
     return Math.max(0, configLimit - store.whatsappSentToday);
+  },
+};
+
+// ─── Product Store ─────────────────────────────────────────────────────────────
+
+export interface ProductListOptions {
+  category?: string;
+  inStock?: boolean;
+  search?: string;
+}
+
+export const productStore = {
+  list(opts: ProductListOptions = {}): Product[] {
+    let items = Array.from(store.products.values());
+    if (opts.category) items = items.filter((p) => p.category.toLowerCase().includes(opts.category!.toLowerCase()));
+    if (opts.inStock !== undefined) items = items.filter((p) => p.inStock === opts.inStock);
+    if (opts.search) {
+      const q = opts.search.toLowerCase();
+      items = items.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.description.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q),
+      );
+    }
+    return items.sort(
+      (a, b) => new Date(b.scrapedAt).getTime() - new Date(a.scrapedAt).getTime(),
+    );
+  },
+
+  get(id: string): Product | undefined {
+    return store.products.get(id);
+  },
+
+  add(product: Product): Product {
+    store.products.set(product.id, product);
+    return product;
+  },
+
+  addMany(products: Product[]): Product[] {
+    products.forEach((p) => store.products.set(p.id, p));
+    return products;
+  },
+
+  delete(id: string): boolean {
+    return store.products.delete(id);
+  },
+
+  clear(): void {
+    store.products.clear();
+  },
+
+  count(): number {
+    return store.products.size;
   },
 };

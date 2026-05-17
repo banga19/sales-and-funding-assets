@@ -105,4 +105,51 @@ export interface ApiError {
   path?: string;
 }
 
+// ─── Product Types ──────────────────────────────────────────────────────────────
+
+export interface ProductSpecification {
+  key:   string;
+  value: string;
+}
+
+export interface Product {
+  id:             string;
+  name:           string;
+  description:    string;
+  price:          string;
+  category:       string;
+  images:         string[];
+  specifications: ProductSpecification[];
+  inStock:        boolean;
+  sourceUrl:      string;
+  scrapedAt:      string;
+  createdAt:      string;
+  updatedAt:      string;
+}
+
+export interface ProductListResponse {
+  data:      Product[];
+  total:     number;
+  page:      number;
+  pageSize:  number;
+  categories: string[];
+  scrapedAt: string | null;
+}
+
+export interface ScrapeTriggerResponse {
+  success:   boolean;
+  message:   string;
+  status:    string;
+  baseUrl:   string;
+  maxPages:  number;
+}
+
+export interface ScrapeStatusResponse {
+  success:      boolean;
+  phase:        'idle' | 'discovering' | 'scraping' | 'complete' | 'error';
+  message:      string;
+  productCount: number;
+  scrapedAt:    string | null;
+}
+
 // Made with Bob
