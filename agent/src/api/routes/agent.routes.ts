@@ -345,6 +345,70 @@ router.get('/scheduled-actions', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/agent/sales/trigger
+ * Run a sales batch: prospect email outreach
+ */
+router.post('/sales/trigger', async (req: Request, res: Response) => {
+  try {
+    const { orchestrator } = await import('../../agents/orchestrator');
+    const limit = parseInt((req.body as any)?.limit as string || '20', 10);
+    const result = await orchestrator.runSalesOutreach(Math.min(limit, 100));
+    res.json(result);
+  } catch (error: any) {
+    logger.error('Sales trigger failed', { error });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/agent/investor/trigger
+ * Run an investor batch: equity investor email outreach
+ */
+router.post('/investor/trigger', async (req: Request, res: Response) => {
+  try {
+    const { orchestrator } = await import('../../agents/orchestrator');
+    const limit = parseInt((req.body as any)?.limit as string || '15', 10);
+    const result = await orchestrator.runInvestorOutreach(Math.min(limit, 100));
+    res.json(result);
+  } catch (error: any) {
+    logger.error('Investor trigger failed', { error });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/agent/funding/trigger
+ * Run a funding batch: Ultimo Trading / Sokogate trade-finance outreach
+ */
+router.post('/funding/trigger', async (req: Request, res: Response) => {
+  try {
+    const { orchestrator } = await import('../../agents/orchestrator');
+    const limit = parseInt((req.body as any)?.limit as string || '20', 10);
+    const result = await orchestrator.runFundingOutreach(Math.min(limit, 100));
+    res.json(result);
+  } catch (error: any) {
+    logger.error('Funding trigger failed', { error });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/agent/funding/digest
+ * Funding pipeline digest — grouped by stage, institution type, and product pitched.
+ */
+router.get('/funding/digest', async (req: Request, res: Response) => {
+  try {
+    const days = parseInt((req.query as any).days as string || '30', 10);
+    const { orchestrator } = await import('../../agents/orchestrator');
+    const digest = await orchestrator.getFundingPipelineSummary(Math.min(days, 365));
+    res.json(digest);
+  } catch (error: any) {
+    logger.error('Funding digest failed', { error });
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
 
 // Made with Bob

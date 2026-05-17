@@ -12,6 +12,14 @@ export const agentConfig = {
   dailyOutreachTime: process.env.AGENT_DAILY_OUTREACH_TIME || '09:00',
   followupCheckInterval: process.env.AGENT_FOLLOWUP_CHECK_INTERVAL || '6h',
   metricsSyncInterval: process.env.AGENT_METRICS_SYNC_INTERVAL || '1h',
+
+  // Daily outreach quotas for each pipeline (set to 0 to disable)
+  outreachTargets: {
+    sales:       parseInt(process.env.DAILY_SALES_OUTREACH_TARGET || '20', 10),
+    investor:    parseInt(process.env.DAILY_INVESTOR_OUTREACH_TARGET || '8', 10),
+    funding:     parseInt(process.env.DAILY_FUNDING_OUTREACH_TARGET || '10', 10),
+    partnership: parseInt(process.env.DAILY_PARTNERSHIP_OUTREACH_TARGET || '5', 10),
+  },
   
   // Rate Limiting
   rateLimits: {
@@ -27,12 +35,18 @@ export const agentConfig = {
   
   // Feature Flags
   features: {
-    whatsapp: process.env.ENABLE_WHATSAPP === 'true',
-    email: process.env.ENABLE_EMAIL === 'true',
-    autoFollowup: process.env.ENABLE_AUTO_FOLLOWUP === 'true',
-    autoScheduling: process.env.ENABLE_AUTO_SCHEDULING === 'true',
-    sentimentAnalysis: process.env.ENABLE_SENTIMENT_ANALYSIS === 'true',
-    objectionHandling: process.env.ENABLE_OBJECTION_HANDLING === 'true',
+    whatsapp:            process.env.ENABLE_WHATSAPP === 'true',
+    email:               process.env.ENABLE_EMAIL === 'true',
+    autoFollowup:        process.env.ENABLE_AUTO_FOLLOWUP === 'true',
+    autoScheduling:      process.env.ENABLE_AUTO_SCHEDULING === 'true',
+    sentimentAnalysis:   process.env.ENABLE_SENTIMENT_ANALYSIS === 'true',
+    objectionHandling:   process.env.ENABLE_OBJECTION_HANDLING === 'true',
+    salesOutreach:       process.env.ENABLE_SALES_OUTREACH === 'true',
+    investorOutreach:    process.env.ENABLE_INVESTOR_OUTREACH === 'true',
+    fundingOutreach:     process.env.ENABLE_FUNDING_OUTREACH === 'true',
+    partnershipOutreach: process.env.ENABLE_PARTNERSHIP_OUTREACH === 'true',
+    productSourcing:     process.env.ENABLE_PRODUCT_SOURCING === 'true',
+    fundingDigest:       process.env.ENABLE_FUNDING_DIGEST === 'true',
   },
   
   // Escalation Settings
@@ -147,7 +161,7 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
   if (!agentConfig.database.url) {
     errors.push('DATABASE_URL is required');
   }
-  
+
   return {
     valid: errors.length === 0,
     errors,

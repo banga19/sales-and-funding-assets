@@ -226,6 +226,19 @@ class SalesAgent {
       }
     });
 
+    // ── Funding Pipeline Digest ───────────────────────────────────────────────────
+    this.app.get('/api/agent/funding/digest', async (req: Request, res: Response) => {
+      try {
+        const days = parseInt((req.query as any).days as string || '30', 10);
+        const { orchestrator } = await import('./agents/orchestrator');
+        const digest = await orchestrator.getFundingPipelineSummary(Math.min(days, 365));
+        res.json(digest);
+      } catch (error: any) {
+        logger.error('Funding digest failed', { error });
+        res.status(500).json({ error: error.message });
+      }
+    });
+
     // 404 handler
     this.app.use((req: Request, res: Response) => {
       res.status(404).json({

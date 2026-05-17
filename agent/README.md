@@ -1,15 +1,33 @@
 # Sokogate Sales & Funding Agent
 
-Automated AI-powered sales and funding agent that reaches out to prospects, investors, and partners via WhatsApp and email.
+Automated AI-powered sales, investor, funding, and partnership agent for
+**Sokogate** (operated by **Ultimo Trading Company Limited**).
+Reaches out to prospects, investors, trade-finance providers, and partners
+via email.
+
+## Four Autonomous Pipelines
+
+| Pipeline          | Contact Type | Primary Goal                        | Batch Trigger               |
+|-------------------|--------------|-------------------------------------|-----------------------------|
+| **Sales**         | `prospect`   | Construction / retail bulk-sourcing sign-ups & pilots | `POST /api/agent/sales/trigger` |
+| **Investor**      | `investor`   | Series-A equity fundraising for Sokogate | `POST /api/agent/investor/trigger` |
+| **Funding**       | `funding`    | Trade-finance / working-capital for **Ultimo Trading Company Limited** | `POST /api/agent/funding/trigger` |
+| **Partnership**   | `partner`    | Distribution, logistics, 3PL, supplier BD | `POST /api/agent/partnership/trigger` |
+
+All pipelines share:
+- **Claude AI** (Anthropic) for message generation and intent analysis
+- **Resend** for email delivery
+- **Supabase / PostgreSQL** for CRM storage
+- **Anthropic** mixed with Claude AI for smart personalization
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js 20+ 
-- PostgreSQL database (Neon)
+- Node.js 20+
+- PostgreSQL database (Neon / Supabase)
 - Redis server
-- API keys for: Anthropic Claude, Resend, WhatsApp Business, Calendly
+- API keys for: Anthropic Claude, Resend
 
 ### Installation
 
@@ -25,18 +43,120 @@ cp .env.example .env
 npm run migrate
 
 # 4. Start Redis (if not running)
-# Windows: redis-server
-# Or use Docker: docker run -d -p 6379:6379 redis:alpine
 
 # 5. Build TypeScript
 npm run build
 
-# 6. Start the agent
-npm run dev  # Development
-npm start    # Production
+# 6. Start the agent (dry-run mode first)
+AGENT_DRY_RUN=true npm start
 ```
 
-## 📁 Project Structure
+---
+
+## Pipeline Details
+
+### Sales Pipeline (`prospect` type)
+- Targets construction, manufacturing, retail, and government organisations in Kenya and East Africa
+- Emphasises 15–20% procurement cost savings, 1–2 day delivery, no MOQ
+- Prompts: `sales-initial`, `sales-followup-1`, `sales-followup-2`, `sales-final`
+
+### Investor Pipeline (`investor` type)
+- Targets equity / impact investors and growth equity funds
+- Sokogate equity investment deck with USD 1.5 M Series A ask
+- Prompts: `investor-initial`, `investor-followup`, `investor-meeting-request`
+
+### Funding Pipeline (`funding` type)
+- Targets trade-finance banks, DFIs, invoice factors, working-capital funds on behalf of **Ultimo Trading Company Limited**
+- USD 500 K – 2 M in working-capital / trade-finance instruments
+- Prompts: `funding-initial`, `funding-followup`, `funding-term-sheet`
+- Digest: `GET /api/agent/funding/digest` → pipeline by stage, institution type, product pitched
+
+### Partnership Pipeline (`partner` type)
+- Targets distributors, 3PLs, retailers, suppliers across Ghana, Senegal, Nigeria
+- Revenue-share / listing-fee / reseller models
+- Prompts: `partner-initial`, `partner-followup`
+
+### Product Sourcing (`sokogate.com` scraper)
+- Autonomous WooCommerce scraper that crawls sokogate.com, parses high-res images + specs + prices, upserts to `scraped_products`
+- Scheduled daily (env: `AUTO_SOURCE_INTERVAL_HOURS=24`)
+- HTTP trigger: `POST /api/products/scrape`
+- Status: `GET /api/products/scrape/status`
+
+---
+
+## Contact & Funding Entity Note
+
+> **Ultimo Trading Company Limited** is the registered owner and parent company of
+> **sokogate.com**. All investor, funding, trade-finance, and regulatory engagements
+> are conducted under the Ultimo Trading entity. Sokogate is the operating / brand
+> name of that entity's e-commerce platform.
+
+When writing funding or investor messages:
+- Lead with **Ultimo Trading Company Limited** as the legal counterparty
+- Reference sokogate.com as the growth engine / operational asset
+- Cite audited financial statements under the Ultimo Trading name
+
+---
+
+## Configuration
+
+Feature flags (`.env`):
+
+| Flag                          | Default | Description                                   |
+|-------------------------------|---------|-----------------------------------------------|
+| `ENABLE_SALES_OUTREACH`       | `true`  | Prospect batch outreach                        |
+| `ENABLE_INVESTOR_OUTREACH`    | `true`  | Equity investor batch                          |
+| `ENABLE_FUNDING_OUTREACH`     | `true`  | Ultimo Trading trade-finance batch              |
+| `ENABLE_PARTNERSHIP_OUTREACH` | `true`  | Partnership / BD batch                         |
+| `ENABLE_PRODUCT_SOURCING`     | `true`  | Autonomous sokogate.com scraping               |
+| `ENABLE_FUNDING_DIGEST`       | `true`  | Funding pipeline digest JSON endpoint           |
+
+Daily targets (`.env`):
+
+```
+DAILY_SALES_OUTREACH_TARGET=20
+DAILY_INVESTOR_OUTREACH_TARGET=8
+DAILY_FUNDING_OUTREACH_TARGET=10
+DAILY_PARTNERSHIP_OUTREACH_TARGET=5
+```
+
+---
+
+## Full API Reference
+
+| Endpoint                                   | Method | Description                                |
+|-------------------------------------------|--------|--------------------------------------------|
+| `GET /api/health`                         | GET    | System health check                        |
+| `GET /api/status`                         | GET    | Agent config + rate limits                 |
+| `POST /api/agent/trigger`                 | POST   | Manual trigger (testing)                   |
+| `POST /api/agent/sales/trigger`           | POST   | Run sales batch                            |
+| `POST /api/agent/investor/trigger`        | POST   | Run investor batch                         |
+| `POST /api/agent/funding/trigger`         | POST   | Run funding batch (Ultimo Trading Co.)     |
+| `GET  /api/agent/funding/digest?days=30`  | GET    | Funding pipeline JSON digest               |
+| `POST /api/agent/outreach/trigger`         | POST   | Generic outreach trigger                   |
+| `POST /api/agent/followup/trigger`        | POST   | Process scheduled follow-ups               |
+| `POST /api/agent/meeting/suggest/:id`     | POST   | Suggest meeting to contact                 |
+| `GET  /api/agent/conversations/:id`       | GET    | Conversation + message history             |
+| `POST /api/products/scrape`               | POST   | Trigger manual product scrape              |
+| `GET  /api/products`                      | GET    | List scraped products (filterable)         |
+| `GET  /api/products/scrape/status`        | GET    | Live scrape progress                       |
+| `POST /api/webhooks/whatsapp`             | POST   | WhatsApp incoming webhook                  |
+| `POST /api/webhooks/email`                | POST   | Email reply webhook                        |
+| `POST /api/webhooks/calendly`             | POST   | Calendly booking webhook                   |
+
+---
+
+## Monitoring
+
+- Health check: `curl http://localhost:3000/api/health`
+- Metrics: `GET /api/agent/metrics`
+- Funding digest: `GET /api/agent/funding/digest`
+- Product scrape status: `GET /api/products/scrape/status`
+
+---
+
+Full configuration reference: [`../AGENT-CONFIGURATION.md`](./AGENT-CONFIGURATION.md)
+
 
 ```
 agent/

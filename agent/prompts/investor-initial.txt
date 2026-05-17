@@ -1,33 +1,75 @@
-You are writing on behalf of Sokogate's founder to an impact investor or venture capital fund.
+You are writing as the founder / CEO of **Ultimo Trading Company Limited**, the parent-holding company behind **sokogate.com**. You are reaching out to an impact investor, development-finance institution (DFI), growth equity fund, trade-finance provider, or corporate partner.
 
-Your task is to write a professional, compelling email that:
+Your goal: secure a 30-minute introductory meeting to discuss a **USD 1.5 M growth-equity tranche for Ultimo Trading Company Limited** and its sokogate.com B2B platform.
 
-1. **Opens with relevance**: Reference the fund's investment thesis or recent portfolio additions
-2. **Presents the opportunity**: Sokogate is building the supply chain backbone for 50M+ African SMEs
-3. **Highlights traction**: Real numbers (customers, revenue, growth rate)
-4. **Demonstrates market opportunity**: TAM, problem size, competitive advantage
-5. **Requests a meeting**: 30-minute intro call to discuss Series A
+## Contact / Context (injected at runtime)
+- Fund / institution name
+- Investment focus area (trade finance, SME enablement, logistics, consumer goods, B2B platforms)
+- Ticket / cheque range they normally write
+- Geographic focus (East Africa, West Africa, pan-Africa)
+- Recent portfolio addition or thesis statement (to use as opening hook)
 
-Key points to emphasize:
-- Problem: African retailers pay 30-40% supply chain premiums due to fragmentation
-- Solution: Regional B2B platform + logistics network connecting retailers to wholesale suppliers
-- Traction: 10,000 customers, USD 600K revenue, 90% repeat rate, 160:1 LTV:CAC ratio
-- Market: 50M+ retailers, USD 50B+ annual spend on supplies
-- Funding: Raising USD 1.5M Series A for team, tech, warehouse expansion
-- Vision: 500K+ retailers, USD 1B+ commerce, 50K+ jobs in 10 years
+## Ultimo Trading Company Limited — Key Facts
 
-Email structure:
-- Subject line: Clear, specific, mentions Series A or funding round
-- Opening: Personalized reference to their fund/thesis
-- Body: Problem → Solution → Traction → Opportunity → Ask
-- Close: Request 30-min call, offer to send pitch deck
-- Signature: Founder name + title
+| Field                         | Value |
+|-------------------------------|-------|
+| Legal entity                  | Ultimo Trading Company Limited |
+| Operating business            | Sokogate — B2B bulk sourcing + logistics platform |
+| Address / jurisdiction        | Kenya |
+| Customers (current)           | 10,000 + active retailers |
+| Revenue (trailing 12 months)  | USD 600 K+ |
+| Repeat / retention rate       | 90 % |
+| LTV : CAC ratio               | 160 : 1 |
+| Annual spend of customer base | USD 5 B+ across 5 countries |
+| Gross margin                  | 18 %+ |
+| Countries operating            | Kenya, Uganda, Tanzania, Ghana, Senegal |
+| Warehouse network             | 5 regional warehouses |
+| Payment methods               | M-Pesa, MTN MobileMoney, Airtel Money, bank transfer |
 
-Tone: Professional, confident, data-driven (not desperate)
-Length: 200-250 words maximum
+### Competitive Advantages
+- Complete supply-chain solution (platform + warehouse + logistics) — competitors own only one layer
+- 5-country simultaneous footprint — competitors in one country
+- Founder track record in African supply-chain operations
+- Unit economics 10 × industry standard
 
-DO reference specific fund investments or thesis areas
-DO include concrete numbers and metrics
-DO demonstrate founder credibility and vision
-DO NOT oversell or use hyperbole
-DO NOT make it sound like a mass email
+### Use of Funds (USD 1.5 M)
+| Category                        | %     | Amount (USD) |
+|---------------------------------|-------|--------------|
+| Team & talent (engineers, ops)  | 35 %  | USD 525 K    |
+| Tech & infrastructure (AWS, infra) | 20 % | USD 300 K |
+| Warehouse + logistics expansion | 30 %  | USD 450 K    |
+| Marketing + channel partners    | 10 %  | USD 150 K    |
+| Working capital                 | 5 %   | USD 75 K     |
+
+### 10-Year Vision
+- 500 K + African retailers onboarded
+- USD 1 B + annual GMV
+- 50 K + direct and indirect jobs created
+- Pan-African supply-chain backbone for 50 M + SMEs
+
+## Writing Rules
+
+1.  **Subject line** — 56 chars or fewer; state the round (Series A / growth round) and Ultimo Trading Company Limited.
+2.  **Opening (1 sentence)** — reference their fund's thesis, recent portfolio company, or sector focus. Show you know their work.
+3.  **The problem (1 sentence)** — African SMEs pay 30 % supply-chain mark-up vs. global peers. That is the market failure Ultimo solves.
+4.  **The vehicle (1 sentence)** — sokogate.com + Ultrimo Trading Company Limited as the operating / holding structure.
+5.  **Traction (3 key numbers, 2 sentences)** — customers, revenue, repeat rate.
+6.  **Opportunity (1 sentence)** — TAM is USD 50 B + across 50 M + SMEs.
+7.  **The ask (1 sentence)** — USD 1.5 M growth equity / trade-finance tranche; 30-min intro call.
+8.  **Pitch deck offer (1 sentence)** — offer to send deck pre-call or walk through live.
+9.  **Signature** — Founder & CEO, Ultimo Trading Company Limited / Sokogate.
+
+## Do / Do Not
+- DO name their fund / investment explicitly
+- DO include at least 3 concrete data points
+- DO reference a relevant portfolio company if one exists
+- DO NOT say "raising seed" — this is a growth / Series-A round
+- DO NOT send a pitch deck in the first email (attach only if explicitly requested)
+- DO NOT lie or exaggerate revenue or customer figures
+- DO keep under 240 words
+
+## Format
+OUTPUT FORMAT:
+SUBJECT: [email subject — ≤ 56 chars]
+---
+[body — 200–240 words max]

@@ -38,6 +38,7 @@ class AgentOrchestrator {
 
   /**
    * Process initial outreach for a contact
+   * Supports: prospect / investor / partner / funding (Ultimo Trading Co.)
    */
   public async processInitialOutreach(contact: Contact): Promise<boolean> {
     try {
@@ -562,11 +563,209 @@ class AgentOrchestrator {
    */
   private getDefaultSubject(contactType: ContactType): string {
     const subjects: Record<ContactType, string> = {
-      prospect: 'Transforming Construction in Kenya',
-      investor: 'Investment Opportunity: Sokogate',
-      partner: 'Partnership Opportunity',
+      prospect: 'Transforming Construction Procurement in Kenya',
+      investor: 'Series A — Sokogate / Ultimo Trading Company Limited',
+      partner:  'Partnership Opportunity — Sokogate × Your Company',
+      funding:  'Trade-Finance / Working-Capital — Ultimo Trading Company Limited',
     };
-    return subjects[contactType] || 'Hello from Sokogate';
+    return subjects[contactType] || 'Hello from Sokogate / Ultimo Trading';
+  }
+
+  // ─── Focused Outreach ─────────────────────────────────────────────────────────
+
+  /**
+   * Sales: batch outreach to construction / retail / manufacturing prospects.
+   */
+  public async runSalesOutreach(limit: number = 20): Promise<{
+    total: number;
+    sent: number;
+    failed: number;
+    skipped: number;
+  }> {
+    logger.info('[orchestrator] Sales outreach batch started', { limit });
+    const contacts = await db.query<Contact>(
+      `SELECT * FROM contacts
+       WHERE type = 'prospect'
+         AND tier IN ('T1','T2','T3')
+         AND status NOT IN ('Closed Won','Closed Lost','Nurture')
+       ORDER BY tier, created_at ASC
+       LIMIT $1`,
+      [limit]
+    );
+
+    let sent = 0, failed = 0, skipped = 0;
+    for (const contact of contacts.rows) {
+      try {
+        const conv = await this.getConversation(contact.id);
+        if (conv && conv.current_stage !== 'not_started') { skipped++; continue; }
+        const ok = await this.processInitialOutreach(contact);
+        ok ? sent++ : failed++;
+      } catch (err: any) {
+        logger.warn('[orchestrator] Sales outreach contact failed', { id: contact.id, error: err.message });
+        failed++;
+      }
+    }
+    logger.info('[orchestrator] Sales outreach batch complete', { sent, failed, skipped });
+    return { total: contacts.rows.length, sent, failed, skipped };
+  }
+
+  /**
+   * Investor: batch outreach to equity / impact investors targeting Series A.
+   */
+  public async runInvestorOutreach(limit: number = 15): Promise<{
+    total: number;
+    sent: number;
+    failed: number;
+    skipped: number;
+  }> {
+    logger.info('[orchestrator] Investor outreach batch started', { limit });
+    const contacts = await db.query<Contact>(
+      `SELECT * FROM contacts
+       WHERE type = 'investor'
+         AND status IN ('Not Started','Nurture')
+       ORDER BY tier, created_at ASC
+       LIMIT $1`,
+      [limit]
+    );
+
+    let sent = 0, failed = 0, skipped = 0;
+    for (const contact of contacts.rows) {
+      try {
+        const conv = await this.getConversation(contact.id);
+        if (conv && conv.current_stage !== 'not_started') { skipped++; continue; }
+        const ok = await this.processInitialOutreach(contact);
+        ok ? sent++ : failed++;
+      } catch (err: any) {
+        logger.warn('[orchestrator] Investor outreach contact failed', { id: contact.id, error: err.message });
+        failed++;
+      }
+    }
+    logger.info('[orchestrator] Investor outreach batch complete', { sent, failed, skipped });
+    return { total: contacts.rows.length, sent, failed, skipped };
+  }
+
+  /**
+   * Funding: batch outreach to Ultimo Trading / Sokogate trade-finance targets
+   * (banks, DFIs, private-credit funds, invoice factors).
+   */
+  public async runFundingOutreach(limit: number = 20): Promise<{
+    total: number;
+    sent: number;
+    failed: number;
+    skipped: number;
+  }> {
+    logger.info('[orchestrator] Funding outreach batch started', { limit });
+    const contacts = await db.query<Contact>(
+      `SELECT * FROM contacts
+       WHERE type = 'funding'
+         AND status IN ('Not Started','Nurture')
+       ORDER BY tier, created_at ASC
+       LIMIT $1`,
+      [limit]
+    );
+
+    let sent = 0, failed = 0, skipped = 0;
+    for (const contact of contacts.rows) {
+      try {
+        const conv = await this.getConversation(contact.id);
+        if (conv && conv.current_stage !== 'not_started') { skipped++; continue; }
+        const ok = await this.processInitialOutreach(contact);
+        ok ? sent++ : failed++;
+      } catch (err: any) {
+        logger.warn('[orchestrator] Funding outreach contact failed', { id: contact.id, error: err.message });
+        failed++;
+      }
+    }
+    logger.info('[orchestrator] Funding outreach batch complete', { sent, failed, skipped });
+    return { total: contacts.rows.length, sent, failed, skipped };
+  }
+
+  /**
+   * Funding digest: compile pipeline status (by stage, institution type, product)
+   * for all `funding` contacts so a human review e-mail or dashboard widget can be auto-built.
+   */
+  public async getFundingPipelineSummary(periodDays: number = 30): Promise<{
+    generated_at: string;
+    period_days: number;
+    contacts_at_stage: Record<string, any[]>;
+    summary: {
+      total_pipeline_usd: number;
+      by_institution_type: Record<string, number>;
+      by_product_pitched: Record<string, number>;
+      by_stage: Record<string, number>;
+      next_actions_due_within_7d: number;
+    };
+  }> {
+    const periodStart = new Date(Date.now() - periodDays * 86400000).toISOString();
+
+    const { rows: contacts } = await db.query<Contact>(
+      `SELECT c.*, s.action_type, s.scheduled_for, s.status AS action_status
+         FROM contacts c
+    LEFT JOIN scheduled_actions s ON s.contact_id = c.id AND s.status = 'pending'
+        WHERE c.type = 'funding'
+     ORDER BY c.tier, c.updated_at DESC`
+    );
+
+    const stageGroups: Record<string, any[]> = {
+      contacted_awaiting_reply: [],
+      responded_engaged:        [],
+      term_sheet_sent:          [],
+      due_diligence:            [],
+      funding_confirmed:        [],
+      closed_lost:              [],
+    };
+
+    const byInstitution: Record<string, number> = {};
+    const byProduct:    Record<string, number> = {};
+    const byStage:      Record<string, number> = {};
+    let totalPipeline = 0;
+    const next7d = new Date(Date.now() + 7 * 86400000);
+
+    for (const c of contacts) {
+      const f = c as any;
+      const stageKey = f.status === 'Term Sheet Sent'
+        ? 'term_sheet_sent'
+        : f.status === 'Funding Confirmed'
+          ? 'funding_confirmed'
+          : f.status === 'Due Diligence'
+            ? 'due_diligence'
+            : f.status === 'Closed Lost'
+              ? 'closed_lost'
+              : f.status === 'Responded' || f.status === 'Negotiating'
+                ? 'responded_engaged'
+                : 'contacted_awaiting_reply';
+
+      stageGroups[stageKey].push({
+        id: f.id, institution_name: f.company, contact_name: f.contact_name || 'N/A',
+        contact_email: f.email || 'N/A', institution_type: f.institution_type || 'N/A',
+        product_pitched: f.product_pitched || 'N/A',
+        ticket_size_usd_requested: f.ticket_size_usd_requested ?? null,
+        tenor_months: f.tenor_months ?? null, status: f.status,
+        last_contact_date: f.updated_at ? new Date(f.updated_at).toISOString().split('T')[0] : null,
+        next_action: f.next_action || null, notes: f.notes || null,
+      });
+
+      const amount = f.ticket_size_usd_requested || 0;
+      totalPipeline += amount;
+      byInstitution[f.institution_type || 'unspecified'] = (byInstitution[f.institution_type || 'unspecified'] || 0) + amount;
+      byProduct[f.product_pitched || 'unspecified'] = (byProduct[f.product_pitched || 'unspecified'] || 0) + amount;
+      byStage[stageKey] = (byStage[stageKey] || 0) + amount;
+    }
+
+    return {
+      generated_at: new Date().toISOString(),
+      period_days: periodDays,
+      contacts_at_stage: stageGroups,
+      summary: {
+        total_pipeline_usd: totalPipeline,
+        by_institution_type: byInstitution,
+        by_product_pitched:    byProduct,
+        by_stage:              byStage,
+        next_actions_due_within_7d: contacts.filter(
+          (c: any) => c.next_action && new Date(c.next_action as string) <= next7d
+        ).length,
+      },
+    };
   }
 
   // ─── Product Sourcing ─────────────────────────────────────────────────────────

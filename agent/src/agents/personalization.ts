@@ -154,7 +154,15 @@ Respond in JSON format:
     intent: Intent
   ): Promise<string> {
     try {
-      const prompt = `You are a sales representative for Sokogate. A ${contact.type} named ${contact.company} sent this message:
+      const roleDescriptor = contact.type === 'prospect'
+        ? `sales representative for Sokogate`
+        : contact.type === 'investor'
+          ? `fundraising lead on behalf of the founder of Ultimo Trading Company Limited (sokogate.com)`
+          : contact.type === 'funding'
+            ? `capital-raising advisor for Ultimo Trading Company Limited, trading as sokogate.com`
+            : `business development lead for Sokogate / Ultimo Trading Company Limited`;
+
+      const prompt = `You are a ${roleDescriptor}. A ${contact.type} named ${contact.company} sent this message:
 
 "${incomingMessage}"
 
@@ -162,12 +170,10 @@ Intent detected: ${intent.type}
 Sentiment: ${intent.sentiment}
 
 Generate an appropriate response that:
-1. Addresses their ${intent.type === 'question' ? 'question' : intent.type === 'objection' ? 'concern' : 'message'}
+1. Addresses their ${intent.type === 'question' ? 'question' : intent.type === 'objection' ? 'concern' : intent.type === 'positive_interest' ? 'interest' : 'message'} directly
 2. Maintains a professional but friendly tone
-3. Moves the conversation forward
-4. ${intent.type === 'positive_interest' ? 'Suggests scheduling a meeting' : 'Provides value'}
-
-Keep the response concise (under 150 words).`;
+3. Moves the conversation toward a clear next step (call, meeting, shared document)
+4. Keep it concise (under 150 words)`;
 
       const response = await this.claude.messages.create({
         model: agentConfig.ai.model,
@@ -204,12 +210,51 @@ ${context.engagement_angle ? `- Engagement Angle: ${context.engagement_angle}` :
 ${context.annual_spend ? `- Annual Spend: KES ${context.annual_spend.toLocaleString()}` : ''}
 ${context.decision_maker ? `- Decision Maker: ${context.decision_maker}` : ''}
 
-Context:
+${context.contact_type === 'prospect' ? `
+Additional Context:
+- Location: ${context.location || 'N/A'}
+- Annual Spend: KES ${context.annual_spend_kes ? context.annual_spend_kes.toLocaleString() : 'N/A'}
+- Decision Maker Title: ${context.decision_maker_title || 'N/A'}
+` : ''}
+
+${context.contact_type === 'investor' ? `
+Investor Context:
+- Fund Name: ${context.fund_name || 'N/A'}
+- Geographic Focus: ${context.geographic_focus || 'N/A'}
+- Ticket Range: USD ${(context.ticket_size_usd_min ?? 0).toLocaleString()} – ${(context.ticket_size_usd_max ?? 0).toLocaleString()}
+- Investment Thesis: ${context.investment_thesis || 'N/A'}
+- Decision Timeline: ${context.decision_timeline_weeks ? context.decision_timeline_weeks + ' weeks' : 'N/A'}
+` : ''}
+
+${context.contact_type === 'partner' ? `
+Partner Context:
+- Country / Market: ${context.country || 'N/A'}
+- Capability / Interest: ${context.capability || 'N/A'}
+- Revenue Model: ${context.revenue_model || 'N/A'}
+- Monthly Revenue Potential: USD ${context.monthly_revenue_potential_usd ? context.monthly_revenue_potential_usd.toLocaleString() : 'N/A'}
+` : ''}
+
+${context.contact_type === 'funding' ? `
+Funding / Trade-Finance Context:
+- Institution Type: ${context.institution_type || 'N/A'}
+- Product Being Pitched: ${context.product_pitched || 'N/A'}
+- Ticket Size Requested: USD ${(context.ticket_size_usd_requested ?? 0).toLocaleString()}
+- Tenor: ${context.tenor_months ? context.tenor_months + ' months' : (context.tenor_years ? context.tenor_years + ' years' : 'N/A')}
+- Interest Rate Requested: ${context.interest_rate_requested || 'Market rate'}
+- Collateral Available: ${context.collateral_available || 'N/A'}
+- Audited Financials: ${context.audited_financials_available ? 'Yes' : 'N/A'}
+- Existing Bank Relationships: ${context.bank_relationships || 'N/A'}
+- Credit Rating: ${context.credit_rating || 'N/A'}
+- Urgency: ${context.urgency || 'N/A'}
+- Contact Person Title: ${context.contact_person_title || 'N/A'}
+` : ''}
+
+Success Context:
 - First Contact: ${context.is_first_contact ? 'Yes' : 'No'}
 ${context.days_since_last_contact ? `- Days Since Last Contact: ${context.days_since_last_contact}` : ''}
 ${context.previous_messages?.length ? `- Previous Messages: ${context.previous_messages.length}` : ''}
 
-Generate a personalized ${contact.type === 'prospect' ? 'sales' : contact.type === 'investor' ? 'investor pitch' : 'partnership'} message.
+Generate a personalized ${contact.type === 'prospect' ? 'sales' : contact.type === 'investor' ? 'investor pitch' : contact.type === 'funding' ? 'funding / trade-finance pitch' : 'partnership'} message.
 
 Format your response as:
 SUBJECT: [email subject line]
@@ -242,11 +287,22 @@ SUBJECT: [email subject line]
    */
   private getDefaultPrompt(templateType: string): string {
     const defaults: Record<string, string> = {
-      'sales-initial': 'You are a sales representative for Sokogate, a B2B bulk sourcing platform. Write a professional, personalized email introducing our service and highlighting cost savings (15-20%).',
-      'sales-followup-1': 'Write a friendly follow-up email checking if they received your previous message. Keep it brief and add value.',
-      'sales-followup-2': 'Write a follow-up email with a case study or specific cost analysis to demonstrate value.',
-      'investor-initial': 'Write a professional email to an investor introducing Sokogate and requesting a meeting to discuss Series A funding.',
-      'partner-initial': 'Write a professional email proposing a strategic partnership opportunity.',
+      // Sales
+      'sales-initial':        'You are a sales representative for Sokogate, a B2B bulk sourcing platform. Write a professional, personalized email introducing our service and highlighting 15-20% cost savings.',
+      'sales-followup-1':     'Write a friendly first follow-up email after initial outreach. Keep it brief, reference something specific, and offer a new data point.',
+      'sales-followup-2':     'Write a second follow-up — the final nudge in this sequence. Mention closing the loop, be direct and concise.',
+      'sales-final':          'Write a post-meeting recap email for a construction / retail prospect. Include 2-3 next steps and any deliverables.',
+      // Investor (equity)
+      'investor-initial':     'You are writing as founder of Ultimo Trading Company Limited (sokogate.com). Write a professional Series-A pitch email: problem, traction (10K customers, $600K revenue, 90% repeat), TAM, $1.5M ask.',
+      'investor-followup':    'Write a brief investor follow-up. Reference the last message, share one new metric, state the next step.',
+      'investor-meeting-request': 'Write an email requesting a 30-minute intro call with an impact investor. Briefly restate value proposition and confirm availability.',
+      // Funding (debt / structured finance for Ultimo Trading Co.)
+      'funding-initial':      'You are the founder of Ultimo Trading Company Limited. Write a pitch email to a trade-finance provider / bank / structured-credit fund. State the company, revenue ($600K+), audited financials, and the specific facility requested (USD <amount>, tenor).',
+      'funding-followup':     'Write a trade-finance / working-capital follow-up. Be direct and specific — attach any requested financials or confirm next step.',
+      'funding-term-sheet':   'Write a term-sheet response email — confirming receipt, stating which clauses require discussion, and proposing a date to negotiate.',
+      // Partnership
+      'partner-initial':      'Write a strategic partnership outreach for Sokogate / Ultimo Trading. Offer a distribution / supplier / logistics / 3PL partnership. Mention revenue models and ask for a scoping call.',
+      'partner-followup':     'Write a partnership follow-up. Reference the call that happened and propose the next action item.',
     };
 
     return defaults[templateType] || 'Write a professional business email.';
@@ -271,19 +327,23 @@ SUBJECT: [email subject line]
    * Get template type based on contact and context
    */
   private getTemplateType(contactType: ContactType, context: MessageContext): string {
-    if (context.is_first_contact) {
-      return `${contactType}-initial`;
+    const { is_first_contact, days_since_last_contact, contact_type: cType } = context;
+
+    if (is_first_contact) {
+      return `${cType}-initial`;
     }
-    
-    if (context.days_since_last_contact) {
-      if (context.days_since_last_contact >= 5 && context.days_since_last_contact < 12) {
-        return `${contactType}-followup-1`;
-      } else if (context.days_since_last_contact >= 12) {
-        return `${contactType}-followup-2`;
+
+    if (days_since_last_contact !== undefined) {
+      if (days_since_last_contact >= 1 && days_since_last_contact < 7) {
+        const fu1 = `${cType}-followup-1`;
+        if (this.promptCache.has(fu1)) return fu1;
+      } else if (days_since_last_contact >= 7) {
+        const fu2 = `${cType}-followup-2`;
+        if (this.promptCache.has(fu2)) return fu2;
       }
     }
-    
-    return `${contactType}-initial`;
+
+    return `${cType}-initial`;
   }
 
   /**

@@ -1,16 +1,19 @@
 // Contact Types
-export type ContactType = 'prospect' | 'investor' | 'partner';
+export type ContactType = 'prospect' | 'investor' | 'partner' | 'funding';
 
 export type ContactTier = 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7' | 'T8' | 'T9';
 
-export type ContactStatus = 
+export type ContactStatus =
   | 'Not Started'
   | 'Contacted'
   | 'Responded'
   | 'Negotiating'
   | 'Closed Won'
   | 'Closed Lost'
-  | 'Nurture';
+  | 'Nurture'
+  | 'Term Sheet Sent'
+  | 'Due Diligence'
+  | 'Funding Confirmed';
 
 export interface BaseContact {
   id: string;
@@ -63,7 +66,48 @@ export interface Partner extends BaseContact {
   proposal_signed_date?: Date;
 }
 
-export type Contact = Prospect | Investor | Partner;
+/**
+ * Funding contact — targets for trade-finance / working-capital / growth-equity
+ * pitched by Ultimo Trading Company Limited (parent co. of sokogate.com).
+ *
+ * Used to separate equity-investor outreach (investor type) from
+ * debt / structured-finance / working-capital outreach (funding type).
+ */
+export interface Funding extends BaseContact {
+  type: 'funding';
+  institution_type?:               // 'trade_finance_bank' | 'dfi' | 'private_equity' | 'family_office'
+    'trade_finance_bank'
+    | 'dfi'
+    | 'private_equity'
+    | 'family_office'
+    | 'growth_equity'
+    | 'invoice_factoring'
+    | 'working_capital_fund'
+    | 'trade_credit'
+    | 'other';
+  product_pitched?:                // 'invoice_factoring' | 'revolving_credit' | 'working_capital' | 'loan' | 'growth_equity'
+    'invoice_factoring'
+    | 'revolving_credit'
+    | 'working_capital'
+    | 'loan'
+    | 'growth_equity'
+    | 'trade_finance_lc'
+    | 'payables_financing';
+  ticket_size_usd_requested?: number;
+  ticket_size_usd_min?: number;
+  ticket_size_usd_max?: number;
+  tenor_months?: number;
+  tenor_years?: number;
+  interest_rate_requested?: string; // e.g. '12% p.a.' or 'SOFR + 300bps'
+  collateral_available?: string;     // receivables / inventory / personal guarantee
+  audited_financials_available?: boolean;
+  bank_relationships?: string;
+  credit_rating?: string;
+  urgency?: string;                  // 'immediate' | 'this_quarter' | 'this_year'
+  contact_person_title?: string;     // head of trade finance, portfolio manager, etc.
+}
+
+export type Contact = Prospect | Investor | Partner | Funding;
 
 export type ContactWithConversation = Contact & {
   conversation?: Conversation;
@@ -71,7 +115,7 @@ export type ContactWithConversation = Contact & {
 };
 
 // Conversation Types
-export type ConversationStage = 
+export type ConversationStage =
   | 'not_started'
   | 'contacted'
   | 'responded'
@@ -99,6 +143,7 @@ export interface Conversation {
 
 // Message Types
 export type Channel = 'email' | 'whatsapp' | 'sms';
+
 export type Direction = 'outbound' | 'inbound';
 
 export interface Message {
