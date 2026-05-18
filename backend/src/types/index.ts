@@ -20,6 +20,10 @@ export interface Contact {
   company?: string;
   title?: string;
   stage: ContactStage;
+  // ── Outreach-specific fields ────────────────────────────────────────────────
+  persona?: string;           // e.g. "b2b_customer", "investor", "procurement_manager"
+  status?: string;            // "new" | "researched" | "email_sent" | "failed"
+  research?: Record<string, any>;
   lastContactDate?: string;
   nextFollowupDate?: string;
   notes?: string;

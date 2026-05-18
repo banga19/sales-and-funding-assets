@@ -29,20 +29,39 @@ export const agentConfig = {
     },
   },
   
-  // Feature Flags
-  features: {
-    email:               process.env.ENABLE_EMAIL === 'true',
-    autoFollowup:        process.env.ENABLE_AUTO_FOLLOWUP === 'true',
-    autoScheduling:      process.env.ENABLE_AUTO_SCHEDULING === 'true',
-    sentimentAnalysis:   process.env.ENABLE_SENTIMENT_ANALYSIS === 'true',
-    objectionHandling:   process.env.ENABLE_OBJECTION_HANDLING === 'true',
-    salesOutreach:       process.env.ENABLE_SALES_OUTREACH === 'true',
-    investorOutreach:    process.env.ENABLE_INVESTOR_OUTREACH === 'true',
-    fundingOutreach:     process.env.ENABLE_FUNDING_OUTREACH === 'true',
-    partnershipOutreach: process.env.ENABLE_PARTNERSHIP_OUTREACH === 'true',
-    productSourcing:     process.env.ENABLE_PRODUCT_SOURCING === 'true',
-    fundingDigest:       process.env.ENABLE_FUNDING_DIGEST === 'true',
-  },
+   // Feature Flags
+   features: {
+     email:               process.env.ENABLE_EMAIL === 'true',
+     autoFollowup:        process.env.ENABLE_AUTO_FOLLOWUP === 'true',
+     autoScheduling:      process.env.ENABLE_AUTO_SCHEDULING === 'true',
+     sentimentAnalysis:   process.env.ENABLE_SENTIMENT_ANALYSIS === 'true',
+     objectionHandling:   process.env.ENABLE_OBJECTION_HANDLING === 'true',
+     salesOutreach:       process.env.ENABLE_SALES_OUTREACH === 'true',
+     investorOutreach:    process.env.ENABLE_INVESTOR_OUTREACH === 'true',
+     fundingOutreach:     process.env.ENABLE_FUNDING_OUTREACH === 'true',
+     partnershipOutreach: process.env.ENABLE_PARTNERSHIP_OUTREACH === 'true',
+     productSourcing:     process.env.ENABLE_PRODUCT_SOURCING === 'true',
+     fundingDigest:       process.env.ENABLE_FUNDING_DIGEST === 'true',
+     agentsEnabled:       process.env.ENABLE_AGENT_PANEL === 'true',
+   },
+
+   // ── Agent System: Bulk Sourcing, Sales & Marketing, Content, Funding ──────────
+   bulkSourcing: {
+     defaultPages:  parseInt(process.env.BULK_SOURCE_DEFAULT_PAGES  || '3',  10),
+     maxPages:      parseInt(process.env.BULK_SOURCE_MAX_PAGES      || '10', 10),
+     enrichWithAI:  process.env.BULK_SOURCE_ENRICH_AI === 'true',
+   },
+   salesMarketing: {
+     defaultTargetChannel: (process.env.SALES_MARKETING_DEFAULT_CHANNEL || 'all') as 'email' | 'social' | 'ads' | 'all',
+     maxProducts:          parseInt(process.env.SALES_MARKETING_MAX_PRODUCTS || '5', 10),
+   },
+   contentCreation: {
+     defaultType:  (process.env.CONTENT_CREATION_DEFAULT_TYPE || 'blog')    as 'blog' | 'product_guide' | 'company_profile',
+     maxKeywords:  parseInt(process.env.CONTENT_CREATION_MAX_KEYWORDS   || '10', 10),
+   },
+   funding: {
+     investorProfiles: ['angel', 'vc', 'bank', 'government'] as const,
+   },
   
   // Escalation Settings
   escalation: {

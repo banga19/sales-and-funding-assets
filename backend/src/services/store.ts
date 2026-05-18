@@ -23,6 +23,7 @@ interface Store {
   followupStats: { triggered: number; cancelled: number };
   meetingStats: { suggested: number; confirmed: number; remindersSent: number };
   emailSentToday: number;
+  emailLogs: EmailLogEntry[];
 }
 
 const store: Store = {
@@ -45,6 +46,7 @@ const store: Store = {
   followupStats: { triggered: 0, cancelled: 0 },
   meetingStats: { suggested: 0, confirmed: 0, remindersSent: 0 },
   emailSentToday: 0,
+  emailLogs: [],
 };
 
 // ── Seed Data ──────────────────────────────────────────────────────────────────
@@ -53,12 +55,14 @@ const seedContacts: Contact[] = [
   {
     id: uuidv4(),
     type: 'prospect',
+    persona: 'b2b_customer',
     name: 'James Wanjiku',
     email: 'james.wanjiku@example.co.ke',
     phone: '+254 700 111 222',
     company: 'Nairobi Builders Ltd',
     title: 'Procurement Manager',
     stage: 'engaged',
+    status: 'researched',
     lastContactDate: new Date(Date.now() - 2 * 86400000).toISOString(),
     nextFollowupDate: new Date(Date.now() + 3 * 86400000).toISOString(),
     notes: 'Interested in excavator financing for Q3 expansion.',
@@ -68,12 +72,14 @@ const seedContacts: Contact[] = [
   {
     id: uuidv4(),
     type: 'investor',
+    persona: 'investor',
     name: 'Aisha Omondi',
     email: 'aisha@eastafricacapital.com',
     phone: '+254 722 333 444',
     company: 'East Africa Capital Partners',
     title: 'Investment Director',
     stage: 'qualified',
+    status: 'researched',
     lastContactDate: new Date(Date.now() - 5 * 86400000).toISOString(),
     nextFollowupDate: new Date(Date.now() + 7 * 86400000).toISOString(),
     notes: 'Series A investor. Requested full financial projections.',
@@ -83,11 +89,13 @@ const seedContacts: Contact[] = [
   {
     id: uuidv4(),
     type: 'partner',
+    persona: 'procurement_manager',
     name: 'David Mensah',
     email: 'd.mensah@westafricadistributors.com',
     company: 'West Africa Distributors',
     title: 'Regional Sales Head',
     stage: 'contacted',
+    status: 'new',
     notes: 'Potential distribution partner across 5 W/A markets.',
     createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
     updatedAt: new Date(Date.now() - 7 * 86400000).toISOString(),
@@ -95,11 +103,13 @@ const seedContacts: Contact[] = [
   {
     id: uuidv4(),
     type: 'prospect',
+    persona: 'b2b_customer',
     name: 'Fatima Nkosi',
     email: 'fatima.n@tanzaniaconstruction.co.tz',
     company: 'Tanzania Construction Co',
     title: 'CEO',
     stage: 'new',
+    status: 'new',
     notes: 'Referral from Nairobi Builders. High-value prospect.',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -107,11 +117,13 @@ const seedContacts: Contact[] = [
   {
     id: uuidv4(),
     type: 'investor',
+    persona: 'investor',
     name: 'Samuel Okonkwo',
     email: 'samuel@greenfundafrica.com',
     company: 'GreenFund Africa',
     title: 'Managing Partner',
     stage: 'qualified',
+    status: 'researched',
     notes: 'Impact investor focused on sustainable infrastructure.',
     createdAt: new Date(Date.now() - 21 * 86400000).toISOString(),
     updatedAt: new Date(Date.now() - 10 * 86400000).toISOString(),
@@ -331,3 +343,30 @@ export const productStore = {
     return store.products.size;
   },
 };
+
+// ── Email Logs ──────────────────────────────────────────────────────────────────
+
+export interface EmailLogEntry {
+  id:          string;
+  contactId:   string;
+  contactName: string;
+  to:          string;
+  subject:     string;
+  body:        string;
+  status:      'sent' | 'failed';
+  error?:      string;
+  sentAt:      string;
+}
+
+export const emailLogsStore = {
+  list(): EmailLogEntry[] {
+    return [...store.emailLogs].reverse();
+  },
+  add(entry: Omit<EmailLogEntry, 'id' | 'sentAt'>): EmailLogEntry {
+    const log: EmailLogEntry = { ...entry, id: uuidv4(), sentAt: new Date().toISOString() };
+    store.emailLogs.push(log);
+    return log;
+  },
+};
+
+// Made with Bob

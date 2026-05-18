@@ -28,6 +28,7 @@ const MOCK_STATUS: AgentStatus = {
     email: true, autoFollowup: true, autoScheduling: true,
     sentimentAnalysis: false, objectionHandling: false,
     productScraping: true, playwrightScraper: false,
+    agentsEnabled: false,
   },
   rateLimits: { email: { remaining: 78, limit: 100 } },
 };

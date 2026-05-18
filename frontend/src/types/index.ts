@@ -24,6 +24,7 @@ export interface AgentStatus {
     objectionHandling: boolean;
     productScraping: boolean;
     playwrightScraper: boolean;
+    agentsEnabled: boolean;
   };
   rateLimits: {
     email: {

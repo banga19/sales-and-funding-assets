@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
     contact_info TEXT,
     location TEXT,
     rating REAL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS products (
     url TEXT,
     image_url TEXT,
     status TEXT DEFAULT 'active',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
     FOREIGN KEY (category_id) REFERENCES categories(id)
 );
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS market_leads (
     tier TEXT DEFAULT 'T1',
     type TEXT DEFAULT 'prospect',
     source TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS marketing_campaigns (
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS marketing_campaigns (
     channel TEXT,
     content TEXT,
     status TEXT DEFAULT 'draft',
-    launched_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    launched_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS funding_leads (
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS funding_leads (
     type TEXT,
     amount_range TEXT,
     status TEXT DEFAULT 'identified',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS funding_leads (
 CREATE TABLE IF NOT EXISTS feature_flags (
     key            TEXT PRIMARY KEY,
     value          BOOLEAN NOT NULL DEFAULT TRUE,
-    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_feature_flags_updated ON feature_flags(updated_at DESC);

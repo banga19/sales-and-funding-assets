@@ -11,6 +11,7 @@ import productsScrape from './routes/products-scrape.routes.js';       // scrapi
 import productsDb   from './routes/products.db.routes.js';             // PostgreSQL
 import schedule     from './routes/schedule.routes.js';
 import apiRoutes    from './routes/index.js';                          // agent / contacts / metrics
+import outreach     from './routes/outreach.routes.js';                // automated outreach
 
 // ── Express App ───────────────────────────────────────────────────────────────
 
@@ -68,6 +69,9 @@ app.use('/api/products', productsDb);
 
 // Scrape schedule management
 app.use('/api/schedule', schedule);
+
+// Automated outreach (per-contact email via NVIDIA + SMTP)
+app.use('/api/outreach', outreach);
 
 // ── Scraper health ──────────────────────────────────────────────────────────────
 app.get('/health/scraper', async (_req: express.Request, res: express.Response) => {

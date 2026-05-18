@@ -4,6 +4,27 @@
    ============================================ */
 
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Inter font applied globally alongside the Sokogate brand font ── */
+body {
+  font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
+}
+
+/* ── Selection colour ── */
+::selection {
+  background-color: #6366f1;
+  color: white;
+}
+
+/* ── Refined scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c7d2fe;
+  border-radius: 3px;
+}
 
 /* Don't override App.css body styles — they set the correct
    font-family and background for this branded dashboard. */

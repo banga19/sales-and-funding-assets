@@ -3,8 +3,9 @@
  * Importing from here gives the consumer one clean path rather than five.
  */
 export { useDashboardData }  from './useDashboardData';
-export { useScrapeStatus }  from './useScrapeStatus';
-export { useAgentLogs }     from './useAgentLogs';
-export { useContacts }      from './useContacts';
-export { useQuickActions }  from './useQuickActions';
+export { useQuickActions }   from './useQuickActions';
+export { useProductList }    from './useProductList';
+export { useScrapeStatus }   from './useScrapeStatus';
+export { useAgentLogs }      from './useAgentLogs';
+export { useContacts }       from './useContacts';
 // Made with Bob

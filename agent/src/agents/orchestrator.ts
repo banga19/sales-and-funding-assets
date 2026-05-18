@@ -53,7 +53,7 @@ async function enrichContact(client: Contact): Promise<{ contact: Contact; resea
   const company    = client.company || '';
   const name       = client.contact_name || client.name || '';
   const email      = client.email || '';
-  const type_:     client.type;
+  const type_ = client.type;
 
   // ── Step 1: NVIDIA research prompt ─────────────────────────────────────────
   const researchPrompt = `You are an expert B2B lead researcher for Sokogate, a Kenyan construction-materials B2B e-commerce platform.
