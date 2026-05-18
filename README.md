@@ -1,221 +1,143 @@
-# Sokogate Sales & Funding Assets
+# Sokogate Sales & Funding Agent — Monorepo
 
-## 📁 Project Overview
-
-This repository contains the complete strategic playbook for Sokogate's Series A fundraising, sales pipeline, and partnership development. It includes 8 strategy documents, 4 operational trackers, and a 30-day execution calendar.
-
-**Status**: Documentation Complete — Execution Phase Ready  
-**Target**: 30 days to first milestone (3 pilots + 1 term sheet + 1 partnership)  
-**Owner**: Founder + Sales Lead  
-**Last Updated**: May 11, 2026
+> **Sokogate** | Ultimo Trading Company Limited  
+> AI-Powered B2B E-Commerce — Kenya & West Africa
 
 ---
 
-## 🗂️ Directory Structure
+## Overview
 
-```
-sales-and-funding-assets/
-├── 📋 Strategic Documents (Markdown)
-│   ├── 00-MASTER-SUMMARY.md                    ← Quick reference guide
-│   ├── 01-KENYA-CONSTRUCTION-PROSPECTS.md      ← 45 sales prospects
-│   ├── 02-SERIES-A-INVESTORS-EAST-AFRICA.md    ← 25 investor targets
-│   ├── 03-INVESTOR-PITCH-DECK-OUTLINE.md       ← Deck structure
-│   ├── 04-WEST-AFRICA-DISTRIBUTION-PARTNERS.md ← 18 partnership targets
-│   ├── 05-SALES-OUTREACH-TEMPLATES.md          ← Email/phone scripts
-│   ├── 06-PITCH-DECK-FIRST-DRAFT.md            ← Full slide content (copy to Google Slides)
-│   ├── 07-PARTNERSHIP-PROPOSAL-TEMPLATE.md     ← Partnership agreements
-│   ├── 08-30-DAY-ACTION-PLAN.md               ← Daily execution calendar
-│   ├── EXECUTION-KIT.md                        ← How to use these docs
-│   └── EXECUTION-PLAN.md                       ← Comprehensive project plan (this repo)
-├── 📊 Operational Trackers (CSV)
-│   ├── TRACKER-INVESTORS.csv                   ← Investor pipeline (25 entries)
-│   ├── TRACKER-PROSPECTS.csv                   ← Sales prospects (45 entries)
-│   ├── TRACKER-PARTNERSHIPS.csv                ← Partnerships (18 entries)
-│   └── METRICS-DASHBOARD.csv                   ← Weekly KPI tracking template
-└── 📅 Supporting Files
-    └── WEEK1-LIVE-TRACKER.md                   ← Daily task checklist
+This monorepo contains everything needed to run Sokogate's sales pipeline, product sourcing engine, and dashboard.
 
-Total: 15 files, ~200 KB
-```
+| Layer | Port | Stack |
+|---|---|---|
+| Frontend | `:3000` (dev) | React 19 + TypeScript + Tailwind CSS v4 |
+| Backend | `:3000` | Express 4 / TypeScript + BullMQ + Redis + PostgreSQL |
+| Agent | `:3002` | Express 4 / TypeScript + NVIDIA AI (Claude-compatible) + Resend |
+| Scraper Worker | n/a | Python 3 + Celery / asyncio + Playwright / httpx |
+| Scraper API | `:8000` | FastAPI + SQLAlchemy 2.0 |
+| Database | `:5432` | PostgreSQL 17 |
+
+Shared single PostgreSQL database (`sokogate`) across all services via `DATABASE_URL`.
 
 ---
 
-## 🚀 Quick Start (First 3 Hours)
+## Quick Start
 
-### Step 1: Read Core Documents (30 min)
 ```bash
-cat 00-MASTER-SUMMARY.md
-cat EXECUTION-KIT.md
-cat EXECUTION-PLAN.md
+# one-shot — starts all three dev servers in parallel
+npm run dev:all
+
+# or start individually
+npm run dev         # all three in parallel (npm-run-all)
+npm run dev:agent   # agent only
+npm run dev:backend # backend only
+npm run dev:frontend# frontend only
 ```
 
-### Step 2: Set Up CRM + Tools (60 min)
-- [ ] Access Sokogate AI dashboard: `https://sokogate-ai.ultimotradingltd.co.ke/` → login
-- [ ] Verify database tables exist (sales_prospects, investors, partnerships)
-- [ ] Import all CSVs via dashboard Import buttons:
-  - Prospects tab → Import (45 records)
-  - Investors tab → Import (25 records)
-  - Partners tab → Import (18 records)
-- [ ] Verify 88 contacts loaded across 3 tabs
-- [ ] Create Calendly link (15-min slots)
-- [ ] Create email templates in Gmail drafts (5 templates)
-- [ ] Set up Google Drive folder: `Sokogate-Sales-Funding/`
-
-### Step 3: Build Pitch Deck (45 min)
-- [ ] Open Google Slides → Create "Sokogate Series A Pitch Deck"
-- [ ] Copy content from `06-PITCH-DECK-FIRST-DRAFT.md`
-- [ ] Apply branding (Primary: #1E3A8A, Secondary: #EF4444)
-- [ ] Share with advisor for feedback
-
-### Step 4: Outreach Prep (45 min)
-- [ ] Pick 5 Tier 1 prospects from `01-KENYA-CONSTRUCTION-PROSPECTS.md`
-- [ ] Research each on LinkedIn (decision-maker name, recent news)
-- [ ] Personalize email template from `05-SALES-OUTREACH-TEMPLATES.md`
-- [ ] In dashboard, set each prospect status to "Contacted" after sending
+Dev server proxy: Vite forwards `/api/*` to the agent at port `3002`.
 
 ---
 
-## 📋 Execution Plan Summary
+## Scripts
 
-**Sprint 0 (Days 1-3)**: Foundation + Tooling
-- Dashboard verification, CSV import, email templates, pitch deck build
-
-**Sprint 1 (Days 4-10)**: Outreach Launch
-- 20 emails sent, 5 calls scheduled, LinkedIn outreach
-
-**Sprint 2 (Days 11-17)**: Investor Meetings
-- 3+ investor meetings, pitch deck finalized
-
-**Sprint 3 (Days 18-24)**: Pilot Closure
-- 3 pilots signed, 1 partnership proposal sent
-
-**Sprint 4 (Days 25-30)**: Funding Momentum
-- Term sheet received, 300+ retailers in pilots, partnership signed
-
-See `EXECUTION-PLAN.md` for detailed daily breakdown.
-
----
-
-## 🛠️ Required Tools
-
-**Primary CRM**: Sokogate AI Dashboard (your custom built platform)
-- Access: `https://sokogate-ai.ultimotradingltd.co.ke/dashboard`
-- Tabs: Leads, Prospects, Investors, Partners, Metrics
-- Features: One-click CSV import, real-time updates, status tracking, export
-
-**Supporting Tools**:
-| Tool | Purpose | Sign Up |
-|------|---------|---------|
-| Google Workspace | Slides (pitch deck), Drive (storage), Gmail (outreach) | gmail.com |
-| Calendly | Meeting scheduler | calendly.com |
-| Mailtrack (optional) | Email open tracking | mailtrack.io |
-
-**No HubSpot needed** — using your own Sokogate AI platform (already integrated).
+| Command | Description |
+|---|---|
+| `npm run dev` | Start all workspaces in parallel (agent · backend · frontend) |
+| `npm run dev:all` | Alias for `dev` — starts all three in parallel |
+| `npm run dev:agent` | Start agent workspace (port 3002) |
+| `npm run dev:backend` | Start backend workspace (port 3000) |
+| `npm run dev:frontend` | Start frontend workspace (port 3000/Vite) |
+| `npm run build` | Build all workspaces |
+| `npm run build:agent` | Build agent only |
+| `npm run build:backend` | Build backend only |
+| `npm run build:frontend` | Build frontend only (tsc + `vite build`) |
+| `npm run typecheck` | TypeScript check across all workspaces |
+| `npm run lint` | Lint all workspaces |
+| `npm run test` | Run tests across all workspaces |
+| `npm run format` | Format with Prettier (`agent/src`, `backend/src`, `frontend/src`) |
+| `npm run db:start` | Start PostgreSQL via Docker Compose |
+| `npm run db:stop` | Stop PostgreSQL |
+| `npm run db:status` | Show container status |
+| `npm run db:migrate` | Apply agent DB migrations |
+| `npm run db:seed` | Seed development data (`scripts/seed-dev.js`) |
+| `npm run infra:up` | Bring up Docker infrastructure |
+| `npm run infra:down` | Tear down Docker infrastructure |
+| `npm run infra:clean` | Down + destroy volumes |
+| `npm run infra:reset` | Clean → up (fresh DB) |
+| `npm run infra:status` | Show Docker Compose ps |
 
 ---
 
-## 📈 Key Metrics to Track
+## Project Structure
 
-| Category | Target (30 days) | Tracking |
-|----------|-----------------|----------|
-| Sales pilots signed | 3+ | Sokogate AI dashboard → Prospects tab (Closed Won) |
-| Active retailers | 300+ | Metrics tab + manual count |
-| Pilot revenue MRR | USD 20K+ | Financial notes in Prospects |
-| Investor meetings | 4+ | Investors tab (Meeting Scheduled → Pitched) |
-| Term sheets | 1 | Investors tab (Term Sheet status) |
-| Partnerships signed | 1 | Partners tab (Agreement Signed) |
-
-Update Metrics tab weekly (Friday EOD).
+```
+agent/              Express service — outreach CRM, AI message generation, scraping
+backend/            Express service — scraper orchestrator, product API, scheduling
+frontend/           React 19 dashboard — health, catalogue, Campaigns, scrape progress
+scraper/            Python worker — Playwright/httpx crawler + Celery tasks
+infra/              Docker Compose — PostgreSQL, Redis
+schema.sql          Shared DDL — leads, campaigns, conversations, products
+```
 
 ---
 
-## 🔄 Workflow
+## Environment
 
-**Daily** (15 min):
-1. Check email responses
-2. Update Sokogate AI dashboard with activities (change statuses, add notes)
-3. Send scheduled outreach
-4. Log metrics in Metrics tab or Google Sheet
+Copy `.env.example` → `.env` and fill values. Key variables:
 
-**Weekly** (Friday, 30 min):
-1. Review KPI dashboard (Metrics tab)
-2. Update CSV trackers (export from dashboard as backup)
-3. Plan next week's outreach batches
-4. Document learnings
-
-**Monthly** (1 hr):
-1. Review pipeline health (filter by status across all tabs)
-2. Update financial projections
-3. Refresh investor/partner lists
-4. Plan next month's priorities
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/sokogate` | PostgreSQL connection (all services) |
+| `NVIDIA_API_KEY` | — | NVIDIA-compatible AI (agent personalisation) |
+| `RESEND_API_KEY` | — | Email delivery via Resend |
+| `VITE_API_BASE_URL` | `/api` | Frontend API target (Vite proxy to agent in dev) |
+| `VITE_DEMO_MODE` | `0` | `1` = show mock data when backend is unreachable |
 
 ---
 
-## 🧑‍💻 Who Executes This?
+## Port Map
 
-**Solo Founder**: All tasks fall to you. Block 2-3 hours/day for execution.
-
-**Team of 2+**:
-- Founder: Investor meetings + partnership negotiations
-- Sales Lead: Prospect outreach + discovery calls
-- Ops Lead: Pilot fulfillment + metrics tracking
-
-Divide tasks in the Sokogate AI dashboard (filter by prospect type; no built-in assignment yet, but notes field can indicate owner).
-
----
-
-## 🔗 Integration with Sokogate Codebases
-
-This documentation project is related to:
-
-- **/home/apop/sokogate-ai/** — Contains the dashboard CRM (already integrated with sales_prospects, investors, partnerships tables)
-- **/home/apop/sokogate-calc/** — Calculator app (could add ROI calculator for prospects)
-
-See `EXECUTION-PLAN.md` Section 8; also review `CRM-USAGE-GUIDE.md` for dashboard walkthrough.
-
-**Integration status**: ✅ Fully built — dashboard tabs + API routes + CSV import all operational at `https://sokogate-ai.ultimotradingltd.co.ke/`
+| Service | Port |
+|---|---|
+| Backend API | 3000 |
+| Agent API | 3002 |
+| Frontend (dev) | 5173 → proxied `/api/*` → 3002 |
+| Scraper API | 8000 |
+| PostgreSQL | 5432 |
+| Redis | 6379 |
 
 ---
 
-## 📚 Document Descriptions
+## Sales & Funding Assets
 
-| File | Purpose | When to Use |
-|------|---------|-------------|
-| `00-MASTER-SUMmary.md` | One-page overview of everything | Morning standup, investor summary |
-| `01-KENYA-CONSTRUCTION-PROSPECTS.md` | 45 sales targets with contact info | Daily outreach |
-| `02-SERIES-A-INVESTORS-EAST-AFRICA.md` | 25 investor research dossiers | Fundraising prep |
-| `03-INVESTOR-PITCH-DECK-OUTLINE.md` | 15-slide structure + speaker notes | Deck building |
-| `04-WEST-AFRICA-DISTRIBUTION-PARTNERS.md` | 18 partnership opportunities | BD outreach |
-| `05-SALES-OUTREACH-TEMPLATES.md` | Ready-to-send email templates | Prospect emailing |
-| `06-PITCH-DECK-FIRST-DRAFT.md` | Complete slide content (copy to Google Slides) | Investor meetings |
-| `07-PARTNERSHIP-PROPOSAL-TEMPLATE.md` | Customizable partnership agreement | Negotiations |
-| `08-30-DAY-ACTION-PLAN.md` | Week-by-week execution calendar | Daily planning |
-| `EXECUTION-KIT.md` | Usage guide + quick reference | Onboarding |
-| `EXECUTION-PLAN.md` | Comprehensive step-by-step project plan | Strategic planning |
-| `CRM-USAGE-GUIDE.md` | Dashboard walkthrough + daily workflow | CRM operations |
+Strategy, outreach templates, and tracker CSVs are tracked alongside the codebase:
 
----
+- [`00-MASTER-SUMMARY.md`](00-MASTER-SUMMARY.md) — Executive overview of all four strategic workstreams
+- [`01-KENYA-CONSTRUCTION-PROSPECTS.md`](01-KENYA-CONSTRUCTION-PROSPECTS.md) — 45 qualified construction prospects
+- [`02-SERIES-A-INVESTORS-EAST-AFRICA.md`](02-SERIES-A-INVESTORS-EAST-AFRICA.md) — 25 impact-investor targets
+- [`03-INVESTOR-PITCH-DECK-OUTLINE.md`](03-INVESTOR-PITCH-DECK-OUTLINE.md) — 15-slide deck framework
+- [`04-WEST-AFRICA-DISTRIBUTION-PARTNERS.md`](04-WEST-AFRICA-DISTRIBUTION-PARTNERS.md) — 18 distribution partners
+- [`WEEK1-LIVE-TRACKER.md`](WEEK1-LIVE-TRACKER.md) — Daily execution plan (Mon–Fri)
+- `TRACKER-PROSPECTS.csv` — 45 rows, imports to Prospects tab
+- `TRACKER-INVESTORS.csv` — 25 rows, imports to Investors tab
+- `TRACKER-PARTNERSHIPS.csv` — 18 rows, imports to Partners tab
+- `METRICS-DASHBOARD.csv` — Weekly KPI tracker
 
-## ⚠️ Important Notes
+Source of truth for sales execution is the **Sokogate AI dashboard**:
 
-- **All files are Markdown** — Open with any text editor or VS Code
-- **CSV files** — Used by dashboard import endpoints (read automatically) and for manual backup
-- **Email templates** — Personalize for each prospect (don't send generic!)
-- **Pitch deck** — Must be built in Google Slides (not a standalone file)
-- **Metrics tracking** — Update dashboard Metrics tab weekly (Friday EOD)
-- **CRM** — All activity goes in the Sokogate AI dashboard; no external tool needed
+> <https://sokogate-ai.ultimotradingltd.co.ke/>
 
 ---
 
-## 🤝 Support
+## Architecture Notes
 
-Questions? Refer to:
-1. `EXECUTION-KIT.md` — How to use each document
-2. `EXECUTION-PLAN.md` — Day-by-day task breakdown
-3. `08-30-DAY-ACTION-PLAN.md` — Weekly focus areas
-
-**Ready to execute. Go get that Series A.** 💪
+- Monorepo managed by **npm workspaces**.
+- Shared `schema.sql` defines the canonical table names: `market_leads`, `conversations`, `scraped_products`, `feature_flags`, etc.
+- Frontend uses **adaptive dual polling** (30 s health/status tick + 2 s scrape status tick while active).
+- Agent product sourcing has an **in-memory SSE pub/sub** backend for real-time progress without WebSockets.
+- TypeScript targets clean build across all three workspaces with zero errors.
 
 ---
 
-*Generated: May 11, 2026 | Project: Sokogate Sales & Funding | Status: Active*
+*Built with Bob* 🤖

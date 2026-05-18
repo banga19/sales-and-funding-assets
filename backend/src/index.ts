@@ -36,7 +36,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Request log
 app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
-  logger.http(`${_req.method} ${_req.path}`);
+  logger.http({ path: `${_req.method} ${_req.path}` });
   next();
 });
 
@@ -117,7 +117,7 @@ app.use((_req: express.Request, res: express.Response) => {
 
 // ── Error handler ───────────────────────────────────────────────────────────────
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error('Unhandled error', { error: err.message, stack: err.stack });
+  logger.error({ message: 'Unhandled error', error: err.message, stack: err.stack });
   res.status(500).json({
     error: 'Internal server error',
     message: config.NODE_ENV === 'development' ? err.message : undefined,
@@ -129,9 +129,11 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 const port = config.PORT;
 
 app.listen(port, () => {
-  logger.info('Sokogate Sales & Funding Agent backend started', {
-    port, environment: config.NODE_ENV,
-    dryRun: config.AGENT_DRY_RUN, features: config.features,
+  logger.info({ message: 'startup',
+    port,
+    environment: config.NODE_ENV,
+    dryRun:    config.AGENT_DRY_RUN,
+    features:  config.features,
     rateLimits: config.rateLimits,
     scraper: {
       baseUrl:      defaultBaseUrl,
@@ -145,7 +147,9 @@ app.listen(port, () => {
       schedule:     config.scraper.schedule,
     },
   });
-  logger.info('Health check: GET http://localhost:%d/health', port);
+
+
+  logger.info({ message: `Health check: GET http://localhost:${port}/health` });
 });
 
 export default app;

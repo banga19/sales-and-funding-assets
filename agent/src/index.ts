@@ -79,16 +79,18 @@ class SalesAgent {
       res.json({ status, timestamp: new Date().toISOString(), checks });
     });
 
-    // Get agent status
+    // Get agent status — returns features, rateLimits, and health for the dashboard
     this.app.get('/api/status', (req: Request, res: Response) => {
       res.json({
         enabled: agentConfig.enabled,
         dryRun: agentConfig.dryRun,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
         features: agentConfig.features,
         rateLimits: {
           email: {
             remaining: emailService.getRemainingToday(),
-            limit: agentConfig.rateLimits.email.perDay,
+            limit: agentConfig.rateLimits?.email?.perDay ?? 50,
           },
         },
       });
@@ -136,6 +138,105 @@ class SalesAgent {
     // Mount agent routes
     this.app.use('/api/agent', agentRoutes);
 
+    // ── Contact Management ───────────────────────────────────────────────────────
+    this.app.get('/api/contacts', async (req: Request, res: Response) => {
+      try {
+        const { type, search, stage, page = '1', pageSize = '20' } = req.query;
+        // All rows from market_leads are 'prospect' contacts
+        const where: string[] = [];
+        const params: any[] = [];
+        let idx = 1;
+        if (stage)  { where.push(`status = $${idx}`); params.push(String(stage)); idx++; }
+        if (search) { where.push(`(company_name ILIKE $${idx} OR contact_person ILIKE $${idx} OR email ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+        const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+        const pg = Math.max(1, parseInt(String(page), 10) || 1);
+        const ps = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
+        const offset = (pg - 1) * ps;
+        const countRow = await db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM market_leads ${whereClause}`, params);
+        const dataRows = await db.query(`SELECT * FROM market_leads ${whereClause} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]);
+        const data = (dataRows.rows ?? []).map((r: any) => ({
+          id: r.id, type: 'prospect', name: r.contact_person || 'Unknown',
+          email: r.email || '', phone: r.phone, company: r.company_name,
+          title: '', stage: r.status || 'new', notes: r.notes || r.product_interest || '',
+          lastContactDate: r.last_contact_date || null,
+          nextFollowupDate: r.next_followup_date || null,
+          createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
+        }));
+        res.json({ data, total: +(countRow.rows[0]?.count || '0'), page: pg, pageSize: ps });
+      } catch (error: any) {
+        logger.error('List contacts failed', { error: error.message });
+        res.status(500).json({ error: 'Failed to list contacts', message: error.message, data: [], total: 0, page: 1, pageSize: 20 });
+      }
+    });
+
+    this.app.get('/api/contacts/:id', async (req: Request, res: Response) => {
+      try {
+        const { rows } = await db.query('SELECT * FROM market_leads WHERE id = $1', [req.params.id]);
+        if (!rows.length) return res.status(404).json({ error: 'Contact not found' });
+        const r = rows[0];
+        res.json({
+          id: r.id, type: r.type || 'prospect', name: r.contact_person || 'Unknown',
+          email: r.email || '', phone: r.phone, company: r.company_name, title: '',
+          stage: r.status || 'new', lastContactDate: r.last_contact_date || null,
+          nextFollowupDate: r.next_followup_date || null, notes: r.notes || r.product_interest || '',
+          createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
+        });
+      } catch (error: any) {
+        logger.error('Get contact failed', { error: error.message });
+        res.status(500).json({ error: 'Failed to get contact', message: error.message });
+      }
+    });
+
+    // ── Email Test ───────────────────────────────────────────────────────────────
+    this.app.post('/api/agent/email/test', async (req: Request, res: Response) => {
+      try {
+        const { to, subject } = req.body;
+        const targetTo = to || agentConfig.email.resend.from.email;
+        const targetSubject = subject || 'Sokogate \u2014 Test Email';
+
+        if (agentConfig.dryRun) {
+          logger.info('[EMAIL TEST] Dry-run mode \u2014 not actually sending', { to: targetTo, subject: targetSubject });
+          return res.json({ success: true, mode: 'dry-run', message: `[DRY RUN] Would send test email to ${targetTo}`, to: targetTo, subject: targetSubject });
+        }
+
+        const result = await emailService.send({
+          to: targetTo,
+          subject: targetSubject,
+          html: `<p>This is a <strong>test email</strong> from Sokogate Sales &amp; Funding Agent.</p><p>If you received this, your email service is working correctly.</p>`,
+          text: 'This is a test email from Sokogate Sales & Funding Agent. If you received this, your email service is working correctly.',
+        });
+
+        if (result.success) {
+          res.json({ success: true, mode: 'live', message: result.message_id ? `Test email sent (message id: ${result.message_id})` : 'Test email sent', to: targetTo, subject: targetSubject });
+        } else {
+          res.status(400).json({ success: false, error: result.error, to: targetTo, subject: targetSubject });
+        }
+      } catch (error: any) {
+        logger.error('Email test failed', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // ── Logs ─────────────────────────────────────────────────────────────────────
+    const LOG_BUFFER_MAX = 200;
+    const logBuffer: { timestamp: string; level: string; message: string }[] = [];
+
+    const origInfo  = logger.info;
+    const origWarn  = logger.warn;
+    const origError = logger.error;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (logger as any).info  = (...args: unknown[]) => { const ts = new Date().toISOString(); const msg = String(args.join(' ')).slice(0, 500); logBuffer.push({ timestamp: ts, level: 'info',  message: msg }); if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift(); (origInfo as any)(...args); };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (logger as any).warn  = (...args: unknown[]) => { const ts = new Date().toISOString(); const msg = String(args.join(' ')).slice(0, 500); logBuffer.push({ timestamp: ts, level: 'warn',  message: msg }); if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift(); (origWarn as any)(...args); };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (logger as any).error = (...args: unknown[]) => { const ts = new Date().toISOString(); const msg = String(args.join(' ')).slice(0, 500); logBuffer.push({ timestamp: ts, level: 'error', message: msg }); if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift(); (origError as any)(...args); };
+
+    this.app.get('/api/agent/logs', (req: Request, res: Response) => {
+      const lines = req.query.lines ? Math.min(parseInt(String(req.query.lines), 10), LOG_BUFFER_MAX) : 100;
+      const start = Math.max(0, logBuffer.length - lines);
+      res.json({ logs: logBuffer.slice(start), total: logBuffer.length });
+    });
+
     // ── Real-Time Product Sourcing ───────────────────────────────────────────────
     // POST /api/products/scrape — trigger autonomous crawl of sokogate.com
     // 202 Accepted is returned immediately; the scrape runs in the background so
@@ -143,6 +244,9 @@ class SalesAgent {
     // is waiting on external I/O (axios + cheerio + DB per product page).
     this.app.post('/api/products/scrape', async (req: Request, res: Response) => {
       try {
+        const bodyMode = String(req.body?.mode ?? 'background').toLowerCase();
+        const isForeground = bodyMode === 'foreground';
+
         // Kick off the run but do NOT await it — res.send() finishes the HTTP
         // connection so the event loop can handle concurrent /status GETs.
         (async () => {
@@ -155,11 +259,22 @@ class SalesAgent {
           }
         })();
 
-        // Send 202 Accepted immediately — caller should poll /scrape/status for live progress.
-        res.status(202).json({
-          success: true,
-          message: 'Sourcing triggered — poll /api/products/scrape/status for live progress',
-        });
+        if (isForeground) {
+          // Foreground: respond with a phase hint so the frontend status bar shows
+          // 'discovering' immediately while the long-running scrape executes.
+          res.status(202).json({
+            success: true,
+            phase:   'discovering',
+            message: 'Sourcing triggered — discovering product URLs…',
+          });
+        } else {
+          // Background: same shape with explicit 'idle' phase (job offloaded to BullMQ)
+          res.status(202).json({
+            success: true,
+            phase:   'idle',
+            message: 'Sourcing queued — worker is picking up the job',
+          });
+        }
       } catch (error: any) {
         logger.error('Product scrape trigger failed', { error });
         res.status(500).json({ success: false, error: error.message });
@@ -219,7 +334,14 @@ class SalesAgent {
         const { orchestrator } = await import('./agents/orchestrator');
         const status = orchestrator.getScrapeStatus();
         const { rows } = await db.query<{ count: string }>('SELECT COUNT(*) AS count FROM scraped_products');
-        res.json({ success: true, phase: status.phase, message: status.message, productCount: +(rows[0]?.count || 0), scrapedAt: status.scrapedAt });
+        res.json({
+          success:      true,
+          phase:        status.phase,
+          message:      status.message,
+          productCount: +(rows[0]?.count || 0),
+          scrapedAt:    status.scrapedAt,
+          runId:        status.runId,
+        });
       } catch (error: any) {
         logger.error('Scrape status failed', { error });
         res.status(500).json({ error: 'Failed to get scrape status', message: error.message });

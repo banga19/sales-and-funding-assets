@@ -19,22 +19,30 @@ import {
 } from '../../jobs/metrics-sync.job';
 import { logger } from '../../utils/logger';
 import { db } from '../../database/db.client';
+import { agentConfig } from '../../config/agent.config';
+import { emailService } from '../../channels/email.service';
 
 const router = Router();
 
 /**
  * GET /api/agent/status
- * Get agent status and configuration
+ * Get agent status and configuration with feature flags and rate limits
  */
-router.get('/status', async (req: Request, res: Response) => {
+router.get('/status', async (_req: Request, res: Response) => {
   try {
-    const status = {
-      enabled: true,
+    res.json({
+      enabled: agentConfig.enabled,
+      dryRun: agentConfig.dryRun,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
-    };
-
-    res.json(status);
+      features: agentConfig.features,
+      rateLimits: {
+        email: {
+          remaining: emailService.getRemainingToday(),
+          limit: agentConfig.rateLimits?.email?.perDay ?? 50,
+        },
+      },
+    });
   } catch (error: any) {
     logger.error('Failed to get agent status', { error });
     res.status(500).json({ error: error.message });
@@ -406,6 +414,71 @@ router.get('/funding/digest', async (req: Request, res: Response) => {
   } catch (error: any) {
     logger.error('Funding digest failed', { error });
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Feature Flags — toggle individual feature keys at runtime
+// Both endpoints hit PostgreSQL directly so the override survives restarts.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const RECOGNISED_KEYS = Object.keys(agentConfig.features);
+
+/**
+ * GET /api/agent/features
+ * Returns the effective (env + DB overlay) features object.
+ */
+router.get('/features', async (_req: Request, res: Response) => {
+  try {
+    const { rows } = await db.query<{ key: string; value: boolean }>(
+      'SELECT key, value FROM feature_flags',
+    );
+
+    const dbOverrides: Record<string, boolean> = {};
+    for (const r of rows) { dbOverrides[r.key] = r.value; }
+
+    const features: Record<string, boolean> = {};
+    for (const k of RECOGNISED_KEYS) {
+      features[k] = k in dbOverrides ? dbOverrides[k] : (agentConfig.features as any)[k];
+    }
+
+    res.json({ features, source: rows.length ? 'db_overlay' : 'env_only' });
+  } catch (err: any) {
+    logger.error('getFeatureFlags error', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/agent/features/:key
+ * Persist a single feature flag to the DB; returns the new effective value.
+ */
+router.put('/features/:key', async (req: Request, res: Response) => {
+  try {
+    const { key }  = req.params;
+    const { value } = req.body ?? {};
+
+    if (!RECOGNISED_KEYS.includes(key)) {
+      return void res.status(400).json({
+        error: `Unknown feature key "${key}". Valid: ${RECOGNISED_KEYS.join(', ')}`,
+      });
+    }
+    if (typeof value !== 'boolean') {
+      return void res.status(400).json({ error: 'Body must include boolean "value"' });
+    }
+
+    await db.query(
+      `INSERT INTO feature_flags (key, value, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, value],
+    );
+
+    logger.info('Feature flag toggled', { key, value });
+    res.json({ key, value, updated_at: new Date().toISOString() });
+  } catch (err: any) {
+    logger.error('setFeatureFlag error', { error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 

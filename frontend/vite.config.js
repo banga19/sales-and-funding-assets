@@ -22,27 +22,16 @@ export default defineConfig({
         port: 3001,
         strictPort: true,
         proxy: {
-            // All /api/* calls ──────────────────────────────────────────────────────────
-            // DEVELOPMENT (default): /api/* → Agent (port 3002)
-            //   The Agent owns /api/health, /api/status, /api/agent/*, /api/contacts/*
-            //   Product scraping routes go to Backend (port 3000)
-            //
-            // PRODUCTION override:     set VITE_API_TARGET to the backend URL in
-            //   frontend/.env.production (e.g. https://api.sokogate.com)
-            // ─────────────────────────────────────────────────────────────────────────
-            // Product scraping routes → Backend (port 3000)
-            '/api/products': {
-                target: BACKEND_TARGET,
-                changeOrigin: true,
-            },
-            // Contacts/CMS routes  → Agent (port 3002)  [primary target]
+            // ── /api/* → Agent (port 3002)
+            //    Agent owns /api/health, /api/status, /api/agent/*, /api/contacts/*
             '/api': {
                 target: API_TARGET,
                 changeOrigin: true,
             },
-            // Webhooks (WhatsApp / Email provider callbacks) → no change needed
-            '/webhooks': {
-                target: 'http://localhost:3002',
+            // ── /api/products → Backend (port 3000) — wins over /api catch-all above
+            //    because it is a more specific prefix match
+            '/api/products': {
+                target: BACKEND_TARGET,
                 changeOrigin: true,
             },
         },

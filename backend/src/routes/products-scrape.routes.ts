@@ -31,11 +31,11 @@ function clearJob(key: string): void                             { activeJobs.de
 
 function respondWithScraperError(res: Response, message: string, err: unknown): void {
   if (err instanceof ScraperError) {
-    logger.warn('[scrape] ScraperError', { code: err.code, status: err.statusCode, message: err.message });
+    logger.warn({ message, code: err.code, status: err.statusCode, error: err.message });
     return void res.status(err.statusCode).json({ success: false, error: message, code: err.code, detail: err.detail });
   }
   const msg = err instanceof Error ? err.message : String(err);
-  logger.error('[scrape] Unexpected error', { message, original: msg });
+  logger.error({ message, originalError: msg });
   res.status(500).json({ success: false, error: message, originalError: msg });
 }
 
@@ -72,10 +72,10 @@ router.post('/scrape', async (req: Request, res: Response) => {
     // ── Helper: persist rows + update run record ─────────────────────────────
     async function finalizeRun(runId: string, rawRows: RawProductRow[], stats: { durationMs: number }) {
       await persistScrapeRows(rawRows, runId, (_phase, message) =>
-        logger.info('[scrape] progress', { runId, phase: _phase, message }),
+        logger.info({ message: '[scrape] progress', runId, phase: _phase, progressMsg: message }),
       );
       await updateScrapeRun(runId, { status: 'completed', products_scraped: rawRows.length, duration_ms: stats.durationMs } as any);
-      logger.info('[scrape] foreground complete', { runId, products: rawRows.length });
+      logger.info({ message: '[scrape] foreground complete', runId, products: rawRows.length });
     }
 
     // ── Foreground ───────────────────────────────────────────────────────────
@@ -108,13 +108,13 @@ router.post('/scrape', async (req: Request, res: Response) => {
     const runLifeCycle = await beginScrapeRun({ triggeredBy: 'manual', baseUrl: bodyBaseUrl, maxPages });
 
     registerStatusCallback(runLifeCycle.runId, (_phase, message) => {
-      logger.info('[scrape] job progress', { runId: runLifeCycle.runId, msg: message });
+      logger.info({ message: '[scrape] job progress', runId: runLifeCycle.runId, msg: message });
     });
 
     try {
       const job = await enqueueScrapeJob({ baseUrl: bodyBaseUrl, maxPages, maxProducts });
       await updateScrapeRun(runLifeCycle.runId, { metadata: { jobId: job.id ?? runLifeCycle.runId } } as any);
-      logger.info('[scrape] job enqueued', { jobId: job.id, runId: runLifeCycle.runId });
+      logger.info({ message: '[scrape] job enqueued', jobId: job.id, runId: runLifeCycle.runId });
       return void res.status(202).json({
         success:    true,
         message:    'Scrape job enqueued',
@@ -182,8 +182,8 @@ router.get('/scrape/queue-stats', async (_req: Request, res: Response) => {
 router.post('/scrape/worker/start', async (_req: Request, res: Response) => {
   try {
     const worker = await makeWorker();
-    worker.on('completed', (job: any) => logger.info('[worker] completed', { jobId: job.id }));
-    worker.on('failed',    (job: any, err: Error) => logger.error('[worker] failed',   { jobId: job?.id, error: err.message }));
+    worker.on('completed', (job: any) => logger.info({ message: '[worker] completed', jobId: job.id }));
+    worker.on('failed',    (job: any, err: Error) => logger.error({ message: '[worker] failed', jobId: job?.id, error: err.message }));
     res.json({ success: true, message: 'Scrape worker started', concurrency: 3 });
   } catch (err: unknown) {
     respondWithScraperError(res, 'Failed to start worker', err);

@@ -22,6 +22,8 @@ export interface AgentStatus {
     autoScheduling: boolean;
     sentimentAnalysis: boolean;
     objectionHandling: boolean;
+    productScraping: boolean;
+    playwrightScraper: boolean;
   };
   rateLimits: {
     email: {

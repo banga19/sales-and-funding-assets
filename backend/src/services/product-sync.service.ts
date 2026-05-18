@@ -73,14 +73,14 @@ export async function beginScrapeRun(params: {
         products_scraped: stats.productsScraped,
         duration_ms:     stats.durationMs,
       } as any);
-      logger.info('[scrape-run] completed',             { runId, ...stats });
+      logger.info({ message: '[scrape-run] completed', runId, ...stats });
     },
     async fail(err: Error) {
       await updateScrapeRun(runId, {
         status:         'failed',
         error_message: err.message.slice(0, 500),
       } as any);
-      logger.error('[scrape-run] failed',               { runId, error: err.message });
+      logger.error({ message: '[scrape-run] failed', runId, error: err.message });
     },
   };
 }
@@ -131,7 +131,7 @@ export async function persistScrapeRows(
       onProgress?.('persisting', `Upserted ${upserted}/${rawRows.length}: ${row.name}`);
     } catch (err: any) {
       errors.push(`${row.sourceUrl}: ${err.message}`);
-      logger.warn('[product-sync] upsert error', { url: row.sourceUrl, error: err.message });
+      logger.warn({ message: '[product-sync] upsert error', url: row.sourceUrl, error: err.message });
     }
   }
 

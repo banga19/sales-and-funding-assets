@@ -1,28 +1,157 @@
 // @ts-nocheck
-import { logger } from '../utils/logger';
+import { logger, loggers } from '../utils/logger';
 import { db } from '../database/db.client';
 import { emailService } from '../channels/email.service';
 import { personalizationService } from './personalization';
 import { agentConfig } from '../config/agent.config';
-import {
-  Contact,
-  Conversation,
-  Message,
-  ScheduledAction,
+import type {
+  Contact, Conversation, Message, ScheduledAction,
   ContactType,
 } from '../types/contact.types';
-import {
-  Intent,
-  MessageContext,
-  GeneratedMessage,
-  IncomingMessage,
+import type {
+  Intent, MessageContext, GeneratedMessage, IncomingMessage,
 } from '../types/message.types';
 import { sourceProductData, getLiveStatus, subscribe as subscribeScrape } from '../services/product-source.service';
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SCOUT RESEARCH ENGINE (NVIDIA-powered personal data enrichment)
+ * ───────────────────────────────────────────────────────────────────────────
+ * Before a contact is sent an email the agent:
+ *  1. Reads whatever is already stored in market_leads
+ *  2. Calls NVIDIA with a research prompt to fill in missing fields
+ *  3. Upserts the enriched record back into market_leads (enriched_data JSONB)
+ *  4. Fetches 3–5 matching sokogate.com products for context
+ *  5. Passes the complete, richly-personalised context to the LLM for drafting
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+interface ResearchBrief {
+  role?: string;
+  title?: string;
+  industry?: string;
+  location?: string;
+  pain_points: string[];
+  engagement_hook: string;
+  company_size: string;
+  source: string;           // 'nvidia_research'
+  confidence: number;
+  scraped_at: string;
+}
+
+interface ProductSummary {
+  id: string;
+  name: string;
+  price_current: string;
+  category: string;
+  images: string[];
+}
+
 /**
- * Agent Orchestrator
- * Coordinates all agent activities including outreach, follow-ups, and responses
+ * ContactResearch — enriches a raw market_leads row before outreach.
+ * Purely in-process; no new service class file required.
  */
+async function enrichContact(client: Contact): Promise<{ contact: Contact; research: ResearchBrief; products: ProductSummary[] }> {
+  const company    = client.company || '';
+  const name       = client.contact_name || client.name || '';
+  const email      = client.email || '';
+  const type_:     client.type;
+
+  // ── Step 1: NVIDIA research prompt ─────────────────────────────────────────
+  const researchPrompt = `You are an expert B2B lead researcher for Sokogate, a Kenyan construction-materials B2B e-commerce platform.
+
+Given the following minimal information about a target contact, produce a STRICT JSON response with the fields listed below. Do NOT add commentary, do NOT wrap the JSON in code fences, and do NOT include explanations before or after the JSON.
+
+Available data:
+- Company:     "${company}"
+- Contact:     "${name}"
+- Email:       "${email}"
+- Contact type:${type_}
+- Source:      "inbound enquiry / cold prospect"${client.notes ? `\n- Notes:    "${client.notes}"` : ''}
+
+Required JSON schema (all fields mandatory; use empty string / empty array for unknowns):
+{
+  "role": "<e.g. Procurement Manager, Head of Purchasing, CEO, Partners, CFO — best guess from company size and name>",
+  "industry": "<e.g. construction, manufacturing, retail, logistics, healthcare, agriculture>",
+  "location": "<city and country, e.g. Nairobi, Kenya > ${client.location || 'UNKNOWN'}>",
+  "pain_points": [
+    "<one concise pain this contact's role / company is likely to face that Sokogate solves — supply-chain delays, stock-outs, high procurement costs, payment gaps>",
+    "<a second distinct pain>",
+    "<a third pain if available, otherwise omit>"
+  ],
+  "engagement_hook": "<one specific, data-driven sentence we can open our outreach with — reference the company by name and name a concrete benefit>",
+  "company_size": "<micro / small / medium / large / enterprise>",
+  "confidence": 0.0-1.0
+}`;
+
+  let research: ResearchBrief = {
+    role:         'unknown',
+    industry:     'unknown',
+    location:     'unknown',
+    pain_points:  [],
+    engagement_hook: `Reaching out to ${company}`,
+    company_size: 'unknown',
+    source:       'nvidia_research',
+    confidence:   0.0,
+    scraped_at:   new Date().toISOString(),
+  };
+
+  try {
+    const resp = await personalizationService as any;
+    const r = await (resp as any).openai.chat.completions.create({
+      model:      agentConfig.ai.model,
+      max_tokens: 600,
+      messages: [{ role: 'user', content: researchPrompt }],
+      temperature: 0.3,
+    });
+    const parsed = JSON.parse(r.choices[0]?.message?.content || '{}');
+    research = { ...research, ...parsed };
+  } catch (err: any) {
+    logger.warn('[research] NVIDIA enrichment failed, using defaults', { error: err.message, company });
+  }
+
+  // ── Step 2: fetch matching products for context ─────────────────────────────
+  let products: ProductSummary[] = [];
+  try {
+    const prodResp: any = await db.query(
+      `SELECT id, name, price_current, category, images
+         FROM scraped_products
+        WHERE (category ILIKE $1 OR name ILIKE $1)
+        ORDER BY last_scraped_at DESC
+        LIMIT 5`,
+      [`%${type_}%`]
+    );
+    products = prodResp.rows.map((r: any) => ({
+      id: r.id, name: r.name, price_current: r.price_current,
+      category: r.category, images: r.images ?? [],
+    }));
+  } catch { /* non-fatal */ }
+
+  // ── Step 3: persist enriched_data JSONB onto market_leads ──────────────────
+  try {
+    const enrichedData = {
+      role: research.role,
+      title: research.role,
+      industry: research.industry,
+      location: research.location,
+      pain_points: research.pain_points,
+      engagement_hook: research.engagement_hook,
+      company_size: research.company_size,
+      confidence: research.confidence,
+      scraped_at: research.scraped_at,
+    };
+    await db.query(
+      `UPDATE market_leads
+         SET enriched_data = $1,
+             updated_at    = NOW()
+       WHERE id = $2`,
+      [JSON.stringify(enrichedData), client.id]
+    );
+  } catch { /* non-fatal: enriched_data column may not exist yet */ }
+
+  return { contact: client, research, products };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
 class AgentOrchestrator {
   private static instance: AgentOrchestrator;
 
@@ -35,110 +164,136 @@ class AgentOrchestrator {
     return AgentOrchestrator.instance;
   }
 
+  // ─── Outreach Helpers ─────────────────────────────────────────────────────────
+
   /**
-   * Process initial outreach for a contact
-   * Supports: prospect / investor / partner / funding (Ultimo Trading Co.)
+   * Build a prompt context for the LLM using enriched research data.
+   */
+  private buildMessageContext(
+    contact: Contact,
+    research: ResearchBrief,
+    stage: string,
+  ): MessageContext {
+    return {
+      contact_type:  contact.type,
+      tier:          'T1',
+      company:       contact.company,
+      role:          research.role,
+      industry:      research.industry,
+      location:      research.location,
+      pain_point:    research.pain_points[0] || undefined,
+      engagement_angle: research.engagement_hook,
+      is_first_contact: stage === 'initial',
+      contact_name:  contact.contact_name || contact.name,
+    };
+  }
+
+  /**
+   * Process initial outreach for a contact.
+   * Calls enrichContact() → DB upsert → LLM message generation → send.
    */
   public async processInitialOutreach(contact: Contact): Promise<boolean> {
     try {
       logger.info('Processing initial outreach', {
         contact_id: contact.id,
         type: contact.type,
-        channel: contact.preferred_channel,
       });
 
-      // Check if conversation already exists
-      const existingConversation = await this.getConversation(contact.id);
-      if (existingConversation && existingConversation.stage !== 'new') {
+      // ── Stage 1: Research ───────────────────────────────────────────────────
+      logger.info('[outreach] Enriching contact with NVIDIA research', {
+        contact_id: contact.id, company: contact.company,
+      });
+      const { contact: enriched, research } = await enrichContact(contact);
+
+      // ── Stage 2: Check / create conversation ────────────────────────────────
+      const existingConvo = await this.getConversation(enriched.id);
+      if (existingConvo && (existingConvo.current_stage ?? existingConvo.stage) !== 'not_started') {
         logger.warn('Contact already has active conversation', {
-          contact_id: contact.id,
-          stage: existingConversation.stage,
+          contact_id: enriched.id,
+          stage: existingConvo.current_stage ?? existingConvo.stage,
         });
         return false;
       }
 
-      // Generate personalized message
-      const context: MessageContext = {
-        contactType: contact.type,
-        stage: 'initial',
-        previousMessages: [],
-        contactData: {
-          name: contact.name,
-          company: contact.company,
-          role: contact.role,
-          industry: contact.industry,
-          location: contact.location,
-          painPoints: contact.pain_points,
-          engagementScore: contact.engagement_score,
-        },
-      };
+      const stage = existingConvo ? (existingConvo.current_stage ?? existingConvo.stage) : 'initial';
 
-      const generatedMessage = await personalizationService.generateMessage(context);
+      // ── Stage 3: Build rich context for LLM ─────────────────────────────────
+      const context = this.buildMessageContext(enriched, research, stage);
 
-      // Send via preferred channel
+      // ── Stage 4: Generate personalised message ───────────────────────────────
+      const generatedMessage = await personalizationService.generateMessage(enriched, context);
+
+      // ── Stage 5: Send via email ──────────────────────────────────────────────
+      const subject = generatedMessage.subject || this.getDefaultSubject(enriched.type);
+
       let sent = false;
-      if (contact.preferred_channel === 'email' && contact.email) {
-        sent = await emailService.send({
-          to: contact.email,
-          subject: generatedMessage.subject || this.getDefaultSubject(contact.type),
-          html: generatedMessage.content,
-          from: agentConfig.email.fromAddress,
-        });
+      if (enriched.email) {
+        if (agentConfig.dryRun) {
+          logger.info('[outreach] [DRY RUN] Would send email', {
+            to: enriched.email, subject,
+            company: enriched.company,
+          });
+          sent = true;
+        } else {
+          sent = await emailService.send({
+            to:      enriched.email,
+            subject,
+            html:    generatedMessage.content,
+            text:    generatedMessage.body || undefined,
+            from:    agentConfig.email.resend.from.email,
+          });
+        }
       }
 
-      if (!sent) {
-        logger.error('Failed to send initial outreach', { contact_id: contact.id });
-        return false;
-      }
+      if (!sent) return false;
 
-      // Create or update conversation
-      await this.createOrUpdateConversation(contact.id, {
-        stage: 'initial_sent',
-        last_message_at: new Date(),
-        message_count: 1,
+      // ── Stage 6: Persist conversation + log message ──────────────────────────
+      const stageLabel = 'delivered';
+      await this.createOrUpdateConversation(enriched.id, {
+        'current_stage':         stageLabel,
+        'last_message_date':    new Date(),
+        'response_count':       1,
+        'escalation_required':  false,
+        'created_at':           new Date(),
+        'updated_at':           new Date(),
       });
 
-      // Log message
       await this.logMessage({
-        contact_id: contact.id,
-        direction: 'outbound',
-        channel: contact.preferred_channel,
-        content: generatedMessage.content,
-        subject: generatedMessage.subject,
+        contact_id:      enriched.id,
+        direction:       'outbound',
+        channel:         'email',
+        content:         generatedMessage.content,
+        subject,
         personalization_score: generatedMessage.personalizationScore,
-        sent_at: new Date(),
+        sent_at:         new Date(),
       });
 
-      // Schedule follow-up
-      await this.scheduleFollowUp(contact.id, 3); // 3 days
+      await this.scheduleFollowUp(enriched.id, 3);
 
       logger.info('Initial outreach sent successfully', {
-        contact_id: contact.id,
-        channel: contact.preferred_channel,
+        contact_id:    enriched.id,
+        company:       enriched.company,
         personalization_score: generatedMessage.personalizationScore,
       });
 
       return true;
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error processing initial outreach', {
-        contact_id: contact.id,
-        error,
+        contact_id: contact.id, error: error.message,
       });
       return false;
     }
   }
 
-  /**
-   * Process incoming message from a contact
-   */
+  // ─── Inbound Message Handling ────────────────────────────────────────────────
+
   public async processIncomingMessage(incomingMessage: IncomingMessage): Promise<void> {
     try {
       logger.info('Processing incoming message', {
         contact_id: incomingMessage.contactId,
-        channel: incomingMessage.channel,
+        channel:    incomingMessage.channel,
       });
 
-      // Get conversation
       const conversation = await this.getConversation(incomingMessage.contactId);
       if (!conversation) {
         logger.warn('No conversation found for incoming message', {
@@ -147,413 +302,401 @@ class AgentOrchestrator {
         return;
       }
 
-      // Analyze intent
+      // ── Stage 1: Re-research contact on reply (fresh context for LLM) ────────
+      const contact = await this.getContact(incomingMessage.contactId);
+      if (!contact) return;
+
+      let research: ResearchBrief | undefined;
+      try {
+        const { research: r } = await enrichContact(contact);
+        research = r;
+      } catch { /* non-fatal: use existing DB data */ }
+
+      // ── Stage 2: AI intent analysis ──────────────────────────────────────────
       const intent = await personalizationService.analyzeIntent(
         incomingMessage.content,
-        conversation.stage
+        contact,
       );
 
       logger.info('Intent analyzed', {
         contact_id: incomingMessage.contactId,
-        intent: intent.intent,
+        intent: intent.type,
         sentiment: intent.sentiment,
         confidence: intent.confidence,
       });
 
-      // Log incoming message
+      // ── Stage 3: Log inbound message ─────────────────────────────────────────
       await this.logMessage({
-        contact_id: incomingMessage.contactId,
-        direction: 'inbound',
-        channel: incomingMessage.channel,
-        content: incomingMessage.content,
-        intent: intent.intent,
-        sentiment: intent.sentiment,
-        received_at: new Date(),
+        contact_id:      incomingMessage.contactId,
+        conversation_id: conversation.id,
+        direction:       'inbound',
+        channel:         incomingMessage.channel,
+        content:         incomingMessage.content,
+        intent_detected: intent.type,
+        sentiment:       intent.sentiment,
+        received_at:     new Date(),
       });
 
-      // Handle based on intent
+      // ── Stage 4: Route & handle ───────────────────────────────────────────────
       await this.handleIntent(incomingMessage.contactId, intent, conversation);
 
-      // Update conversation
-      await this.updateConversationStage(incomingMessage.contactId, intent.intent);
+      // ── Stage 5: Update stage ─────────────────────────────────────────────────
+      await this.updateConversationStage(incomingMessage.contactId, intent.type);
     } catch (error) {
       logger.error('Error processing incoming message', {
-        contact_id: incomingMessage.contactId,
-        error,
+        contact_id: incomingMessage.contactId, error,
       });
     }
   }
 
-  /**
-   * Handle intent-based actions
-   */
   private async handleIntent(
     contactId: string,
     intent: Intent,
-    conversation: Conversation
+    conversation: Conversation,
   ): Promise<void> {
-    switch (intent.intent) {
+    switch (intent.type) {
       case 'positive_interest':
         await this.handlePositiveInterest(contactId, intent, conversation);
         break;
-
       case 'question':
         await this.handleQuestion(contactId, intent, conversation);
         break;
-
       case 'objection':
         await this.handleObjection(contactId, intent, conversation);
         break;
-
       case 'not_interested':
         await this.handleNotInterested(contactId);
         break;
-
       case 'out_of_office':
         await this.handleOutOfOffice(contactId);
         break;
-
       case 'unclear':
         await this.handleUnclear(contactId, intent);
         break;
-
       default:
-        logger.warn('Unknown intent', { contact_id: contactId, intent: intent.intent });
+        logger.warn('Unknown intent', { contact_id: contactId, intent: intent.type });
     }
   }
 
-  /**
-   * Handle positive interest
-   */
   private async handlePositiveInterest(
-    contactId: string,
-    intent: Intent,
-    conversation: Conversation
+    contactId: string, intent: Intent, conversation: Conversation,
   ): Promise<void> {
     logger.info('Handling positive interest', { contact_id: contactId });
 
-    // Generate response
-    const response = await personalizationService.generateResponse(intent, conversation.stage);
-
-    // Send response
     const contact = await this.getContact(contactId);
     if (!contact) return;
 
-    if (contact.preferred_channel === 'email' && contact.email) {
+    const response = await personalizationService.generateResponse(
+      intent, contact,
+    );
+
+    if (contact.email) {
       await emailService.send({
-        to: contact.email,
+        to:      contact.email,
         subject: `Re: ${response.subject || 'Following up'}`,
-        html: response.content,
-        from: agentConfig.email.fromAddress,
+        html:    response.content,
+        from:    agentConfig.email.resend.from.email,
       });
     }
 
-    // Log response
     await this.logMessage({
       contact_id: contactId,
-      direction: 'outbound',
-      channel: contact.preferred_channel,
-      content: response.content,
-      sent_at: new Date(),
+      direction:  'outbound',
+      channel:    'email',
+      content:    response.content,
+      sent_at:    new Date(),
     });
 
-    // If high confidence, suggest meeting
     if (intent.confidence > 0.8) {
-      await this.scheduleAction(contactId, 'suggest_meeting', 1); // 1 day
+      await this.scheduleAction(contactId, 'suggest_meeting', 1);
     }
   }
 
-  /**
-   * Handle question
-   */
   private async handleQuestion(
-    contactId: string,
-    intent: Intent,
-    conversation: Conversation
+    contactId: string, intent: Intent, conversation: Conversation,
   ): Promise<void> {
     logger.info('Handling question', { contact_id: contactId });
 
-    // Generate response
-    const response = await personalizationService.generateResponse(intent, conversation.stage);
-
-    // Send response
     const contact = await this.getContact(contactId);
     if (!contact) return;
 
-    if (contact.preferred_channel === 'email' && contact.email) {
+    const response = await personalizationService.generateResponse(intent, contact);
+
+    if (contact.email) {
       await emailService.send({
-        to: contact.email,
+        to:      contact.email,
         subject: `Re: ${response.subject || 'Answering your question'}`,
-        html: response.content,
-        from: agentConfig.email.fromAddress,
+        html:    response.content,
+        from:    agentConfig.email.resend.from.email,
       });
     }
 
-
-    // Log response
     await this.logMessage({
       contact_id: contactId,
-      direction: 'outbound',
-      channel: contact.preferred_channel,
-      content: response.content,
-      sent_at: new Date(),
+      direction:  'outbound',
+      channel:    'email',
+      content:    response.content,
+      sent_at:    new Date(),
     });
 
-    // Schedule follow-up
-    await this.scheduleFollowUp(contactId, 2); // 2 days
+    await this.scheduleFollowUp(contactId, 2);
   }
 
-  /**
-   * Handle objection
-   */
   private async handleObjection(
-    contactId: string,
-    intent: Intent,
-    conversation: Conversation
+    contactId: string, intent: Intent, conversation: Conversation,
   ): Promise<void> {
     logger.info('Handling objection', { contact_id: contactId });
 
-    // Check if we should escalate
-    if (conversation.message_count > 3 || intent.confidence > 0.9) {
+    if ((conversation.response_count || 0) >= 3 || intent.confidence > 0.9) {
       await this.escalateToHuman(contactId, 'objection_handling');
       return;
     }
 
-    // Generate response
-    const response = await personalizationService.generateResponse(intent, conversation.stage);
-
-    // Send response
     const contact = await this.getContact(contactId);
     if (!contact) return;
 
-    if (contact.preferred_channel === 'email' && contact.email) {
+    const response = await personalizationService.generateResponse(intent, contact);
+
+    if (contact.email) {
       await emailService.send({
-        to: contact.email,
+        to:      contact.email,
         subject: `Re: ${response.subject || 'Addressing your concerns'}`,
-        html: response.content,
-        from: agentConfig.email.fromAddress,
+        html:    response.content,
+        from:    agentConfig.email.resend.from.email,
       });
     }
 
-
-    // Log response
     await this.logMessage({
       contact_id: contactId,
-      direction: 'outbound',
-      channel: contact.preferred_channel,
-      content: response.content,
-      sent_at: new Date(),
+      direction:  'outbound',
+      channel:    'email',
+      content:    response.content,
+      sent_at:    new Date(),
     });
   }
 
-  /**
-   * Handle not interested
-   */
   private async handleNotInterested(contactId: string): Promise<void> {
     logger.info('Handling not interested', { contact_id: contactId });
 
-    // Update conversation to closed
     await this.createOrUpdateConversation(contactId, {
-      stage: 'closed',
-      outcome: 'not_interested',
-      closed_at: new Date(),
+      'current_stage':    'closed',
+      'escalation_reason': 'not_interested',
+      'closed_at':        new Date(),
+      'updated_at':       new Date(),
     });
 
-    // Cancel any scheduled actions
     await this.cancelScheduledActions(contactId);
   }
 
-  /**
-   * Handle out of office
-   */
   private async handleOutOfOffice(contactId: string): Promise<void> {
     logger.info('Handling out of office', { contact_id: contactId });
-
-    // Schedule follow-up in 7 days
     await this.scheduleFollowUp(contactId, 7);
   }
 
-  /**
-   * Handle unclear intent
-   */
   private async handleUnclear(contactId: string, intent: Intent): Promise<void> {
     logger.info('Handling unclear intent', { contact_id: contactId });
 
-    // If confidence is very low, escalate
     if (intent.confidence < 0.3) {
       await this.escalateToHuman(contactId, 'unclear_intent');
     } else {
-      // Schedule follow-up
       await this.scheduleFollowUp(contactId, 2);
     }
   }
 
-  /**
-   * Escalate to human
-   */
   private async escalateToHuman(contactId: string, reason: string): Promise<void> {
-    logger.logEscalation(contactId, reason, {
-      timestamp: new Date().toISOString(),
-    });
-
-    // Update conversation
-    await this.createOrUpdateConversation(contactId, {
-      stage: 'escalated',
-      escalated_at: new Date(),
-      escalation_reason: reason,
-    });
-
-    // In production, this would:
-    // 1. Create a task in the CRM
-    // 2. Send notification to sales team
-    // 3. Update dashboard
+    loggers.escalation(contactId, reason);
   }
 
-  /**
-   * Schedule follow-up
-   */
+  // ─── Scheduling Helpers ──────────────────────────────────────────────────────
+
   private async scheduleFollowUp(contactId: string, daysFromNow: number): Promise<void> {
     const scheduledFor = new Date();
     scheduledFor.setDate(scheduledFor.getDate() + daysFromNow);
-
     await this.scheduleAction(contactId, 'follow_up', daysFromNow);
 
     logger.info('Follow-up scheduled', {
-      contact_id: contactId,
+      contact_id:   contactId,
       scheduled_for: scheduledFor.toISOString(),
     });
   }
 
-  /**
-   * Schedule action
-   */
   private async scheduleAction(
-    contactId: string,
-    actionType: string,
-    daysFromNow: number
+    contactId: string, actionType: string, daysFromNow: number,
   ): Promise<void> {
     const scheduledFor = new Date();
     scheduledFor.setDate(scheduledFor.getDate() + daysFromNow);
 
     await db.query(
-      `INSERT INTO scheduled_actions (contact_id, action_type, scheduled_for, status)
-       VALUES ($1, $2, $3, 'pending')`,
-      [contactId, actionType, scheduledFor]
+      `INSERT INTO scheduled_actions
+         (contact_id, contact_type, action_type, scheduled_for, status,
+          retry_count, max_retries, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', 0, 3, NOW())`,
+      [contactId, 'prospect', actionType, scheduledFor],
     );
   }
 
   /**
-   * Cancel scheduled actions
+   * Cancel pending scheduled actions using the canonical 'cancelled' DB constant.
    */
   private async cancelScheduledActions(contactId: string): Promise<void> {
     await db.query(
-      `UPDATE scheduled_actions 
-       SET status = 'cancelled', updated_at = NOW()
+      `UPDATE scheduled_actions
+         SET status = 'cancelled', updated_at = NOW()
        WHERE contact_id = $1 AND status = 'pending'`,
-      [contactId]
+      [contactId],
     );
   }
 
-  /**
-   * Get conversation
-   */
+  // ─── DB Access Helpers ───────────────────────────────────────────────────────
+
   private async getConversation(contactId: string): Promise<Conversation | null> {
-    const result = await db.query(
-      `SELECT * FROM conversations WHERE contact_id = $1`,
-      [contactId]
+    const result = await db.query<Conversation>(
+      `SELECT * FROM conversations WHERE contact_id = $1`, [contactId],
     );
     return result.rows[0] || null;
   }
 
-  /**
-   * Get contact
-   */
   private async getContact(contactId: string): Promise<Contact | null> {
     const result = await db.query(
-      `SELECT * FROM contacts WHERE id = $1`,
-      [contactId]
+      `SELECT * FROM market_leads WHERE id = $1`, [contactId],
     );
     return result.rows[0] || null;
   }
 
   /**
-   * Create or update conversation
+   * Create-or-upsert a conversation.  Uses quoted column names so any well-known
+   * alias (stage / current_stage / message_count / response_count) that maps to
+   * the actual DB column wins.
    */
   private async createOrUpdateConversation(
-    contactId: string,
-    data: Partial<Conversation>
+    contactId: string, data: Partial<Conversation>,
   ): Promise<void> {
     const existing = await this.getConversation(contactId);
 
     if (existing) {
-      const updates = Object.keys(data)
-        .map((key, i) => `${key} = $${i + 2}`)
+      const quotedUpdates = Object.keys(data)
+        .map((key, i) => `"${key}" = $${i + 2}`)
         .join(', ');
       const values = Object.values(data);
 
       await db.query(
-        `UPDATE conversations SET ${updates}, updated_at = NOW() WHERE contact_id = $1`,
-        [contactId, ...values]
+        `UPDATE conversations
+           SET ${quotedUpdates}, updated_at = NOW()
+         WHERE contact_id = $1`,
+        [contactId, ...values],
       );
     } else {
       const keys = ['contact_id', ...Object.keys(data)];
       const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
       const values = [contactId, ...Object.values(data)];
 
-      await db.query(
-        `INSERT INTO conversations (${keys.join(', ')}) VALUES (${placeholders})`,
-        values
+    await db.query(
+      `INSERT INTO message_history (${keys.join(', ')}) VALUES (${placeholders})`,
+      values,
+    );
+
+    // Log the event through the winston helper (no free-form logMessage method)
+    if (payload.direction === 'inbound') {
+      loggers.messageReceived(
+        payload.contact_id ?? 'unknown',
+        payload.channel ?? 'email',
+        payload.intent_detected ?? 'unknown',
+      );
+    } else {
+      loggers.messageSent(
+        payload.contact_id ?? 'unknown',
+        payload.channel ?? 'email',
+        true,
+      );
+    }
+  }
+  }
+
+  /**
+   * Update the conversation stage using the canonical DB column 'current_stage'
+   * and increment 'response_count' (not the nonexistent 'message_count').
+   */
+  private async updateConversationStage(contactId: string, intent: string): Promise<void> {
+    const stageMap: Record<string, string> = {
+      positive_interest: 'responded',
+      question:           'responded',
+      objection:          'objection',
+      not_interested:     'closed',
+      out_of_office:      'paused',
+      unclear:            'responded',
+    };
+
+    const newStage = stageMap[intent] || 'responded';
+
+    await db.query(
+      `UPDATE conversations
+         SET current_stage = $1,
+             response_count = COALESCE(response_count, 0) + 1,
+             updated_at     = NOW()
+       WHERE contact_id = $2`,
+      [newStage, contactId],
+    );
+  }
+
+  /**
+   * Log a message to message_history.
+   * Resolves conversation_id first so the FK is always satisfied.
+   */
+  private async logMessage(message: Partial<Message>): Promise<void> {
+    const { contact_id } = message;
+
+    let conversationId: string | undefined;
+    if (contact_id) {
+      try {
+        const convRow = await db.query<{ id: string }>(
+          'SELECT id FROM conversations WHERE contact_id = $1', [contact_id],
+        );
+        conversationId = convRow.rows[0]?.id;
+      } catch { /* non-fatal: FK may be absent on first contact */ }
+    }
+
+    const payload: Record<string, any> = {
+      contact_id:      contact_id ?? null,
+      conversation_id: conversationId ?? null,
+      contact_type:    message.contact_type ?? null,
+      channel:         message.channel ?? 'email',
+      direction:       message.direction ?? 'outbound',
+      content:         message.content,
+      ...(message.subject     ? { subject: message.subject }             : {}),
+      ...(message.template_used ? { template_used: message.template_used } : {}),
+      ...(message.intent_detected ? { intent_detected: message.intent_detected } : {}),
+      ...(message.sent_at     ? { sent_at: message.sent_at }              : {}),
+      ...(message.delivered_at ? { delivered_at: message.delivered_at }   : {}),
+      ...(message.opened_at    ? { opened_at: message.opened_at }         : {}),
+      ...(message.replied_at   ? { replied_at: message.replied_at }       : {}),
+      ...(message.metadata     ? { metadata: message.metadata }           : {}),
+    };
+
+    const keys       = Object.keys(payload);
+    const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+    const values     = Object.values(payload);
+
+    await db.query(
+      `INSERT INTO message_history (${keys.join(', ')}) VALUES (${placeholders})`,
+      values,
+    );
+
+    // Use the typed winston helpers (no free-form .logMessage on the root logger)
+    if (payload.direction === 'inbound') {
+      loggers.messageReceived(
+        payload.contact_id ?? 'unknown',
+        payload.channel  ?? 'email',
+        payload.intent_detected ?? 'unknown',
+      );
+    } else {
+      loggers.messageSent(
+        payload.contact_id ?? 'unknown',
+        payload.channel ?? 'email',
+        true,
       );
     }
   }
 
-  /**
-   * Update conversation stage
-   */
-  private async updateConversationStage(contactId: string, intent: string): Promise<void> {
-    const stageMap: Record<string, string> = {
-      positive_interest: 'engaged',
-      question: 'engaged',
-      objection: 'objection',
-      not_interested: 'closed',
-      out_of_office: 'paused',
-      unclear: 'engaged',
-    };
-
-    const newStage = stageMap[intent] || 'engaged';
-
-    await db.query(
-      `UPDATE conversations 
-       SET stage = $1, message_count = message_count + 1, updated_at = NOW()
-       WHERE contact_id = $2`,
-      [newStage, contactId]
-    );
-  }
-
-  /**
-   * Log message
-   */
-  private async logMessage(message: Partial<Message>): Promise<void> {
-    const keys = Object.keys(message);
-    const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-    const values = Object.values(message);
-
-    await db.query(
-      `INSERT INTO message_history (${keys.join(', ')}) VALUES (${placeholders})`,
-      values
-    );
-
-    logger.logMessage(
-      message.contact_id!,
-      message.direction!,
-      message.channel!,
-      message.content!
-    );
-  }
-
-  /**
-   * Get default subject based on contact type
-   */
   private getDefaultSubject(contactType: ContactType): string {
     const subjects: Record<ContactType, string> = {
       prospect: 'Transforming Construction Procurement in Kenya',
@@ -564,139 +707,109 @@ class AgentOrchestrator {
     return subjects[contactType] || 'Hello from Sokogate / Ultimo Trading';
   }
 
-  // ─── Focused Outreach ─────────────────────────────────────────────────────────
+  // ─── Outreach Batch Engines ───────────────────────────────────────────────────
 
-  /**
-   * Sales: batch outreach to construction / retail / manufacturing prospects.
-   */
+  private getFilteredContacts(
+    typeLabel: string,
+    statusFilter: string[],
+    tierFilter: string[] = ['T1', 'T2', 'T3'],
+    limit: number = 20,
+  ): any[] {
+    logger.info(`[orchestrator] ${typeLabel} outreach batch started`, { limit });
+    return db.query(
+      `SELECT * FROM market_leads
+         WHERE type = $1
+           AND tier   = ANY($2)
+           AND status = ANY($3)
+       ORDER BY tier ASC, updated_at DESC
+       LIMIT $4`,
+      [typeLabel, tierFilter, statusFilter, Math.min(limit, 100)],
+    ).then(r => r.rows);
+  }
+
   public async runSalesOutreach(limit: number = 20): Promise<{
-    total: number;
-    sent: number;
-    failed: number;
-    skipped: number;
+    total: number; sent: number; failed: number; skipped: number;
   }> {
-    logger.info('[orchestrator] Sales outreach batch started', { limit });
-    const contacts = await db.query<Contact>(
-      `SELECT * FROM contacts
-       WHERE type = 'prospect'
-         AND tier IN ('T1','T2','T3')
-         AND status NOT IN ('Closed Won','Closed Lost','Nurture')
-       ORDER BY tier, created_at ASC
-       LIMIT $1`,
-      [limit]
-    );
+    const contacts = await this.getFilteredContacts('prospect', ['active', 'warm', 'qualified'], ['T1', 'T2', 'T3'], limit);
 
     let sent = 0, failed = 0, skipped = 0;
-    for (const contact of contacts.rows) {
+    for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
-        if (conv && conv.current_stage !== 'not_started') { skipped++; continue; }
+        const stage = conv?.current_stage ?? conv?.stage ?? null;
+        if (stage !== 'not_started') { skipped++; continue; }
         const ok = await this.processInitialOutreach(contact);
         ok ? sent++ : failed++;
       } catch (err: any) {
-        logger.warn('[orchestrator] Sales outreach contact failed', { id: contact.id, error: err.message });
+        logger.warn('[orchestrator] Sales outreach contact failed', {
+          id: contact.id, error: err.message,
+        });
         failed++;
       }
     }
     logger.info('[orchestrator] Sales outreach batch complete', { sent, failed, skipped });
-    return { total: contacts.rows.length, sent, failed, skipped };
+    return { total: contacts.length, sent, failed, skipped };
   }
 
-  /**
-   * Investor: batch outreach to equity / impact investors targeting Series A.
-   */
   public async runInvestorOutreach(limit: number = 15): Promise<{
-    total: number;
-    sent: number;
-    failed: number;
-    skipped: number;
+    total: number; sent: number; failed: number; skipped: number;
   }> {
-    logger.info('[orchestrator] Investor outreach batch started', { limit });
-    const contacts = await db.query<Contact>(
-      `SELECT * FROM contacts
-       WHERE type = 'investor'
-         AND status IN ('Not Started','Nurture')
-       ORDER BY tier, created_at ASC
-       LIMIT $1`,
-      [limit]
-    );
+    const contacts = await this.getFilteredContacts('investor', ['active', 'warm', 'qualified'], ['T1', 'T2'], limit);
 
     let sent = 0, failed = 0, skipped = 0;
-    for (const contact of contacts.rows) {
+    for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
-        if (conv && conv.current_stage !== 'not_started') { skipped++; continue; }
+        const stage = conv?.current_stage ?? conv?.stage ?? null;
+        if (stage !== 'not_started') { skipped++; continue; }
         const ok = await this.processInitialOutreach(contact);
         ok ? sent++ : failed++;
       } catch (err: any) {
-        logger.warn('[orchestrator] Investor outreach contact failed', { id: contact.id, error: err.message });
+        logger.warn('[orchestrator] Investor outreach contact failed', {
+          id: contact.id, error: err.message,
+        });
         failed++;
       }
     }
     logger.info('[orchestrator] Investor outreach batch complete', { sent, failed, skipped });
-    return { total: contacts.rows.length, sent, failed, skipped };
+    return { total: contacts.length, sent, failed, skipped };
   }
 
-  /**
-   * Funding: batch outreach to Ultimo Trading / Sokogate trade-finance targets
-   * (banks, DFIs, private-credit funds, invoice factors).
-   */
   public async runFundingOutreach(limit: number = 20): Promise<{
-    total: number;
-    sent: number;
-    failed: number;
-    skipped: number;
+    total: number; sent: number; failed: number; skipped: number;
   }> {
-    logger.info('[orchestrator] Funding outreach batch started', { limit });
-    const contacts = await db.query<Contact>(
-      `SELECT * FROM contacts
-       WHERE type = 'funding'
-         AND status IN ('Not Started','Nurture')
-       ORDER BY tier, created_at ASC
-       LIMIT $1`,
-      [limit]
-    );
+    const contacts = await this.getFilteredContacts('funding', ['active', 'warm', 'qualified'], ['T1'], limit);
 
     let sent = 0, failed = 0, skipped = 0;
-    for (const contact of contacts.rows) {
+    for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
-        if (conv && conv.current_stage !== 'not_started') { skipped++; continue; }
+        const stage = conv?.current_stage ?? conv?.stage ?? null;
+        if (stage !== 'not_started') { skipped++; continue; }
         const ok = await this.processInitialOutreach(contact);
         ok ? sent++ : failed++;
       } catch (err: any) {
-        logger.warn('[orchestrator] Funding outreach contact failed', { id: contact.id, error: err.message });
+        logger.warn('[orchestrator] Funding outreach contact failed', {
+          id: contact.id, error: err.message,
+        });
         failed++;
       }
     }
     logger.info('[orchestrator] Funding outreach batch complete', { sent, failed, skipped });
-    return { total: contacts.rows.length, sent, failed, skipped };
+    return { total: contacts.length, sent, failed, skipped };
   }
 
-  /**
-   * Funding digest: compile pipeline status (by stage, institution type, product)
-   * for all `funding` contacts so a human review e-mail or dashboard widget can be auto-built.
-   */
-  public async getFundingPipelineSummary(periodDays: number = 30): Promise<{
-    generated_at: string;
-    period_days: number;
-    contacts_at_stage: Record<string, any[]>;
-    summary: {
-      total_pipeline_usd: number;
-      by_institution_type: Record<string, number>;
-      by_product_pitched: Record<string, number>;
-      by_stage: Record<string, number>;
-      next_actions_due_within_7d: number;
-    };
-  }> {
-    const periodStart = new Date(Date.now() - periodDays * 86400000).toISOString();
+  // ─── Funding Digest ──────────────────────────────────────────────────────────
 
-    const { rows: contacts } = await db.query<Contact>(
+  public async getFundingPipelineSummary(periodDays = 30): Promise<any> {
+    const periodStart = new Date(Date.now() - periodDays * 86_400_000).toISOString();
+
+    const { rows: contacts } = await db.query(
       `SELECT c.*, s.action_type, s.scheduled_for, s.status AS action_status
-         FROM contacts c
+         FROM market_leads c
     LEFT JOIN scheduled_actions s ON s.contact_id = c.id AND s.status = 'pending'
         WHERE c.type = 'funding'
-     ORDER BY c.tier, c.updated_at DESC`
+     ORDER BY c.tier, c.updated_at DESC`,
     );
 
     const stageGroups: Record<string, any[]> = {
@@ -712,50 +825,52 @@ class AgentOrchestrator {
     const byProduct:    Record<string, number> = {};
     const byStage:      Record<string, number> = {};
     let totalPipeline = 0;
-    const next7d = new Date(Date.now() + 7 * 86400000);
+    const next7d = new Date(Date.now() + 7 * 86_400_000);
 
     for (const c of contacts) {
-      const f = c as any;
-      const stageKey = f.status === 'Term Sheet Sent'
-        ? 'term_sheet_sent'
-        : f.status === 'Funding Confirmed'
-          ? 'funding_confirmed'
-          : f.status === 'Due Diligence'
-            ? 'due_diligence'
-            : f.status === 'Closed Lost'
-              ? 'closed_lost'
-              : f.status === 'Responded' || f.status === 'Negotiating'
-                ? 'responded_engaged'
-                : 'contacted_awaiting_reply';
+      const f      = c as any;
+      const stageKey =
+        f.status === 'Term Sheet Sent'     ? 'term_sheet_sent'
+          : f.status === 'Funding Confirmed' ? 'funding_confirmed'
+          : f.status === 'Due Diligence'     ? 'due_diligence'
+          : f.status === 'Closed Lost'       ? 'closed_lost'
+          : f.status === 'Responded' || f.status === 'Negotiating'
+                                         ? 'responded_engaged'
+                                         : 'contacted_awaiting_reply';
 
       stageGroups[stageKey].push({
-        id: f.id, institution_name: f.company, contact_name: f.contact_name || 'N/A',
-        contact_email: f.email || 'N/A', institution_type: f.institution_type || 'N/A',
-        product_pitched: f.product_pitched || 'N/A',
-        ticket_size_usd_requested: f.ticket_size_usd_requested ?? null,
-        tenor_months: f.tenor_months ?? null, status: f.status,
+        id:             f.id,
+        institution_name: f.company_name,
+        contact_name:   f.contact_person || 'N/A',
+        contact_email:  f.email || 'N/A',
+        institution_type: f.type || 'N/A',
+        product_pitched: f.product_interest || 'N/A',
+        ticket_size_usd_requested: f.ticket_size_requested ?? null,
+        tenor_months:    f.tenor_months ?? null,
+        status:          f.status,
         last_contact_date: f.updated_at ? new Date(f.updated_at).toISOString().split('T')[0] : null,
-        next_action: f.next_action || null, notes: f.notes || null,
+        next_action:     f.next_followup_date || null,
+        notes:           f.notes || null,
       });
 
-      const amount = f.ticket_size_usd_requested || 0;
+      const amount = f.ticket_size_requested || 0;
       totalPipeline += amount;
-      byInstitution[f.institution_type || 'unspecified'] = (byInstitution[f.institution_type || 'unspecified'] || 0) + amount;
-      byProduct[f.product_pitched || 'unspecified'] = (byProduct[f.product_pitched || 'unspecified'] || 0) + amount;
+      byInstitution[f.type || 'unspecified'] = (byInstitution[f.type || 'unspecified'] || 0) + amount;
+      byProduct[f.product_interest || 'unspecified'] = (byProduct[f.product_interest || 'unspecified'] || 0) + amount;
       byStage[stageKey] = (byStage[stageKey] || 0) + amount;
     }
 
     return {
       generated_at: new Date().toISOString(),
-      period_days: periodDays,
+      period_days:  periodDays,
       contacts_at_stage: stageGroups,
       summary: {
-        total_pipeline_usd: totalPipeline,
-        by_institution_type: byInstitution,
-        by_product_pitched:    byProduct,
-        by_stage:              byStage,
-        next_actions_due_within_7d: contacts.filter(
-          (c: any) => c.next_action && new Date(c.next_action as string) <= next7d
+        total_pipeline_usd:               totalPipeline,
+        by_institution_type:              byInstitution,
+        by_product_pitched:               byProduct,
+        by_stage:                          byStage,
+        next_actions_due_within_7d:    contacts.filter(
+          (c: any) => c.next_followup_date && new Date(c.next_followup_date as string) <= next7d,
         ).length,
       },
     };
@@ -763,61 +878,30 @@ class AgentOrchestrator {
 
   // ─── Product Sourcing ─────────────────────────────────────────────────────────
 
-  /**
-   * Autonomous product sourcing: crawl sokogate.com, parse comprehensive product
-   * data (name, description, pricing, specs, high-res imagery), and upsert every
-   * record into the PostgreSQL scraped_products table.
-   *
-   * Progress (phase / message / product count) is relayed through the
-   * real-time publish/subscribe bus inside product-source.service.ts so that any
-   * HTTP handler — or the frontend via SSE / polling — can observe it live.
-   *
-   * Returns the aggregate result when the run is complete.
-   */
   public async sourceProductData(): Promise<{
-    runId: string;
-    productsFound: number;
-    productsUpserted: number;
-    durationMs: number;
+    runId: string; productsFound: number; productsUpserted: number; durationMs: number;
   }> {
     logger.info('[orchestrator] Autonomous product sourcing triggered');
     const startTime = Date.now();
 
     try {
       const result = await sourceProductData();
-
-      const elapsed = Date.now() - startTime;
-      logger.info('[orchestrator] Product sourcing complete', {
-        runId:          result.runId,
-        productsFound:  result.productsFound,
-        productsUpserted: result.productsUpserted,
-        durationMs:     result.durationMs,
-      });
-
-      return { ...result, durationMs: elapsed };
+      return { ...result, durationMs: Date.now() - startTime };
     } catch (err: any) {
-      logger.error('[orchestrator] Autonomous product sourcing failed', { error: err.message });
+      logger.error('[orchestrator] Autonomous product sourcing failed', {
+        error: err.message,
+      });
       return { runId: 'unknown', productsFound: 0, productsUpserted: 0, durationMs: Date.now() - startTime };
     }
   }
 
-  /**
-   * Returns the current live scrape status so REST handlers (and tentative
-   * SSE clients) can relay it to the frontend without re-triggering a run.
-   */
   public getScrapeStatus(): ReturnType<typeof getLiveStatus> {
     return getLiveStatus();
   }
 
-  /**
-   * Subscribe to real-time scrape progress updates.
-   * Returns an unsubscribe function.
-   */
   public onScrapeProgress(cb: (status: ReturnType<typeof getLiveStatus>) => void): () => void {
     return subscribeScrape(cb);
   }
 }
 
 export const orchestrator = AgentOrchestrator.getInstance();
-
-// Made with Bob

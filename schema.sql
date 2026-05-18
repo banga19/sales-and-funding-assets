@@ -42,7 +42,12 @@ CREATE TABLE IF NOT EXISTS market_leads (
     product_interest TEXT,
     status TEXT DEFAULT 'new',
     notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    enriched_data JSONB,
+    tier TEXT DEFAULT 'T1',
+    type TEXT DEFAULT 'prospect',
+    source TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS marketing_campaigns (
@@ -63,3 +68,17 @@ CREATE TABLE IF NOT EXISTS funding_leads (
     status TEXT DEFAULT 'identified',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Feature Flags Table — durable runtime toggle state
+-- Overrides the ENV default for the named feature key.
+-- Each row: (key, value:bool, updated_at)
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS feature_flags (
+    key            TEXT PRIMARY KEY,
+    value          BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_feature_flags_updated ON feature_flags(updated_at DESC);
+

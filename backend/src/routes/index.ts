@@ -5,7 +5,7 @@ import * as metrics from './metrics.routes.js';
 
 const router = Router();
 
-// ── Agent Management ──────────────────────────────────────────────────────────
+// ── Agent Management ───────────────────────────────────────────────────────────
 router.get('/status', agent.getAgentStatus);
 router.get('/outreach/stats', agent.getOutreachStats);
 router.post('/outreach/trigger', agent.triggerOutreach);
@@ -18,6 +18,10 @@ router.get('/meeting/stats', agent.getMeetingStats);
 router.post('/meeting/suggest/:contactId', agent.suggestMeeting);
 router.post('/meeting/confirm/:contactId', agent.confirmMeeting);
 router.post('/meeting/reminders/trigger', agent.triggerReminders);
+
+// ── Feature Toggles (backed by feature_flags DB table) ─────────────────────────
+router.get('/agent/features', (agent as any).getFeatureFlags);
+router.put('/agent/features/:key', (agent as any).setFeatureFlag);
 
 // ── Metrics ───────────────────────────────────────────────────────────────────
 router.get('/metrics', metrics.getMetrics);

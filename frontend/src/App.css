@@ -409,4 +409,26 @@ pre {
   color: var(--sok-neutral);
 }
 
+/* ── Log / pre-wrapped output ─────────────────── */
+.log-output {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: monospace;
+  font-size: 0.75rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+/* ── Loading / skeleton variant ──────────────── */
+.btn-loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ── SVGs default to flex-shrink:0  ──────────── */
+svg {
+  flex-shrink: 0;
+}
+
 /* Made with Bob */

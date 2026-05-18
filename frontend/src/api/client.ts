@@ -119,14 +119,14 @@ class ApiClient {
   }
 
   // Health check  →  GET /health   (baseURL=/api  →  /api/health)
-  async getHealth() {
-    const response = await this.client.get('/health');
+  async getHealth(signal?: AbortSignal): Promise<any> {
+    const response = await this.client.get('/health', { signal });
     return response.data;
   }
 
   // Agent status   →  GET /status   (baseURL=/api  →  /api/status)
-  async getStatus() {
-    const response = await this.client.get('/status');
+  async getStatus(signal?: AbortSignal): Promise<any> {
+    const response = await this.client.get('/status', { signal });
     return response.data;
   }
 
@@ -241,8 +241,8 @@ class ApiClient {
   }
 
   /** GET /products/scrape/status  – live scrape progress */
-  async getScrapeStatus(): Promise<ScrapeStatusResponse> {
-    const response = await this.client.get<ScrapeStatusResponse>('/products/scrape/status');
+  async getScrapeStatus(signal?: AbortSignal): Promise<ScrapeStatusResponse> {
+    const response = await this.client.get<ScrapeStatusResponse>('/products/scrape/status', { signal });
     return response.data;
   }
 
@@ -268,6 +268,33 @@ class ApiClient {
     return response.data;
   }
 
+  // ─── Quick Actions ────────────────────────────────────────────────────────────
+
+  /** POST /api/agent/email/test — send a test email to confirm the email service works */
+  async triggerTestEmail(to?: string, subject?: string): Promise<any> {
+    const body: Record<string, any> = {};
+    if (to)      body.to      = to;
+    if (subject) body.subject = subject;
+    return this.client.post('/agent/email/test', body);
+  }
+
+  /** GET /api/agent/logs — last N log lines from the agent */
+  async getLogs(lines?: number): Promise<{ logs: any[]; total: number }> {
+    const params = lines ? `?lines=${lines}` : '';
+    return this.client.get(`/agent/logs${params}`);
+  }
+
+  /** GET /api/contacts — list all contacts / prospects */
+  async getContacts(params?: { type?: string; stage?: string; search?: string; page?: number; pageSize?: number }): Promise<any> {
+    const q = new URLSearchParams();
+    if (params?.type)      q.set('type',      params.type);
+    if (params?.stage)     q.set('stage',     params.stage);
+    if (params?.search)    q.set('search',    params.search);
+    if (params?.page)      q.set('page',      String(params.page));
+    if (params?.pageSize)  q.set('pageSize',  String(params.pageSize));
+    return this.client.get(`/contacts${q.toString() ? '?' + q.toString() : ''}`);
+  }
+
   // Generic PUT request
   async put<T = any>(endpoint: string, data?: any): Promise<T> {
     const response = await this.client.put<T>(endpoint, data);
@@ -278,6 +305,20 @@ class ApiClient {
   async delete<T = any>(endpoint: string): Promise<T> {
     const response = await this.client.delete<T>(endpoint);
     return response.data;
+  }
+
+  // ─── Feature Flags ─────────────────────────────────────────────────────────────
+
+  /** GET /api/agent/features — returns effective flags (env + DB overlay) */
+  async getFeatureFlags(): Promise<{ features: Record<string, boolean>; source: string }> {
+    const response = await this.client.get('/agent/features');
+    return response.data as { features: Record<string, boolean>; source: string };
+  }
+
+  /** PUT /api/agent/features/:key — persist one flag and return the new state */
+  async toggleFeature(key: string, value: boolean): Promise<{ key: string; value: boolean; updated_at: string }> {
+    const response = await this.client.put(`/agent/features/${encodeURIComponent(key)}`, { value });
+    return response.data as { key: string; value: boolean; updated_at: string };
   }
 }
 
