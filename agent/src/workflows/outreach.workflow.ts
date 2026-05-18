@@ -85,9 +85,7 @@ export class OutreachWorkflow {
       LIMIT $1
     `;
 
-    const limit = agentConfig.features.email 
-      ? agentConfig.rateLimits.email.perDay 
-      : agentConfig.rateLimits.whatsapp.perDay;
+    const limit = agentConfig.rateLimits.email.perDay;
 
     const result = await db.query(query, [limit]);
     return result.rows;

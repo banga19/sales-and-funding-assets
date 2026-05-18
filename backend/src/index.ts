@@ -7,6 +7,7 @@ import { config, defaultBaseUrl } from './config/agent.config.js';
 import { logger } from './utils/logger.js';
 
 import * as productsMem from './routes/products.routes.js';           // in-memory (legacy)
+import productsScrape from './routes/products-scrape.routes.js';       // scraping module
 import productsDb   from './routes/products.db.routes.js';             // PostgreSQL
 import schedule     from './routes/schedule.routes.js';
 import apiRoutes    from './routes/index.js';                          // agent / contacts / metrics
@@ -58,6 +59,9 @@ app.get('/api/products/mem',                productsMem.listProducts);
 app.get('/api/products/mem/:id',            productsMem.getProduct);
 app.get('/api/products/mem/scrape/status',  productsMem.getScrapeStatusRoute);
 app.delete('/api/products/mem/:id',         productsMem.deleteProduct);
+
+// Dedicated scraping module — mounted BEFORE productsDb so its /scrape POST wins
+app.use('/api/products', productsScrape);
 
 // PostgreSQL-backed product catalogue (production)
 app.use('/api/products', productsDb);

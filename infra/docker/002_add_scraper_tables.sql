@@ -128,10 +128,11 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-DROP TRIGGER IF EXISTS update_products_updated_at ON products;
-CREATE TRIGGER update_products_updated_at
-BEFORE UPDATE ON products
-FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_products_updated_at') THEN
+    EXECUTE 'CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()';
+  END IF;
+END $$;
 
 COMMENT ON TABLE  products IS 'Python-originated scraped_products copy — use scraped_products as authoritative source';
 COMMENT ON TABLE  scraped_products IS 'Canonical product catalogue for the Node.js backend; sync with products via orchestration job';
@@ -268,4 +269,4 @@ JOIN scraped_products p ON p.id = ph.product_id
 WHERE ph.observed_at >= NOW() - INTERVAL '30 days'
 ORDER BY ph.observed_at DESC;
 
-RAISE NOTICE 'Migration 002: scraper schema created / verified for scraped_products.';
+DO $$ BEGIN RAISE NOTICE 'Migration 002: scraper schema created / verified.'; END $$;

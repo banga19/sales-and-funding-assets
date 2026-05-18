@@ -197,7 +197,7 @@ All configuration is done via environment variables in `.env`:
 
 ```bash
 # AI
-ANTHROPIC_API_KEY=sk-ant-xxx
+NVIDIA_API_KEY=nvapi-xxx
 
 # Email
 RESEND_API_KEY=re_xxx

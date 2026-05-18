@@ -8,8 +8,7 @@ export interface HealthCheck {
       error?: string;
     };
     email: boolean;
-    whatsapp: boolean;
-    claude: boolean;
+    nvidia: boolean;
   };
 }
 
@@ -18,7 +17,6 @@ export interface AgentStatus {
   enabled: boolean;
   dryRun: boolean;
   features: {
-    whatsapp: boolean;
     email: boolean;
     autoFollowup: boolean;
     autoScheduling: boolean;
@@ -30,10 +28,6 @@ export interface AgentStatus {
       remaining: number;
       limit: number;
     };
-    whatsapp: {
-      remaining: number;
-      limit: number;
-    } | null;
   };
 }
 
@@ -62,7 +56,7 @@ export interface Contact {
 export interface Message {
   id: string;
   contactId: string;
-  channel: 'email' | 'whatsapp';
+  channel: 'email';
   direction: 'inbound' | 'outbound';
   content: string;
   subject?: string;
@@ -78,8 +72,6 @@ export interface Metrics {
   emailsSent: number;
   emailsOpened: number;
   emailsReplied: number;
-  whatsappSent: number;
-  whatsappReplied: number;
   meetingsScheduled: number;
   conversions: number;
   responseRate: number;
@@ -150,6 +142,7 @@ export interface ScrapeStatusResponse {
   message:      string;
   productCount: number;
   scrapedAt:    string | null;
+  runId:        string | null;
 }
 
 // Made with Bob

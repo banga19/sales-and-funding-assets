@@ -53,7 +53,7 @@ All `/webhooks/*` → port 3002 (agent, for provider callbacks).
 
 ```dotenv
 # AI / LLM
-ANTHROPIC_API_KEY=sk-ant-api03-...
+NVIDIA_API_KEY=nvapi-...
 
 # Database / Queue (Docker compose provides localhost:5432 / localhost:6379)
 DATABASE_URL=postgresql://sokogate:sokogate-dev-change-me@localhost:5432/sokogate
@@ -161,7 +161,7 @@ sales-and-funding-assets/
 │       ├── config/…
 │       └── utils/logger.ts
 └── agent/                    ← AI Agent workspace (port 3002)
-    ├── .env                  ← ANTHROPIC_API_KEY, DATABASE_URL, REDIS_URL
+     ├── .env                  ← NVIDIA_API_KEY, DATABASE_URL, REDIS_URL
     └── src/
         ├── index.ts          ← Agent Express server
         ├── config/agent.config.ts

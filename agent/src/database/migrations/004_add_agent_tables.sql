@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS message_history (
   conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
   contact_id UUID NOT NULL,
   contact_type VARCHAR(20) NOT NULL CHECK (contact_type IN ('prospect', 'investor', 'partner')),
-  channel VARCHAR(20) NOT NULL CHECK (channel IN ('email', 'whatsapp', 'sms')),
+  channel VARCHAR(20) NOT NULL CHECK (channel IN ('email', 'sms')),
   direction VARCHAR(10) NOT NULL CHECK (direction IN ('outbound', 'inbound')),
   subject TEXT,
   content TEXT NOT NULL,

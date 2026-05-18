@@ -337,7 +337,7 @@ Queue full        BullMQ blocks / fails   status='failed'    idle
  └────────────────────────────────────────────────────────────────────────────────────────────────────
 
  ─── SYSTEM
- GET  /api/health                         →  200  { status, timestamp, checks:{DB,email,whatsapp,claude} }
+ GET  /api/health                         →  200  { status, timestamp, checks:{DB,email,whatsapp,nvidia} }
  GET  /api/status                         →  200  { enabled, dryRun, features, rateLimits }
  POST /api/agent/trigger                  →  200  { success, message }  Body: { action, contact_id }
 
@@ -791,7 +791,7 @@ The three `.env` files must be kept in sync on common flags:
 | `SOKOGATE_BASE_URL` | `https://sokogate.com` | `https://sokogate.com` | `https://sokogate.com` | Same site across all |
 | `SCRAPER_MAX_PAGES_PER_RUN` | 10 | 10 | 10 | Optional: align for predictability |
 | `SCRAPER_REQUEST_DELAY_MS` | 800 | — | 800 | Only used by backend/worker |
-| `ANTHROPIC_API_KEY` | — | required | — | Agent only |
+| `NVIDIA_API_KEY` | — | required | — | Agent only |
 | `RESEND_API_KEY` | — | required | — | Agent only |
 | `CELERY_BROKER_URL` | — | — | `redis://...` | Scraper/worker only |
 | `REDIS_URL` | `redis://localhost:6379` | `redis://localhost:6379` | `redis://...` | Backend + Agent both use this for .env/queue |
@@ -978,7 +978,7 @@ AGENT_PORT=3002
 AGENT_ENABLED=true
 AGENT_DRY_RUN=false
 DATABASE_URL=postgresql://sokogate:sokogate-dev-change-me@localhost:5432/sokogate
-ANTHROPIC_API_KEY=sk-ant-...
+NVIDIA_API_KEY=nvapi-...
 RESEND_API_KEY=re_...
 RESEND_FROM_EMAIL=founder@sokogate.com
 ESCALATION_EMAIL=founder@sokogate.com

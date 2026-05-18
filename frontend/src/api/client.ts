@@ -43,6 +43,7 @@
  */
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import type { ProductListResponse, ScrapeStatusResponse } from '../types';
 
 // RUNTIME_ENV is injected by vite.config.ts via the `define` block above.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -215,27 +216,34 @@ class ApiClient {
     return response.data;
   }
 
-  // ─── Product Scraping ─────────────────────────────────────────────────────────
+// ─── Product Scraping ─────────────────────────────────────────────────────────
   /**
-   * Trigger a crawl of sokogate.com. Returns immediately with a 202 Accepted.
+   * Trigger a crawl of sokogate.com. Uses foreground mode for synchronous execution.
    * Poll GET /products to watch progress.
    */
   async triggerScrape(baseUrl?: string, maxPages?: number): Promise<any> {
-    const body: Record<string, any> = {};
+    const body: Record<string, any> = { mode: 'foreground' };
     if (baseUrl)  body.baseUrl  = baseUrl;
     if (maxPages) body.maxPages = maxPages;
     return this.client.post('/products/scrape', body);
   }
 
-  /** GET /products  – full in-memory product catalogue */
-  async getProducts(page: number = 1, pageSize: number = 20): Promise<any> {
+  /** GET /products  – full product catalogue */
+  async getProducts(page: number = 1, pageSize: number = 20): Promise<ProductListResponse> {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-    return this.client.get(`/products?${params}`);
+    const response = await this.client.get<ProductListResponse>(`/products?${params}`);
+    // Defensive: if the backend returned an error JSON instead of { data: Product[] }
+    if (!Array.isArray(response.data?.data)) {
+      console.warn('[ApiClient] /products unexpected response shape:', response.data);
+      return { data: [], total: 0, page, pageSize, categories: [], scrapedAt: null };
+    }
+    return response.data;
   }
 
   /** GET /products/scrape/status  – live scrape progress */
-  async getScrapeStatus(): Promise<any> {
-    return this.client.get('/products/scrape/status');
+  async getScrapeStatus(): Promise<ScrapeStatusResponse> {
+    const response = await this.client.get<ScrapeStatusResponse>('/products/scrape/status');
+    return response.data;
   }
 
   /** GET /products/:id  – single product detail */

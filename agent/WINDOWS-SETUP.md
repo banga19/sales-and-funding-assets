@@ -51,7 +51,7 @@ AGENT_DRY_RUN=true  # Set to false when ready for real messages
 AGENT_PORT=3000
 
 # API Keys (REQUIRED)
-ANTHROPIC_API_KEY=sk-ant-xxxxx  # Get from https://console.anthropic.com
+NVIDIA_API_KEY=nvapi-xxxxx  # Get from https://nvidia.com
 RESEND_API_KEY=re_xxxxx         # Get from https://resend.com
 
 # Database (Use cloud or local)
@@ -139,13 +139,13 @@ Expected response:
 ```json
 {
   "status": "healthy",
-  "timestamp": "2026-05-15T...",
-  "checks": {
-    "database": true,
-    "email": true,
-    "whatsapp": true,
-    "claude": true
-  }
+"timestamp": "2026-05-15T...",
+ "checks": {
+   "database": true,
+   "email": true,
+   "whatsapp": true,
+   "nvidia": true
+ }
 }
 ```
 

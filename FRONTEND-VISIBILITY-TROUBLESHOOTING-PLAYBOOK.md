@@ -173,15 +173,14 @@ ENABLE_WHATSAPP=false
 1. Visit [Anthropic Console](https://console.anthropic.com/)
 2. Go to Settings → Billing
 3. Add credits or upgrade plan
-4. Verify API key is correct in `.env`
+ 4. Verify API key is correct in `.env`
 
 **Verification:**
 ```bash
-curl https://api.anthropic.com/v1/messages \
-  -H "x-api-key: $ANTHROPIC_API_KEY" \
-  -H "anthropic-version: 2023-06-01" \
+curl https://integrate.api.nvidia.com/v1/chat/completions \
+  -H "Authorization: Bearer $NVIDIA_API_KEY" \
   -H "content-type: application/json" \
-  -d '{"model":"claude-3-5-sonnet-20241022","max_tokens":10,"messages":[{"role":"user","content":"Hi"}]}'
+  -d '{"model":"nvidia/nemotron-4-340b-reward","max_tokens":10,"messages":[{"role":"user","content":"Hi"}]}'
 ```
 
 ---
@@ -334,7 +333,7 @@ curl http://localhost:3000/api/health | jq '.checks.database'
 ```bash
 # Step 1: Validate environment variables
 cd agent
-node -e "require('dotenv').config(); console.log('Port:', process.env.AGENT_PORT); console.log('DB:', process.env.DATABASE_URL ? 'Set' : 'Missing'); console.log('Anthropic:', process.env.ANTHROPIC_API_KEY ? 'Set' : 'Missing');"
+node -e "require('dotenv').config(); console.log('Port:', process.env.AGENT_PORT); console.log('DB:', process.env.DATABASE_URL ? 'Set' : 'Missing'); console.log('NVIDIA:', process.env.NVIDIA_API_KEY ? 'Set' : 'Missing');"
 
 # Step 2: Check for placeholder values
 grep -E "xxx|YOUR_|REPLACE" .env
@@ -654,7 +653,7 @@ npm run dev > logs.txt 2>&1
 
 # Environment check
 cd agent
-node -e "require('dotenv').config(); console.log(JSON.stringify({port: process.env.AGENT_PORT, dbSet: !!process.env.DATABASE_URL, aiSet: !!process.env.ANTHROPIC_API_KEY}, null, 2));"
+node -e "require('dotenv').config(); console.log(JSON.stringify({port: process.env.AGENT_PORT, dbSet: !!process.env.DATABASE_URL, aiSet: !!process.env.NVIDIA_API_KEY}, null, 2));"
 
 # Network test
 curl -v http://localhost:3000/api/health
@@ -699,7 +698,8 @@ npm list --depth=0
 - [Express.js CORS](https://expressjs.com/en/resources/middleware/cors.html)
 - [PostgreSQL Connection Strings](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING)
 - [Supabase Documentation](https://supabase.com/docs)
-- [Anthropic API Docs](https://docs.anthropic.com/)
+- [NVIDIA API Docs](https://docs.nvidia.com/)
+ - [Anthropic API Docs](https://docs.anthropic.com/)
 
 ### Tools
 - **API Testing:** Postman, Insomnia, Thunder Client

@@ -83,8 +83,7 @@ async function calculateDailyMetrics(startDate: Date, endDate: Date): Promise<an
   const messagesSentQuery = `
     SELECT 
       COUNT(*) as total,
-      COUNT(CASE WHEN channel = 'email' THEN 1 END) as email,
-      COUNT(CASE WHEN channel = 'whatsapp' THEN 1 END) as whatsapp
+      COUNT(CASE WHEN channel = 'email' THEN 1 END) as email
     FROM message_history
     WHERE direction = 'outbound'
       AND sent_at >= $1 AND sent_at < $2
@@ -139,7 +138,6 @@ async function calculateDailyMetrics(startDate: Date, endDate: Date): Promise<an
       sent: {
         total: totalSent,
         email: parseInt(messagesSent.rows[0].email) || 0,
-        whatsapp: parseInt(messagesSent.rows[0].whatsapp) || 0,
       },
       received: {
         total: totalReceived,
@@ -174,7 +172,6 @@ async function storeDailyMetrics(date: Date, metrics: any): Promise<void> {
   const metricTypes = [
     { type: 'messages_sent_total', value: metrics.messages.sent.total },
     { type: 'messages_sent_email', value: metrics.messages.sent.email },
-    { type: 'messages_sent_whatsapp', value: metrics.messages.sent.whatsapp },
     { type: 'messages_received_total', value: metrics.messages.received.total },
     { type: 'messages_received_positive', value: metrics.messages.received.positive },
     { type: 'messages_received_neutral', value: metrics.messages.received.neutral },

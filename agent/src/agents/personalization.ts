@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { agentConfig } from '../config/agent.config';
 import { logger, loggers } from '../utils/logger';
 import { Contact, ContactType } from '../types/contact.types';
@@ -7,13 +7,14 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 class PersonalizationService {
-  private claude: Anthropic;
+  private openai: OpenAI;
   private static instance: PersonalizationService;
   private promptCache: Map<string, string> = new Map();
 
   private constructor() {
-    this.claude = new Anthropic({
+    this.openai = new OpenAI({
       apiKey: agentConfig.ai.apiKey,
+      baseURL: agentConfig.ai.baseUrl,
     });
   }
 
@@ -34,7 +35,7 @@ class PersonalizationService {
     try {
       const prompt = this.buildPrompt(contact, context);
       
-      const response = await this.claude.messages.create({
+      const response = await this.openai.chat.completions.create({
         model: agentConfig.ai.model,
         max_tokens: agentConfig.ai.maxTokens,
         messages: [{
@@ -43,11 +44,10 @@ class PersonalizationService {
         }],
       });
 
-      const content = response.content[0];
-      const messageText = content.type === 'text' ? content.text : '';
+      const content = response.choices[0]?.message?.content || '';
 
       // Parse the generated message
-      const parsed = this.parseGeneratedMessage(messageText);
+      const parsed = this.parseGeneratedMessage(content);
 
       logger.info('Message generated', {
         contactId: contact.id,
@@ -56,16 +56,16 @@ class PersonalizationService {
       });
 
       return {
-        to: contact.email || contact.whatsapp || '',
-        channel: contact.email ? 'email' : 'whatsapp',
+        to: contact.email || '',
+        channel: contact.email ? 'email' : 'email',
         subject: parsed.subject,
         body: parsed.body,
         template_used: this.getTemplateType(contact.type, context),
         generated_at: new Date(),
         personalization_score: this.calculatePersonalizationScore(parsed.body, context),
       };
-    } catch (error: any) {
-      loggers.apiError('claude', error);
+} catch (error: any) {
+       loggers.apiError('nvidia', error);
       throw new Error(`Failed to generate message: ${error.message}`);
     }
   }
@@ -99,7 +99,7 @@ Respond in JSON format:
   "requires_escalation": true/false
 }`;
 
-      const response = await this.claude.messages.create({
+      const response = await this.openai.chat.completions.create({
         model: agentConfig.ai.model,
         max_tokens: 512,
         messages: [{
@@ -108,8 +108,7 @@ Respond in JSON format:
         }],
       });
 
-      const content = response.content[0];
-      const analysisText = content.type === 'text' ? content.text : '{}';
+      const analysisText = response.choices[0]?.message?.content || '{}';
       
       // Extract JSON from response
       const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
@@ -130,8 +129,8 @@ Respond in JSON format:
         suggested_action: analysis.suggested_action || 'follow_up',
         requires_escalation: analysis.requires_escalation || false,
       };
-    } catch (error: any) {
-      loggers.apiError('claude', error);
+} catch (error: any) {
+       loggers.apiError('nvidia', error);
       
       // Return default intent on error
       return {
@@ -175,7 +174,7 @@ Generate an appropriate response that:
 3. Moves the conversation toward a clear next step (call, meeting, shared document)
 4. Keep it concise (under 150 words)`;
 
-      const response = await this.claude.messages.create({
+      const response = await this.openai.chat.completions.create({
         model: agentConfig.ai.model,
         max_tokens: 512,
         messages: [{
@@ -184,10 +183,9 @@ Generate an appropriate response that:
         }],
       });
 
-      const content = response.content[0];
-      return content.type === 'text' ? content.text : '';
-    } catch (error: any) {
-      loggers.apiError('claude', error);
+      return response.choices[0]?.message?.content || '';
+} catch (error: any) {
+       loggers.apiError('nvidia', error);
       throw new Error(`Failed to generate response: ${error.message}`);
     }
   }
@@ -381,7 +379,7 @@ SUBJECT: [email subject line]
    */
   public async healthCheck(): Promise<boolean> {
     try {
-      const response = await this.claude.messages.create({
+      const response = await this.openai.chat.completions.create({
         model: agentConfig.ai.model,
         max_tokens: 10,
         messages: [{
@@ -389,9 +387,9 @@ SUBJECT: [email subject line]
           content: 'Hello',
         }],
       });
-      return response.content.length > 0;
+      return response.choices.length > 0;
     } catch (error) {
-      logger.error('Claude AI health check failed', { error });
+      logger.error('NVIDIA AI health check failed', { error });
       return false;
     }
   }

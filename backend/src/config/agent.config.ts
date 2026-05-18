@@ -38,9 +38,7 @@ const envSchema = z.object({
   AGENT_ENABLED:             z.coerce.boolean().default(true),
   AGENT_DRY_RUN:             z.coerce.boolean().default(true),
   EMAIL_RATE_LIMIT:          z.coerce.number().default(50),
-  WHATSAPP_RATE_LIMIT:       z.coerce.number().default(100),
   FEATURE_EMAIL:             z.coerce.boolean().default(true),
-  FEATURE_WHATSAPP:          z.coerce.boolean().default(false),
   FEATURE_AUTO_FOLLOWUP:     z.coerce.boolean().default(true),
   FEATURE_AUTO_SCHEDULING:   z.coerce.boolean().default(true),
   FEATURE_SENTIMENT_ANALYSIS: z.coerce.boolean().default(true),
@@ -66,7 +64,6 @@ export const config = {
   },
   features: {
     email:             result.data.FEATURE_EMAIL,
-    whatsapp:          result.data.FEATURE_WHATSAPP,
     autoFollowup:      result.data.FEATURE_AUTO_FOLLOWUP,
     autoScheduling:    result.data.FEATURE_AUTO_SCHEDULING,
     sentimentAnalysis: result.data.FEATURE_SENTIMENT_ANALYSIS,
@@ -76,7 +73,6 @@ export const config = {
   },
   rateLimits: {
     email:    { perDay: result.data.EMAIL_RATE_LIMIT },
-    whatsapp: { perDay: result.data.WHATSAPP_RATE_LIMIT },
   },
   scraper: {
     baseUrl:       result.data.SOKOGATE_BASE_URL,

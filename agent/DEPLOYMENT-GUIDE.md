@@ -71,10 +71,11 @@ REDIS_PORT=6379
 REDIS_PASSWORD=secure_password
 REDIS_TLS=true
 
-# Anthropic Claude AI
-ANTHROPIC_API_KEY=sk-ant-prod-xxxxx
-ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
-ANTHROPIC_MAX_TOKENS=4096
+# NVIDIA AI
+NVIDIA_API_KEY=nvapi-prod-xxxxx
+NVIDIA_MODEL=nvidia/nemotron-3-super-120b-a12b
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_MAX_TOKENS=4096
 
 # Email (Resend)
 RESEND_API_KEY=re_prod_xxxxx
@@ -184,7 +185,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}
     depends_on:
       - postgres
@@ -301,7 +302,7 @@ docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/sokogate-agent:latest
       ],
       "secrets": [
         {"name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:..."},
-        {"name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:secretsmanager:..."}
+        {"name": "NVIDIA_API_KEY", "valueFrom": "arn:aws:secretsmanager:..."}
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -377,7 +378,7 @@ gcloud run deploy sokogate-agent \
   --min-instances 1 \
   --max-instances 10 \
   --set-env-vars NODE_ENV=production \
-  --set-secrets DATABASE_URL=sokogate-db-url:latest,ANTHROPIC_API_KEY=anthropic-key:latest
+  --set-secrets DATABASE_URL=sokogate-db-url:latest,NVIDIA_API_KEY=nvidia-key:latest
 ```
 
 #### Using Cloud SQL and Memorystore
@@ -423,7 +424,7 @@ az container create \
   --registry-username <username> \
   --registry-password <password> \
   --environment-variables NODE_ENV=production \
-  --secure-environment-variables DATABASE_URL=<url> ANTHROPIC_API_KEY=<key> \
+  --secure-environment-variables DATABASE_URL=<url> NVIDIA_API_KEY=<key> \
   --ports 3000
 ```
 
@@ -566,13 +567,13 @@ gcloud run services update sokogate-agent \
 ### Secrets Management
 
 ```bash
-# AWS Secrets Manager
+# NVIDIA API Key
 aws secretsmanager create-secret \
-  --name sokogate/agent/anthropic-key \
-  --secret-string "sk-ant-xxxxx"
+  --name sokogate/agent/nvidia-key \
+  --secret-string "nvapi-xxxxx"
 
-# GCP Secret Manager
-echo -n "sk-ant-xxxxx" | gcloud secrets create anthropic-key --data-file=-
+# Google Secret Manager
+echo -n "nvapi-xxxxx" | gcloud secrets create nvidia-key --data-file=-
 
 # Azure Key Vault
 az keyvault secret set \

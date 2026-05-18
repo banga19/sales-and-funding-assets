@@ -22,7 +22,6 @@ export interface BaseContact {
   contact_name?: string;
   email?: string;
   phone?: string;
-  whatsapp?: string;
   tier: ContactTier;
   status: ContactStatus;
   notes?: string;
@@ -142,7 +141,7 @@ export interface Conversation {
 }
 
 // Message Types
-export type Channel = 'email' | 'whatsapp' | 'sms';
+export type Channel = 'email' | 'sms';
 
 export type Direction = 'outbound' | 'inbound';
 

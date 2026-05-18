@@ -14,13 +14,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contact_type_enum') THEN
+    CREATE TYPE contact_type_enum AS ENUM ('prospect','investor','partner','funding');
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sentiment_enum') THEN
+    CREATE TYPE sentiment_enum AS ENUM ('positive','neutral','negative','unknown');
+  END IF;
+END $$;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- conversations — one row per contact / conversation lifecycle
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS conversations (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   contact_id         UUID NOT NULL,
-  contact_type       VARCHAR(20) NOT NULL CHECK (contact_type IN ('prospect','investor','partner')),
+  contact_type       VARCHAR(20) NOT NULL CHECK (contact_type IN ('prospect','investor','partner','funding')),
   current_stage      VARCHAR(50) NOT NULL DEFAULT 'not_started',
   last_message_at    TIMESTAMP,
   last_message_channel VARCHAR(20),
@@ -37,8 +49,11 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS idx_conversations_contact       ON conversations(contact_id, contact_type);
 CREATE INDEX IF NOT EXISTS idx_conversations_next_action    ON conversations(next_action_date) WHERE next_action_date IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_conversations_escalation     ON conversations(escalation_required) WHERE escalation_required = TRUE;
-CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON conversations
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_conversations_updated_at') THEN
+    EXECUTE 'CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON conversations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()';
+  END IF;
+END $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- message_history — all sent/received messages with delivery tracking
@@ -48,7 +63,7 @@ CREATE TABLE IF NOT EXISTS message_history (
   conversation_id     UUID REFERENCES conversations(id) ON DELETE CASCADE,
   contact_id          UUID NOT NULL,
   contact_type        VARCHAR(20) NOT NULL CHECK (contact_type IN ('prospect','investor','partner')),
-  channel             VARCHAR(20) NOT NULL CHECK (channel IN ('email','whatsapp','sms')),
+  channel             VARCHAR(20) NOT NULL CHECK (channel IN ('email','sms')),
   direction           VARCHAR(10) NOT NULL CHECK (direction IN ('outbound','inbound')),
   subject             TEXT,
   content             TEXT NOT NULL,
@@ -76,7 +91,7 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
   contact_id      UUID NOT NULL,
-  contact_type    VARCHAR(20) NOT NULL CHECK (contact_type IN ('prospect','investor','partner')),
+  contact_type    VARCHAR(20) NOT NULL CHECK (contact_type IN ('prospect','investor','partner','funding')),
   action_type     VARCHAR(50) NOT NULL,
   scheduled_for   TIMESTAMP NOT NULL,
   executed_at     TIMESTAMP,

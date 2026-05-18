@@ -2,7 +2,6 @@
 import { logger } from '../utils/logger';
 import { db } from '../database/db.client';
 import { emailService } from '../channels/email.service';
-import { whatsappService } from '../channels/whatsapp.service';
 import { agentConfig } from '../config/agent.config';
 
 /**
@@ -34,12 +33,6 @@ export class MeetingWorkflow {
           subject: 'Let\'s Schedule a Call',
           html: message,
           text: message.replace(/<[^>]*>/g, ''),
-        });
-        sent = response.success;
-      } else if (contact.preferred_channel === 'whatsapp' && contact.phone) {
-        const response = await whatsappService.send({
-          to: contact.phone,
-          message: message.replace(/<[^>]*>/g, ''),
         });
         sent = response.success;
       }
@@ -112,12 +105,6 @@ export class MeetingWorkflow {
           text: message.replace(/<[^>]*>/g, ''),
         });
         sent = response.success;
-      } else if (contact.preferred_channel === 'whatsapp' && contact.phone) {
-        const response = await whatsappService.send({
-          to: contact.phone,
-          message: message.replace(/<[^>]*>/g, ''),
-        });
-        sent = response.success;
       }
 
       if (!sent) {
@@ -184,12 +171,6 @@ export class MeetingWorkflow {
           subject: 'Meeting Reminder',
           html: message,
           text: message.replace(/<[^>]*>/g, ''),
-        });
-        sent = response.success;
-      } else if (contact.preferred_channel === 'whatsapp' && contact.phone) {
-        const response = await whatsappService.send({
-          to: contact.phone,
-          message: message.replace(/<[^>]*>/g, ''),
         });
         sent = response.success;
       }

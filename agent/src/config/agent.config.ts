@@ -27,15 +27,10 @@ export const agentConfig = {
       perDay: parseInt(process.env.EMAIL_RATE_LIMIT_PER_DAY || '50', 10),
       perHour: parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || '10', 10),
     },
-    whatsapp: {
-      perDay: parseInt(process.env.WHATSAPP_RATE_LIMIT_PER_DAY || '100', 10),
-      perHour: parseInt(process.env.WHATSAPP_RATE_LIMIT_PER_HOUR || '20', 10),
-    },
   },
   
   // Feature Flags
   features: {
-    whatsapp:            process.env.ENABLE_WHATSAPP === 'true',
     email:               process.env.ENABLE_EMAIL === 'true',
     autoFollowup:        process.env.ENABLE_AUTO_FOLLOWUP === 'true',
     autoScheduling:      process.env.ENABLE_AUTO_SCHEDULING === 'true',
@@ -61,9 +56,10 @@ export const agentConfig = {
   
   // AI Configuration
   ai: {
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
-    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
-    maxTokens: parseInt(process.env.ANTHROPIC_MAX_TOKENS || '1024', 10),
+    apiKey: process.env.NVIDIA_API_KEY || '',
+    model: process.env.NVIDIA_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
+    baseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+    maxTokens: parseInt(process.env.NVIDIA_MAX_TOKENS || '1024', 10),
   },
   
   // Email Configuration
@@ -79,15 +75,6 @@ export const agentConfig = {
       apiKey: process.env.SENDGRID_API_KEY || '',
       from: process.env.SENDGRID_FROM_EMAIL || 'sales@sokogate.com',
     },
-  },
-  
-  // WhatsApp Configuration
-  whatsapp: {
-    businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || '',
-    accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
-    webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '',
-    apiVersion: process.env.WHATSAPP_API_VERSION || 'v18.0',
   },
   
   // Calendly Configuration
@@ -149,15 +136,11 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
   
   if (!agentConfig.ai.apiKey) {
-    errors.push('ANTHROPIC_API_KEY is required');
+    errors.push('NVIDIA_API_KEY is required');
   }
   
   if (agentConfig.features.email && !agentConfig.email.resend.apiKey) {
     errors.push('RESEND_API_KEY is required when email is enabled');
-  }
-  
-  if (agentConfig.features.whatsapp && !agentConfig.whatsapp.accessToken) {
-    errors.push('WHATSAPP_ACCESS_TOKEN is required when WhatsApp is enabled');
   }
   
   if (!agentConfig.database.url) {

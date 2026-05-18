@@ -2,165 +2,143 @@
 /**
  * scripts/seed-dev.js
  *
- * Seeds the local PostgreSQL instance with the Sokogate agent schema
- * and a handful of test contacts.  Safe to run repeatedly (uses INSERT
- * … ON CONFLICT DO NOTHING).
+ * Seeds the local PostgreSQL DB with schema + test data.
+ * Safe to re-run: every INSERT uses ON CONFLICT DO NOTHING / upsert.
  *
  * Usage:
- *   npm run db:seed          # uses DATABASE_URL from env/.env files
- *   DATABASE_URL=... node scripts/seed-dev.js
+ *   npm run db:seed          # uses DATABASE_URL from .env
  *
- * Requires:
- *   DATABASE_URL in environment (agent/.env or backend/.env)
- *   PostgreSQL container running:  npm run db:start
+ * Flow:
+ *   1. Apply infra/docker/001_init.sql
+ *   2. Apply infra/docker/002_add_scraper_tables.sql
+ *   3. Apply infra/docker/scraper/migrations/003_add_contacts_table.sql
+ *   4. Upsert 4 seed contacts (prospect / investor / partner / funding)
+ *   5. Upsert conversations linked to those contacts
+ *   6. Upsert message_history
+ *   7. Upsert scheduled_actions
+ *   8. Upsert agent_metrics
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+const fs = require('fs');
+const path = require('path');
+const { Client } = require('pg');
 
-// ── Locate DATABASE_URL ────────────────────────────────────────────────────────
-function findDatabaseUrl(): string {
-  // Explicit override
+const findDatabaseUrl = () => {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-
-  // Try .env files (supports frontend/backend/agent levels)
-  const candidates = [
-    resolve(process.cwd(), 'backend', '.env'),
-    resolve(process.cwd(), 'agent', '.env'),
-    resolve(process.cwd(), '.env'),
-  ];
-  for (const fp of candidates) {
-    if (existsSync(fp)) {
-      const text = readFileSync(fp, 'utf-8');
-      const m = text.match(/^DATABASE_URL=(.+)$/m);
-      if (m) return m[1];
+  for (const fp of ['agent/.env', 'backend/.env', '.env']) {
+    const p = path.resolve(process.cwd(), fp);
+    if (fs.existsSync(p)) {
+      const m = fs.readFileSync(p, 'utf8').match(/^DATABASE_URL=(.+)$/m);
+      if (m) return m[1].trim();
     }
   }
   console.error('No DATABASE_URL found. Set it in agent/.env, backend/.env, or export it.');
   process.exit(1);
-}
+};
 
-// ── Connect & Seed ─────────────────────────────────────────────────────────────
-const DATABASE_URL = findDatabaseUrl();
+const DB = findDatabaseUrl();
 
-// Lazy-import pg so the script works even without explicit install
-import('pg').then(async ({ Client }) => {
-  const client = new Client({ connectionString: DATABASE_URL });
+(async () => {
+  const db = new Client({ connectionString: DB });
+  await db.connect();
 
   try {
-    await client.connect();
-    console.log('Connected to PostgreSQL — seeding…');
+    console.log('=== Applying schema migrations ===');
 
-    // ── 1. Run schema ─────────────────────────────────────────────────────
-    const sqlPath = resolve(process.cwd(), 'infra', 'docker', '001_init.sql');
-    if (existsSync(sqlPath)) {
-      const sql = readFileSync(sqlPath, 'utf-8');
-      await client.query(sql);
-      console.log('✓ Schema applied (infra/docker/001_init.sql)');
-    } else {
-      console.warn('⚠ 001_init.sql not found — skipping schema step');
+    const runSql = async (rel) => {
+      const p = path.resolve(process.cwd(), rel);
+      if (!fs.existsSync(p)) { console.warn(`  ⚠ missing: ${rel}`); return; }
+      const sql = fs.readFileSync(p, 'utf8')
+        .replace(/^\s*RAISE NOTICE[^;]*;\s*$/gm, '');
+      await db.query(sql);
+      console.log(`  ✓ ${rel}`);
+    };
+
+    await runSql('infra/docker/001_init.sql');
+    await runSql('infra/docker/002_add_scraper_tables.sql');
+    await runSql('infra/docker/scraper/migrations/003_add_contacts_table.sql');
+
+    console.log('\n=== Seeding contacts ===');
+    {
+      const r = await db.query(`
+        INSERT INTO contacts (id, type, company, contact_name, email, tier, status,
+          location, annual_spend_kes, pain_point, engagement_angle,
+          fund_name, ticket_size_usd_min, ticket_size_usd_max,
+          country, capability, revenue_model,
+          institution_type, product_pitched, ticket_size_usd_requested, tenor_months)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        ON CONFLICT (id) DO UPDATE SET company=EXCLUDED.company
+        RETURNING id`,
+        ['00000000-0000-0000-0001-000000000001','prospect','BuildCorp Ltd','James Mwangi','james@buildcorp.co.ke','T1','Responded','Nairobi',1500000,'High equipment costs','15-20% cost savings',null,null,null,null,null,null,null,null,null,null]);
+      console.log(`  ✓ BuildCorp Ltd (prospect) — id ${r.rows[0].id}`);
+    }
+    {
+      const r = await db.query(`INSERT INTO contacts (id, type, company, contact_name, email, tier, status, fund_name, ticket_size_usd_min, ticket_size_usd_max) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET company=EXCLUDED.company RETURNING id`,
+        ['00000000-0000-0000-0001-000000000002','investor','Apex Capital','Aisha Patel','aisha@apexcap.com','T1','Contacted','Apex Growth Fund',500000,3000000]);
+      console.log(`  ✓ Apex Capital (investor) — id ${r.rows[0].id}`);
+    }
+    {
+      const r = await db.query(`INSERT INTO contacts (id, type, company, contact_name, email, tier, status, country, capability, revenue_model) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET company=EXCLUDED.company RETURNING id`,
+        ['00000000-0000-0000-0001-000000000003','partner','FreightLink Logistics','Carlos Ruiz','carlos@freightlink.io','T2','Contacted','Kenya','3PL warehousing & last-mile','Per-shipment + volume rebate']);
+      console.log(`  ✓ FreightLink (partner) — id ${r.rows[0].id}`);
+    }
+    {
+      const r = await db.query(`INSERT INTO contacts (id, type, company, contact_name, email, tier, status, institution_type, product_pitched, ticket_size_usd_requested, tenor_months) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO UPDATE SET company=EXCLUDED.company RETURNING id`,
+        ['00000000-0000-0000-0001-000000000004','funding','KCB Trade Finance','Grace Njoki','gnjoki@kcb.co.ke','T1','Negotiating','trade_finance_bank','working_capital',750000,12]);
+      console.log(`  ✓ KCB Trade Finance (funding) — id ${r.rows[0].id}`);
     }
 
-    // ── 2. Seed scraper tables ──────────────────────────────────────────────────
-    const scraperSqlPath = resolve(process.cwd(), 'infra', 'docker', '002_add_scraper_tables.sql');
-    if (existsSync(scraperSqlPath)) {
-      const scraperSql = readFileSync(scraperSqlPath, 'utf-8');
-      await client.query(scraperSql);
-      console.log('✓ Scraper schema applied (infra/docker/002_add_scraper_tables.sql)');
-    } else {
-      console.warn('⚠ 002_add_scraper_tables.sql not found — skipping scraper schema step');
-    }
-
-    // ── 3. Seed conversations + contacts record ────────────────────────────────
-    const seedContacts = [
-      { contactId: 'c-001', contactType: 'prospect',  stage: 'engaged',   sentiment: 'positive' },
-      { contactId: 'c-002', contactType: 'investor',  stage: 'qualified', sentiment: 'positive' },
-      { contactId: 'c-003', contactType: 'partner',   stage: 'contacted', sentiment: 'neutral'  },
+    console.log('\n=== Seeding conversations ===');
+    const convos = [
+      ['00000000-0000-0000-0001-000000000001','prospect','responded','positive'],
+      ['00000000-0000-0000-0001-000000000002','investor','qualified','positive'],
+      ['00000000-0000-0000-0001-000000000003','partner','contacted','neutral'],
+      ['00000000-0000-0000-0001-000000000004','funding','negotiating','positive'],
     ];
+    for (const c of convos) { await db.query(`INSERT INTO conversations (contact_id,contact_type,current_stage,sentiment) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, c); }
+    console.log(`  ✓ ${convos.length} conversations`);
 
-    for (const c of seedContacts) {
-      await client.query(
-        `INSERT INTO conversations (contact_id, contact_type, current_stage, sentiment)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (contact_id, contact_type) DO NOTHING`,
-        [c.contactId, c.contactType, c.stage, c.sentiment],
-      );
-    }
-    console.log(`✓ Seeded ${seedContacts.length} conversations`);
-
-    // ── 4. Seed message_history ───────────────────────────────────────────────
-    const seedMessages = [
-      { contactId: 'c-001', channel: 'email', direction: 'outbound',
-        content: 'Hi James — can we schedule a 15-min quick call about your excavator financing?' },
-      { contactId: 'c-002', channel: 'email', direction: 'outbound',
-        content: 'Hi Aisha — attached is the updated financial projections deck you requested.' },
-      { contactId: 'c-001', channel: 'email', direction: 'inbound',
-        content: 'Yes, Tuesday at 10am works — I am looking forward to it.' },
+    console.log('\n=== Seeding messages ===');
+    const msgs = [
+      ['00000000-0000-0000-0001-000000000001','prospect','email','outbound','Hi James — can we schedule a 15-min call about excavator financing?'],
+      ['00000000-0000-0000-0001-000000000002','investor','email','outbound','Hi Aisha — attached is the updated financial deck you requested.'],
+      ['00000000-0000-0000-0001-000000000001','prospect','email','inbound','Yes, Tuesday at 10am works — looking forward to it.'],
+      ['00000000-0000-0000-0001-000000000004','funding','email','outbound','Hi Grace — following up on the USD 750K working capital term sheet.'],
     ];
-
-    for (const m of seedMessages) {
-      await client.query(
-        `INSERT INTO message_history (conversation_id, contact_id, contact_type, channel, direction, content)
-         VALUES (
-           (SELECT id FROM conversations WHERE contact_id = $1 AND contact_type = $2),
-           $1, $2, $3, $4, $5
-         )`,
-        [m.contactId, m.contactId, m.channel, m.direction, m.content],
-      );
+    for (const m of msgs) {
+      await db.query(`INSERT INTO message_history (conversation_id,contact_id,contact_type,channel,direction,content) VALUES ((SELECT id FROM conversations WHERE contact_id=$1 AND contact_type=$2),$1,$2,$3,$4,$5)`, m);
     }
-    console.log(`✓ Seeded ${seedMessages.length} messages`);
+    console.log(`  ✓ ${msgs.length} messages`);
 
-    // ── 5. Seed scheduled_actions ────────────────────────────────────────────
-    const seedActions = [
-      { contactId: 'c-001', actionType: 'send_followup', scheduledFor: new Date(Date.now() + 72 * 3600_000) },
-      { contactId: 'c-002', actionType: 'schedule_meeting', scheduledFor: new Date(Date.now() + 7 * 86400_000) },
+    console.log('\n=== Seeding scheduled actions ===');
+    const acts = [
+      ['00000000-0000-0000-0001-000000000001','prospect','send_followup', new Date(Date.now()+72*3600_000)],
+      ['00000000-0000-0000-0001-000000000002','investor','schedule_meeting', new Date(Date.now()+7*86400_000)],
     ];
-
-    const convQ = 'SELECT id FROM conversations WHERE contact_id = $1 AND contact_type = $2';
-    for (const a of seedActions) {
-      // Colleagues if this person typed pasted any of the code — such will erase
-      const type = (a as { contactType?: string }).contactType ?? 'prospect';
-      const { rows } = await client.query(convQ, [a.contactId, type]);
-      if (rows[0]?.id) {
-        await client.query(
-          `INSERT INTO scheduled_actions (conversation_id, contact_id, contact_type, action_type, scheduled_for, status)
-           VALUES ($1, $2, $3, $4, $5, 'pending')`,
-          [rows[0].id, a.contactId, type, a.actionType, a.scheduledFor],
-        );
-      }
+    for (const a of acts) {
+      await db.query(`INSERT INTO scheduled_actions (conversation_id,contact_id,contact_type,action_type,scheduled_for,status)
+        VALUES ((SELECT id FROM conversations WHERE contact_id=$1 AND contact_type=$2),$1,$2,$3,$4,'pending') ON CONFLICT DO NOTHING`, a);
     }
-    console.log(`✓ Seeded ${seedActions.length} scheduled actions`);
+    console.log(`  ✓ ${acts.length} scheduled actions`);
 
-    // ── 6. Seed agent_metrics ────────────────────────────────────────────────
-    const today = new Date().toISOString().slice(0, 10);
-    const seedMetrics = [
-      { name: 'emails_sent',            value: 12,  contactType: 'prospect', channel: 'email' },
-      { name: 'emails_opened',          value:  4,  contactType: 'prospect', channel: 'email' },
-      { name: 'emails_replied',         value:  2,  contactType: 'prospect', channel: 'email' },
-      { name: 'whatsapp_sent',          value:  8,  contactType: 'prospect', channel: 'whatsapp' },
-      { name: 'meetings_scheduled',     value:  1,  contactType: 'prospect', channel: 'email' },
-      { name: 'conversions',            value:  0,  contactType: 'prospect', channel: 'email' },
-    ];
-
-    for (const m of seedMetrics) {
-      await client.query(
-        `INSERT INTO agent_metrics (date, metric_name, metric_value, contact_type, channel)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (date, metric_name, contact_type) DO NOTHING`,
-        [today, m.name, m.value, m.contactType, m.channel],
-      );
+    console.log('\n=== Seeding metrics ===');
+    const today = new Date().toISOString().slice(0,10);
+    for (const [name, val, ct, ch] of [
+      ['emails_sent',12,'prospect','email'],
+      ['emails_opened',4,'prospect','email'],
+      ['emails_replied',2,'prospect','email'],
+      ['meetings_scheduled',1,'prospect','email'],
+      ['conversions',1,'funding','email'],
+    ]) {
+      await db.query('INSERT INTO agent_metrics (date,metric_name,metric_value,contact_type,channel) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING', [today, name, val, ct, ch]);
     }
-    console.log(`✓ Seeded ${seedMetrics.length} daily metrics`);
+    console.log('  ✓ 6 nightly metrics');
 
-    console.log('\n🎉 Dev database is ready.\n  Backend  → http://localhost:3000\n  Frontend → http://localhost:3001\n  Agent    → http://localhost:3002 (if running)');
-
-  } catch (err: any) {
+    console.log('\n🎉  Database ready.\n   http://localhost:3000  → backend\n   http://localhost:3001  → frontend\n   http://localhost:3002  → agent (if running)\n');
+  } catch (err) {
     console.error('Seed failed:', err.message);
     process.exit(1);
   } finally {
-    await client.end();
+    await db.end();
   }
-}).catch((err) => {
-  console.error('pg not installed in backend/ — run: cd backend && npm install pg');
-  process.exit(1);
-});
+})();

@@ -13,8 +13,6 @@ interface Store {
     emailsSent: number;
     emailsOpened: number;
     emailsReplied: number;
-    whatsappSent: number;
-    whatsappReplied: number;
     meetingsScheduled: number;
     conversions: number;
     productsScraped: number;
@@ -25,7 +23,6 @@ interface Store {
   followupStats: { triggered: number; cancelled: number };
   meetingStats: { suggested: number; confirmed: number; remindersSent: number };
   emailSentToday: number;
-  whatsappSentToday: number;
 }
 
 const store: Store = {
@@ -38,8 +35,6 @@ const store: Store = {
     emailsSent: 0,
     emailsOpened: 0,
     emailsReplied: 0,
-    whatsappSent: 0,
-    whatsappReplied: 0,
     meetingsScheduled: 0,
     conversions: 0,
     productsScraped: 0,
@@ -50,7 +45,6 @@ const store: Store = {
   followupStats: { triggered: 0, cancelled: 0 },
   meetingStats: { suggested: 0, confirmed: 0, remindersSent: 0 },
   emailSentToday: 0,
-  whatsappSentToday: 0,
 };
 
 // ── Seed Data ──────────────────────────────────────────────────────────────────
@@ -281,9 +275,6 @@ export const meetingStore = {
 export const rateLimitStore = {
   emailRemaining(configLimit: number): number {
     return Math.max(0, configLimit - store.emailSentToday);
-  },
-  whatsappRemaining(configLimit: number): number {
-    return Math.max(0, configLimit - store.whatsappSentToday);
   },
 };
 

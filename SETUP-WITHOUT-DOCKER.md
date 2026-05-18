@@ -130,7 +130,7 @@ LOG_LEVEL=info
 **`agent/.env`** — for Docker-less setup:
 ```env
 # AI
-ANTHROPIC_API_KEY=sk-ant-api03-...
+NVIDIA_API_KEY=nvapi-...
 
 # ── Local PostgreSQL ──────────────────────────────────────
 DATABASE_URL=postgresql://sokogate:sokogate-dev-change-me@localhost:5432/sokogate

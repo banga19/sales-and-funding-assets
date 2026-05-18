@@ -127,8 +127,8 @@ AGENT_ENABLED=false
 Here's a minimal `.env` that will let the agent start:
 
 ```bash
-# AI (Required - get from https://console.anthropic.com)
-ANTHROPIC_API_KEY=sk-ant-api03-your_key_here
+# AI (Required - get from https://nvidia.com)
+NVIDIA_API_KEY=nvapi-your_key_here
 
 # Email (Required - get from https://resend.com)
 RESEND_API_KEY=re_your_key_here
@@ -197,7 +197,7 @@ Test-NetConnection -ComputerName your-db-host.com -Port 5432
 
 ## Recommended Setup for Quick Start
 
-1. **Get Anthropic API Key**: https://console.anthropic.com (required)
+1. **Get NVIDIA API Key**: https://nvidia.com (required)
 2. **Get Resend API Key**: https://resend.com (required)
 3. **Get Supabase Database**: https://supabase.com (free, 5 min setup)
 4. **Get Upstash Redis**: https://upstash.com (free, 2 min setup)

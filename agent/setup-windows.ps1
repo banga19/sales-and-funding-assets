@@ -32,8 +32,8 @@ Write-Host "Checking environment configuration..." -ForegroundColor Yellow
 if (!(Test-Path ".env")) {
     Write-Host "✓ Creating .env from template..." -ForegroundColor Green
     Copy-Item ".env.example" ".env"
-    Write-Host "  Please edit .env with your API keys:" -ForegroundColor Yellow
-    Write-Host "  - ANTHROPIC_API_KEY (required)" -ForegroundColor Yellow
+Write-Host "  Please edit .env with your API keys:" -ForegroundColor Yellow
+     Write-Host "  - NVIDIA_API_KEY (required)" -ForegroundColor Yellow
     Write-Host "  - RESEND_API_KEY (required)" -ForegroundColor Yellow
     Write-Host "  - DATABASE_URL (required)" -ForegroundColor Yellow
     Write-Host "  - REDIS_HOST (required)" -ForegroundColor Yellow

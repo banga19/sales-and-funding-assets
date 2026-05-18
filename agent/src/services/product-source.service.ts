@@ -21,12 +21,25 @@ import axios, { AxiosInstance } from 'axios';
 import { agentConfig } from '../config/agent.config';
 import { logger } from '../utils/logger';
 import type { Product, ProductSpecification } from '../types/product.types';
+import https from 'node:https';
 
 // ─── Config aliases ────────────────────────────────────────────────────────────
 
 const BASE_URL    = agentConfig.sokogate.baseUrl;
 const MAX_PAGES   = agentConfig.sokogate.maxPages;
 const TIMEOUT_MS  = agentConfig.sokogate.scrapeTimeoutMs;
+
+// ─── Axios instance (reuse for all HTTP fetches) ────────────────────────────────
+// rejectUnauthorized=false allows the scraper to reach sites with self-signed or
+// expired TLS certificates (e.g. the expired cert currently on sokogate.com).
+const httpsAgentAllowExpired = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
+
+const http: AxiosInstance = axios.create({
+  timeout:    TIMEOUT_MS,
+  httpsAgent: httpsAgentAllowExpired,
+  headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Cache-Control': 'no-cache' },
+  maxRedirects: 5,
+});
 
 // ─── Domain helpers ─────────────────────────────────────────────────────────────
 
@@ -69,13 +82,6 @@ const USER_AGENTS = [
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
 ];
 const userAgentPool = USER_AGENTS.map((ua) => (Math.random() < 0.5 ? ua : ua)); // keep uniform weight for now
-
-// Axios instance with per-request UA rotation
-const http: AxiosInstance = axios.create({
-  timeout: TIMEOUT_MS,
-  headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Cache-Control': 'no-cache' },
-  maxRedirects: 5,
-});
 
 // Force-seed the pool into the axios default by mutating per-request
 function httpGet<T = any>(url: string, signal?: AbortSignal): Promise<{ data: T }> {

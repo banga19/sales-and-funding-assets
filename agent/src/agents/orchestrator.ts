@@ -2,7 +2,6 @@
 import { logger } from '../utils/logger';
 import { db } from '../database/db.client';
 import { emailService } from '../channels/email.service';
-import { whatsappService } from '../channels/whatsapp.service';
 import { personalizationService } from './personalization';
 import { agentConfig } from '../config/agent.config';
 import {
@@ -85,8 +84,6 @@ class AgentOrchestrator {
           html: generatedMessage.content,
           from: agentConfig.email.fromAddress,
         });
-      } else if (contact.preferred_channel === 'whatsapp' && contact.phone) {
-        sent = await whatsappService.send(contact.phone, generatedMessage.content);
       }
 
       if (!sent) {
@@ -249,8 +246,6 @@ class AgentOrchestrator {
         html: response.content,
         from: agentConfig.email.fromAddress,
       });
-    } else if (contact.preferred_channel === 'whatsapp' && contact.phone) {
-      await whatsappService.send(contact.phone, response.content);
     }
 
     // Log response
@@ -292,9 +287,8 @@ class AgentOrchestrator {
         html: response.content,
         from: agentConfig.email.fromAddress,
       });
-    } else if (contact.preferred_channel === 'whatsapp' && contact.phone) {
-      await whatsappService.send(contact.phone, response.content);
     }
+
 
     // Log response
     await this.logMessage({
@@ -339,9 +333,8 @@ class AgentOrchestrator {
         html: response.content,
         from: agentConfig.email.fromAddress,
       });
-    } else if (contact.preferred_channel === 'whatsapp' && contact.phone) {
-      await whatsappService.send(contact.phone, response.content);
     }
+
 
     // Log response
     await this.logMessage({

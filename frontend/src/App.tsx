@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Activity,
   Database,
@@ -60,8 +60,7 @@ const MOCK_HEALTH: HealthCheck = {
   checks: {
     database: { healthy: true },
     email:    true,
-    whatsapp: true,
-    claude:   true,
+    nvidia:      true,
   },
 };
 
@@ -69,7 +68,6 @@ const MOCK_STATUS: AgentStatus = {
   enabled:  true,
   dryRun:   false,
   features: {
-    whatsapp:          true,
     email:             true,
     autoFollowup:      true,
     autoScheduling:    true,
@@ -78,7 +76,6 @@ const MOCK_STATUS: AgentStatus = {
   },
   rateLimits: {
     email:    { remaining: 78,  limit: 100 },
-    whatsapp: { remaining: 30,  limit: 200 },
   },
 };
 
@@ -233,12 +230,19 @@ function App() {
       setLoading(true);
       setError(null);
 
-      // Status is always needed for the dashboard — fetch first, independently.
-      // Health and status are fetched separately so one endpoint's failure
-      // (e.g. /api/health still returning 503 on restart) doesn't block the other.
-      let statusData: AgentStatus | null = null;
+      // ── Fire status, health, and products in parallel ──────────────────────────
+      // All three are independent — no dependency between them.
+      // We use Promise.all here for speed; each call has its own try/catch below.
+      const [statusData, healthData, productsResp] = await Promise.all([
+        apiClient.getStatus(),
+        apiClient.getHealth(),
+        apiClient.getProducts(),
+      ]);
+
+      let isDemo = false;
+
+      // ── Agent status ───────────────────────────────────────────────────────────
       try {
-        statusData = await apiClient.getStatus();
         setStatus(statusData);
         setIsDemo(false);
       } catch (statusErr: any) {
@@ -248,10 +252,8 @@ function App() {
         }
       }
 
-      // Health check — 503 just means "agent running but some components
-      // not ready yet"; we still show the dashboard with a yellow badge.
+      // ── Health check ──────────────────────────────────────────────────────────
       try {
-        const healthData = await apiClient.getHealth();
         setHealth(healthData);
       } catch (healthErr: any) {
         const code = healthErr.response?.status;
@@ -260,19 +262,26 @@ function App() {
           setHealth({
             status: 'unhealthy',
             timestamp: new Date().toISOString(),
-            checks: {
-              database: { healthy: false, error: 'Connection not confirmed' },
-              email:    false,
-              whatsapp: false,
-              claude:   false,
-            },
+        checks: {
+               database: { healthy: false, error: 'Connection not confirmed' },
+               email:    false,
+               nvidia:   false,
+             },
           });
         } else {
           console.warn('[App] /api/health network error:', healthErr.message);
-          if (!DEMO_MODE && !statusData) {
+          if (!DEMO_MODE) {
             setError('Backend unreachable: ' + (healthErr.response?.data?.error || healthErr.message));
           }
         }
+      }
+
+      // ── Products ──────────────────────────────────────────────────────────────
+      try {
+        setProducts(productsResp.data);
+      } catch (e: any) {
+        console.warn('[App] /products fetch failed:', e.message);
+        setProducts([]);
       }
 
       if (DEMO_MODE && !statusData) {
@@ -283,31 +292,6 @@ function App() {
       }
 
       setLastUpdate(new Date());
-
-      // ── Product Scrape Status (only when backend is reachable) ──────────────
-      try {
-        const scrapeStatusData: ScrapeStatusResponse = await apiClient.getScrapeStatus();
-        setScrapeStatus(scrapeStatusData);
-
-        // If a scrape just completed, refresh the product list
-        if (
-          scrapeStatusData.phase === 'complete' &&
-          scrapeStatusData.productCount > products.length
-        ) {
-          const prodData: any = await apiClient.getProducts();
-          setProducts(prodData.data ?? []);
-        }
-      } catch {
-        // Silently ignore if /products/scrape/status isn't implemented yet
-      }
-
-      // ── Product List ──────────────────────────────────────────────────────────
-      try {
-        const prodData: any = await apiClient.getProducts();
-        if (prodData?.data) setProducts(prodData.data);
-      } catch {
-        // Silently ignore if /products endpoint isn't available yet
-      }
     } finally {
       setLoading(false);
     }
@@ -319,36 +303,56 @@ function App() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Additionally poll scrape status every 2 s while a scrape is in-flight
+  // Poll scrape status every 2 s while a scrape is in-flight.
+  // IsScraping is derived from the live phase ref — no dependency on the
+  // closure-scraped scrapeStatus from the initial fetchData call.
+  const phaseRef = useRef<ScrapeStatusResponse['phase'] | null>(scrapeStatus?.phase ?? null);
   useEffect(() => {
     if (!scrapeStatus || scrapeStatus.phase === 'idle') return;
+
     const poller = setInterval(async () => {
       try {
-        const next: any = await apiClient.getScrapeStatus();
+        const next: ScrapeStatusResponse = await apiClient.getScrapeStatus();
+        const nextPhase = next.phase;
+        phaseRef.current = nextPhase;
         setScrapeStatus(next);
-        if (next.phase === 'complete') {
-          const prodR: any = await apiClient.getProducts();
-          setProducts(prodR?.data ?? []);
+        if (nextPhase === 'complete') {
+          const prodList = await apiClient.getProducts();
+          setProducts(prodList.data);
+          setIsScraping(false);
+        } else if (nextPhase === 'error') {
           setIsScraping(false);
         }
-      } catch {
-        // noop
+      } catch (e: any) {
+        console.warn('[App] poller /products fetch failed:', e.message);
       }
     }, 2000);
-    const rawPhase = scrapeStatus?.phase;
-    setIsScraping(rawPhase === 'discovering' || rawPhase === 'scraping');
-    return () => clearInterval(poller);
+
+    // Schedule setIsScraping once per poller mount — use current phase from ref
+    setIsScraping(phaseRef.current === 'discovering' || phaseRef.current === 'scraping');
+
+    return () => { clearInterval(poller); };
   }, [scrapeStatus?.phase]);
 
   // ── Handle: trigger scrape ───────────────────────────────────────────────────
+  // Fire the POST without awaiting; set phase → discovering immediately so the
+  // poller starts ≤1 ms after the click rather than after the network round-trip.
   const handleTriggerScrape = async (): Promise<void> => {
-    try {
-      setIsScraping(true);
-      await apiClient.triggerScrape();
-    } catch (err: any) {
+    setIsScraping(true);
+    // intentionally not awaited — UI updates instantly
+    apiClient.triggerScrape().then((resp) => {
+      setScrapeStatus({
+        success:    true,
+        phase:      'discovering',
+        message:    resp.message || 'Scrape triggered — discovering products…',
+        productCount: 0,
+        scrapedAt:  null,
+        runId:      resp.runId ?? null,
+      });
+    }).catch((err: any) => {
       console.error('[App] Scrape trigger failed:', err.message);
       setIsScraping(false);
-    }
+    });
   };
 
   /* ── Element-specific state transitions — App render helpers are at module level ── */
@@ -610,39 +614,20 @@ function App() {
                 {isDemo && <DemoNotice text="Active — Demo" />}
               </StatCard>
 
-              {/* WhatsApp */}
-              <StatCard key="wa">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center" style={{ gap: '0.5rem' }}>
-                    <MessageSquare className="w-5 h-5" style={{ color: SOK.primary }} />
-                    <span className="font-medium" style={{ color: SOK.neutral }}>
-                      WhatsApp
-                    </span>
-                  </div>
-                  {health && statusDot(health.checks.whatsapp)}
-                </div>
-                {!health?.checks.whatsapp && !isDemo && (
-                  <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
-                    Configure credentials in .env
-                  </p>
-                )}
-                {isDemo && <DemoNotice text="Active — Demo" />}
-              </StatCard>
-
-              {/* Claude AI */}
-              <StatCard key="claude">
+              {/* NVIDIA AI */}
+              <StatCard key="nvidia">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center" style={{ gap: '0.5rem' }}>
                     <Bot className="w-5 h-5" style={{ color: SOK.primary }} />
                     <span className="font-medium" style={{ color: SOK.neutral }}>
-                      Claude AI
+                      NVIDIA AI
                     </span>
                   </div>
-                  {health && statusDot(health.checks.claude)}
+                  {health && statusDot(health.checks.nvidia)}
                 </div>
-                {!health?.checks.claude && !isDemo && (
+                {!health?.checks.nvidia && !isDemo && (
                   <p className="text-xs" style={{ color: SOK.textMuted, marginTop: '0.25rem' }}>
-                    Add API credits
+                    Add NVIDIA API credits
                   </p>
                 )}
                 {isDemo && <DemoNotice text="Enabled — Demo" />}
@@ -727,18 +712,6 @@ function App() {
                     <ProgressBar remaining={status.rateLimits.email.remaining} limit={status.rateLimits.email.limit} />
                   </div>
 
-                  {/* WhatsApp rate bar — render iff available */}
-                  {status.rateLimits.whatsapp && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span style={{ color: SOK.textSec, fontSize: '0.8125rem', fontWeight: 500 }}>WhatsApp</span>
-                        <span className="text-sm font-semibold" style={{ color: SOK.neutral }}>
-                          {status.rateLimits.whatsapp.remaining} / {status.rateLimits.whatsapp.limit}
-                        </span>
-                      </div>
-                      <ProgressBar remaining={status.rateLimits.whatsapp.remaining} limit={status.rateLimits.whatsapp.limit} />
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -955,7 +928,7 @@ function App() {
               </div>
             )}
 
-            {products.length === 0 ? (
+            {Array.isArray(products) && products.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: SOK.textMuted }}>
                 <Package className="w-10 h-10 mx-auto mb-3" style={{ opacity: 0.3 }} />
                 <p style={{ fontSize: '0.9375rem', fontWeight: 500, marginBottom: '0.25rem', color: SOK.neutral }}>
@@ -966,13 +939,14 @@ function App() {
                 </p>
               </div>
             ) : (
-              <>
-                <div style={{ marginBottom: '0.75rem', fontSize: '0.8125rem', color: SOK.textMuted }}>
-                  Showing {products.length} product{products.length !== 1 ? 's' : ''}
-                  {scrapeStatus?.scrapedAt && (
-                    <> — last updated {new Date(scrapeStatus.scrapedAt).toLocaleTimeString()}</>
-                  )}
-                </div>
+              Array.isArray(products) ? (
+                <>
+                  <div style={{ marginBottom: '0.75rem', fontSize: '0.8125rem', color: SOK.textMuted }}>
+                    Showing {products.length} product{products.length !== 1 ? 's' : ''}
+                    {scrapeStatus?.scrapedAt && (
+                      <> — last updated {new Date(scrapeStatus.scrapedAt).toLocaleTimeString()}</>
+                    )}
+                  </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem' }}>
                   {products.map((product) => (
                     <div
@@ -1132,7 +1106,8 @@ function App() {
                     </div>
                   ))}
                 </div>
-              </>
+                </>
+              ) : null
             )}
           </div>
         </section>

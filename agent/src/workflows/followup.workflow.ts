@@ -4,7 +4,6 @@ import { orchestrator } from '../agents/orchestrator';
 import { db } from '../database/db.client';
 import { personalizationService } from '../agents/personalization';
 import { emailService } from '../channels/email.service';
-import { whatsappService } from '../channels/whatsapp.service';
 import { agentConfig } from '../config/agent.config';
 
 /**
@@ -132,12 +131,6 @@ export class FollowUpWorkflow {
         subject: message.subject || 'Following up',
         html: message.body,
         text: message.body.replace(/<[^>]*>/g, ''),
-      });
-      sent = response.success;
-    } else if (action.preferred_channel === 'whatsapp' && action.phone) {
-      const response = await whatsappService.send({
-        to: action.phone,
-        body: message.body.replace(/<[^>]*>/g, ''),
       });
       sent = response.success;
     }

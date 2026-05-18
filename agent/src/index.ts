@@ -5,7 +5,6 @@ import { agentConfig, validateConfig } from './config/agent.config';
 import { logger } from './utils/logger';
 import { db } from './database/db.client';
 import { emailService } from './channels/email.service';
-import { whatsappService } from './channels/whatsapp.service';
 import { personalizationService } from './agents/personalization';
 import agentRoutes from './api/routes/agent.routes';
 
@@ -53,38 +52,31 @@ class SalesAgent {
    * Setup API routes
    */
   private setupRoutes(): void {
-    // Health check
-    this.app.get('/api/health', async (req: Request, res: Response) => {
+    // Health check — 200 with a per-component breakdown so the frontend can
+    // render a degraded UI (yellow badges) instead of the error screen.
+    this.app.get('/api/health', async (_req: Request, res: Response) => {
+      let dbHealth, emailHealth, nvidiaHealth;
       try {
-        const dbHealth = await db.healthCheck();
-        const emailHealth = await emailService.healthCheck();
-        const whatsappHealth = agentConfig.features.whatsapp ? await whatsappService.healthCheck() : true;
-        const claudeHealth = await personalizationService.healthCheck();
-        
-        const health = {
-          status: dbHealth.healthy && emailHealth && whatsappHealth && claudeHealth ? 'healthy' : 'unhealthy',
-          timestamp: new Date().toISOString(),
-          checks: {
-            database: {
-              healthy: dbHealth.healthy,
-              error: dbHealth.error,
-            },
-            email: emailHealth,
-            whatsapp: whatsappHealth,
-            claude: claudeHealth,
-          },
-        };
-
-        const statusCode = health.status === 'healthy' ? 200 : 503;
-
-        res.status(statusCode).json(health);
-      } catch (error) {
-        logger.error('Health check failed', { error });
-        res.status(503).json({
-          status: 'unhealthy',
-          error: 'Health check failed',
-        });
+        [dbHealth, emailHealth, nvidiaHealth] = await Promise.all([
+          db.healthCheck(),
+          emailService.healthCheck(),
+          personalizationService.healthCheck(),
+        ]);
+      } catch {
+        dbHealth = { healthy: false, error: 'Connection check threw an exception' };
+        emailHealth = false; nvidiaHealth = false;
       }
+
+      const checks = {
+        database: dbHealth ?? { healthy: false },
+        email:    !!emailHealth,
+        nvidia:   !!nvidiaHealth,
+      } as const;
+
+      const unhealthyCount = Object.values(checks).filter((v: any) => (v as any).healthy === false || v === false).length;
+      const status: 'healthy' | 'degraded' = unhealthyCount === 0 ? 'healthy' : 'degraded';
+
+      res.json({ status, timestamp: new Date().toISOString(), checks });
     });
 
     // Get agent status
@@ -98,10 +90,6 @@ class SalesAgent {
             remaining: emailService.getRemainingToday(),
             limit: agentConfig.rateLimits.email.perDay,
           },
-          whatsapp: agentConfig.features.whatsapp ? {
-            remaining: whatsappService.getRemainingToday(),
-            limit: agentConfig.rateLimits.whatsapp.perDay,
-          } : null,
         },
       });
     });
@@ -135,11 +123,6 @@ class SalesAgent {
     });
 
     // Webhook endpoints (placeholders for now)
-    this.app.post('/api/webhooks/whatsapp', (req: Request, res: Response) => {
-      logger.info('WhatsApp webhook received', { body: req.body });
-      res.sendStatus(200);
-    });
-
     this.app.post('/api/webhooks/email', (req: Request, res: Response) => {
       logger.info('Email webhook received', { body: req.body });
       res.sendStatus(200);
@@ -154,18 +137,28 @@ class SalesAgent {
     this.app.use('/api/agent', agentRoutes);
 
     // ── Real-Time Product Sourcing ───────────────────────────────────────────────
-    // POST /api/products/scripe — trigger autonomous crawl of sokogate.com
+    // POST /api/products/scrape — trigger autonomous crawl of sokogate.com
+    // 202 Accepted is returned immediately; the scrape runs in the background so
+    // GET /products/scrape/status polls can interleave even while the handler
+    // is waiting on external I/O (axios + cheerio + DB per product page).
     this.app.post('/api/products/scrape', async (req: Request, res: Response) => {
       try {
-        const { orchestrator } = await import('./agents/orchestrator');
-        const result = await orchestrator.sourceProductData();
+        // Kick off the run but do NOT await it — res.send() finishes the HTTP
+        // connection so the event loop can handle concurrent /status GETs.
+        (async () => {
+          try {
+            const { orchestrator } = await import('./agents/orchestrator');
+            const result = await orchestrator.sourceProductData();
+            logger.info('Product source run finished', { runId: result.runId, upserted: result.productsUpserted });
+          } catch (err: any) {
+            logger.error('Background product source failed', { error: err.message });
+          }
+        })();
+
+        // Send 202 Accepted immediately — caller should poll /scrape/status for live progress.
         res.status(202).json({
           success: true,
-          message: `Sourcing triggered — ${result.productsUpserted} product(s) upserted`,
-          runId: result.runId,
-          productsFound: result.productsFound,
-          productsUpserted: result.productsUpserted,
-          durationMs: result.durationMs,
+          message: 'Sourcing triggered — poll /api/products/scrape/status for live progress',
         });
       } catch (error: any) {
         logger.error('Product scrape trigger failed', { error });
@@ -178,7 +171,7 @@ class SalesAgent {
       try {
         const { category, inStock, search, page = '1', pageSize = '20' } = req.query;
         const conditions: string[] = [];
-        const params: any[] = [];
+        const params: any[]      = [];
         let idx = 1;
         if (category)  { conditions.push(`category ILIKE $${idx++}`); params.push(`%${category}%`); }
         if (inStock !== undefined) { conditions.push(`in_stock = $${idx++}`); params.push(inStock === 'true'); }
@@ -187,29 +180,36 @@ class SalesAgent {
         const pg     = Math.max(1, parseInt(String(page), 10) || 1);
         const ps     = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
         const offset = (pg - 1) * ps;
-        const [countRes, dataRes, catRes] = await Promise.all([
-          db.query(`SELECT COUNT(*) AS count FROM scraped_products ${where}`, params),
-          db.query(`SELECT * FROM scraped_products ${where} ORDER BY last_scraped_at DESC LIMIT $${idx++} OFFSET $${idx++}`, [...params, ps, offset]),
+
+        // Run count and data queries independently so LIMIT/OFFSET params don't
+        // shift the count sub-query's positional parameters.
+        const [countRow, dataRows, catRows] = await Promise.all([
+          db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM scraped_products ${where}`, params),
+          db.query(`SELECT * FROM scraped_products ${where} ORDER BY last_scraped_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]),
           db.query(`SELECT DISTINCT category FROM scraped_products WHERE category IS NOT NULL ORDER BY category`),
         ]);
         const specsJsonToArr = (row: any) => {
           try { return Object.entries(JSON.parse(row.specifications || '{}')).map(([k, v]: [string, string]) => ({ key: k, value: v })); }
           catch { return []; }
         };
-        const data = (dataRes.rows ?? []).map((row: any) => ({
+        const data = (dataRows.rows ?? []).map((row: any) => ({
           id: row.id, name: row.name, description: row.description || '', price: row.price_current,
           category: row.category || 'General', images: row.images ?? [],
-          specifications: specsJsonToArr(row), inStock: row.in_stock, sourceUrl: row.source_url,
+          inStock: row.in_stock, sourceUrl: row.source_url,
           scrapedAt: row.last_scraped_at, createdAt: row.created_at, updatedAt: row.updated_at,
+          specifications: specsJsonToArr(row),
         }));
         res.json({
-          data, total: +(countRes.rows[0]?.count || 0), page: pg, pageSize: ps,
-          categories: (catRes.rows ?? []).map((r: any) => r.category).filter(Boolean),
+          data,
+          total:  +(countRow.rows[0]?.count ?? '0'),
+          page:   pg,
+          pageSize: ps,
+          categories: (catRows.rows ?? []).map((r: any) => r.category).filter(Boolean),
           scrapedAt: data.length > 0 ? data[0].scrapedAt : null,
         });
       } catch (error: any) {
         logger.error('List products failed', { error });
-        res.status(500).json({ error: 'Failed to list products', message: error.message });
+        res.status(500).json({ success: false, data: [], total: 0, page: 1, pageSize: 20, categories: [], scrapedAt: null, error: 'Failed to list products', message: error.message });
       }
     });
 
@@ -247,11 +247,14 @@ class SalesAgent {
       });
     });
 
-    // Error handler
-    this.app.use((err: Error, req: Request, res: Response, next: any) => {
+    // Error handler — always include array-safe defaults so a consumer that
+    // unwraps `result.data` never gets `undefined`.
+    this.app.use((err: Error & { status?: number }, req: Request, res: Response, next: any) => {
       logger.error('Unhandled error', { error: err, path: req.path });
-      res.status(500).json({
-        error: 'Internal server error',
+      res.status(err.status || 500).json({
+        success: false,
+        data:    [],
+        error:   err.message || 'Internal server error',
         message: agentConfig.monitoring.sentry.environment === 'development' ? err.message : undefined,
       });
     });
@@ -311,7 +314,6 @@ class SalesAgent {
 
         logger.info('Agent is ready to process contacts', {
           emailLimit: agentConfig.rateLimits.email.perDay,
-          whatsappLimit: agentConfig.rateLimits.whatsapp.perDay,
         });
       });
 

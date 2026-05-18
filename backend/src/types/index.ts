@@ -32,7 +32,7 @@ export interface Contact {
 export interface Message {
   id: string;
   contactId: string;
-  channel: 'email' | 'whatsapp';
+  channel: 'email';
   direction: 'inbound' | 'outbound';
   content: string;
   subject?: string;
@@ -44,21 +44,19 @@ export interface Message {
 // ─── API Response Types ─────────────────────────────────────────────────────────
 
 export interface HealthCheck {
-  status: 'healthy' | 'unhealthy';
-  timestamp: string;
-  checks: {
+   status: 'healthy' | 'unhealthy';
+   timestamp: string;
+   checks: {
     database: { healthy: boolean; error?: string };
     email: boolean;
-    whatsapp: boolean;
-    claude: boolean;
-  };
-}
+    nvidia: boolean;
+   };
+ }
 
 export interface AgentStatus {
   enabled: boolean;
   dryRun: boolean;
   features: {
-    whatsapp: boolean;
     email: boolean;
     autoFollowup: boolean;
     autoScheduling: boolean;
@@ -67,7 +65,6 @@ export interface AgentStatus {
   };
   rateLimits: {
     email: { remaining: number; limit: number };
-    whatsapp: { remaining: number; limit: number } | null;
   };
 }
 

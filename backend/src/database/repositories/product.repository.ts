@@ -152,8 +152,7 @@ export async function updateScrapeRun(
 export async function getRecentScrapeRuns(limit = 20): Promise<ScrapeRunRow[]> {
   const { rows } = await dbQuery<ScrapeRunRow>(
     `SELECT id, triggered_by, status, base_url, max_pages,
-            products_found, products_scraped, products_new, products_updated,
-            products_failed, products_deleted,
+            products_found, products_scraped,
             started_at, finished_at,
             duration_ms, error_message, metadata
      FROM scrape_runs ORDER BY started_at DESC LIMIT $1`,

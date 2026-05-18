@@ -219,9 +219,9 @@ npm start
 ## Environment Variable Reference
 
 | Variable                           | Pipeline                    |
-|-------------------------------------|-----------------------------|
-| `ANTHROPIC_API_KEY`                 | All (Claude AI)             |
-| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | Email delivery         |
+ |-------------------------------------|-----------------------------|
+ | `NVIDIA_API_KEY`                   | All (NVIDIA AI)             |
+ | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | Email delivery         |
 | `DATABASE_URL`                      | All (CRM DB)                |
 | `REDIS_URL`                         | Rate limiting / queues      |
 | `ESCALATION_EMAIL`                  | All (human override)        |
@@ -238,7 +238,7 @@ are excluded automatically.
 ### Funding template ignores institution type
 Ensure `institution_type` and `product_pitched` are set in the `contacts`
 row for that `Funding` record — these fields are injected into the
-context block for Claude AI.
+context block for NVIDIA AI.
 
 ### No products appear in `/api/products`
 Run a manual scrape: `POST /api/products/scrape`. Check `scraped_products`
