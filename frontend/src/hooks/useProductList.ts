@@ -1,33 +1,45 @@
 /**
  * useProductList
  *
- * React hook that fetches the full product catalog from
- * GET /api/products using the agent proxy (/api → :3002).
- * Includes an on-demand refresh function so parent components
- * can trigger a refetch after a scrape completes.
+ * Fetches the product catalogue from GET /api/products.
+ * Returns a no-args `refresh()` (safe as an event handler) and
+ * `refreshWithOpts(opts?)` for callers that need to change sort/limit.
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import { apiClient } from '@/api/client';
-import type { Product } from '@/types';
+import type { Product, SortKey } from '@/types';
 
-interface UseProductListResult {
-  products:  Product[];
-  loading:   boolean;
-  error:     string | null;
-  refresh:   () => void;
+interface UseProductListOptions {
+  sortBy?:   SortKey;
+  page?:     number;
+  pageSize?: number;
 }
 
-export function useProductList(): UseProductListResult {
+interface UseProductListResult {
+  products:        Product[];
+  loading:         boolean;
+  error:           string | null;
+  refresh:         () => void;               // safe for onClick
+  refreshWithOpts: (opts?: UseProductListOptions) => void;
+}
+
+export function useProductList(opts: UseProductListOptions = {}): UseProductListResult {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const doFetch = useCallback(async (fetchOpts?: UseProductListOptions) => {
     setLoading(true);
     setError(null);
     try {
-      const resp: any = await apiClient.get('/products');
+      const {
+        sortBy     = opts.sortBy ?? 'trending',
+        page       = opts.page     ?? 1,
+        pageSize   = opts.pageSize ?? 24,
+      } = fetchOpts ?? {};
+      const qs = new URLSearchParams({ sort: sortBy, page: String(page), limit: String(pageSize) });
+      const resp: any = await apiClient.get(`/products?${qs}`);
       setProducts(Array.isArray(resp?.data) ? resp.data : []);
     } catch (e: any) {
       setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load products.');
@@ -35,9 +47,12 @@ export function useProductList(): UseProductListResult {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [opts.sortBy, opts.page, opts.pageSize]);
 
-  useEffect(() => { void fetch(); }, [fetch]);
+  useEffect(() => { void doFetch(); }, [doFetch]);
 
-  return { products, loading, error, refresh: fetch };
+  const refresh         = useCallback(() => doFetch(), [doFetch]);
+  const refreshWithOpts = useCallback((o?: UseProductListOptions) => doFetch(o), [doFetch]);
+
+  return { products, loading, error, refresh, refreshWithOpts };
 }

@@ -120,6 +120,13 @@ export interface Product {
   scrapedAt:      string;
   createdAt:      string;
   updatedAt:      string;
+  weightGrams?:   number | null;
+  trendingScore?: number | null;
+  b2bSuitable?:   boolean | null;
+  originCountry?: string | null;
+  shippingEst?:   string | null;
+  subcategory?:   string | null;
+  sourceId?:      string | null;
 }
 
 export interface ProductListResponse {
@@ -147,5 +154,16 @@ export interface ScrapeStatusResponse {
   scrapedAt:    string | null;
   runId:        string | null;
 }
+
+export interface ProductStats {
+  total:       number;
+  trending:    number;
+  lightweight: number;
+  avgPrice:    number | null;
+  minPrice:    number | null;
+  maxPrice:    number | null;
+}
+
+export type SortKey = 'trending' | 'price_asc' | 'price_desc' | 'weight_asc';
 
 // Made with Bob

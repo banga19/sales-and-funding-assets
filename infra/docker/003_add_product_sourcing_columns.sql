@@ -1,0 +1,10 @@
+ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS weight_grams DECIMAL(10,2);
+ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS trending_score INTEGER DEFAULT 0;
+ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS b2b_suitable BOOLEAN DEFAULT TRUE;
+ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS origin_country VARCHAR(100) DEFAULT 'China';
+ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS shipping_est VARCHAR(100);
+ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS subcategory VARCHAR(255);
+ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS source_id VARCHAR(255);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scraped_products_source_id ON scraped_products(source_id);
+CREATE INDEX IF NOT EXISTS idx_products_trending ON scraped_products(trending_score DESC);
+CREATE INDEX IF NOT EXISTS idx_products_weight ON scraped_products(weight_grams ASC);

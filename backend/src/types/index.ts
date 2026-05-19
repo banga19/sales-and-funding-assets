@@ -91,18 +91,25 @@ export interface ProductSpecification {
 }
 
 export interface Product {
-  id:               string;
-  name:             string;
-  description:      string;
-  price:            string;
-  category:         string;
-  images:           string[];
-  specifications:   ProductSpecification[];
-  inStock:          boolean;
-  sourceUrl:        string;
-  scrapedAt:        string;
-  createdAt:        string;
-  updatedAt:        string;
+  id:             string;
+  name:           string;
+  description:    string;
+  price:          string;
+  category:       string;
+  images:         string[];
+  specifications: ProductSpecification[];
+  inStock:        boolean;
+  sourceUrl:      string;
+  scrapedAt:      string;
+  createdAt:      string;
+  updatedAt:      string;
+  weightGrams?:    number | null;
+  trendingScore?:  number | null;
+  b2bSuitable?:    boolean | null;
+  originCountry?:  string | null;
+  shippingEst?:    string | null;
+  subcategory?:    string | null;
+  sourceId?:       string | null;
 }
 
 // Made with Bob

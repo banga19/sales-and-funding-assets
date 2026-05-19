@@ -11,6 +11,13 @@ import {
 
 import { logger } from '../utils/logger.js';
 
+function extractSku(url: string): string | null {
+  try {
+    const seg = new URL(url).pathname.split('/').filter(Boolean);
+    return seg[seg.length - 1] || null;
+  } catch { return null; }
+}
+
 /** Errors produced by the DB sync layer (thrown so callers can catch them). */
 export class ScrapeSyncError extends Error {
   constructor(
@@ -25,7 +32,50 @@ export class ScrapeSyncError extends Error {
 
 // ─── Row → DB Product converter ──────────────────────────────────────────────
 
+const WEIGHT_ESTIMATES: Record<string, number> = {
+  'power bank': 220, 'earphones': 85, 'earbuds': 55, 'charging cable': 40,
+  'phone case': 35, 'screen protector': 20, 'dress': 180, 'jumpsuit': 200,
+  't-shirt': 160, 'skirt': 150, 'blouse': 130, 'solar light': 300,
+  'water bottle': 280, 'kitchen utensil': 150, 'makeup': 60, 'skincare': 100,
+  'hair accessory': 25, 'jewelry': 30, 'watch': 100, 'bag': 400, 'wallet': 120,
+  'default': 250,
+};
+
+const TRENDING_KEYWORDS = ['new', 'hot', 'trending', '2025', '2026', 'fast', 'popular', 'bestseller'];
+const HIGH_DEMAND_CATEGORIES = ['electronics', 'phone accessories', 'fashion', 'beauty'] as const;
+
+function estimateWeight(title: string, category: string): number {
+  const lower = title.toLowerCase();
+  for (const [kw, w] of Object.entries(WEIGHT_ESTIMATES)) {
+    if (lower.includes(kw)) return w;
+  }
+  return WEIGHT_ESTIMATES['default'];
+}
+
+function calculateTrendingScore(title: string, price: number | null, category: string, weight: number): number {
+  let score = 50;
+  const lower = title.toLowerCase();
+  TRENDING_KEYWORDS.forEach(kw => { if (lower.includes(kw)) score += 10; });
+  if (weight < 100) score += 20; else if (weight < 300) score += 10; else if (weight < 500) score += 5;
+  HIGH_DEMAND_CATEGORIES.forEach(cat => { if (category.toLowerCase().includes(cat)) score += 8; });
+  if (price != null) { if (price < 5) score += 15; else if (price < 10) score += 10; else if (price < 20) score += 5; }
+  return Math.min(score, 100);
+}
+
+function enrichProductFromRow(product: Product, row: RawProductRow): void {
+  const title   = product.name;
+  const price   = row.priceNumeric;
+  const weight  = estimateWeight(title, product.category);
+  const trending = calculateTrendingScore(title, price, product.category, weight);
+  product.weightGrams  = weight;
+  product.trendingScore = trending;
+  product.b2bSuitable   = weight <= 500;
+  product.originCountry = 'China';
+  product.shippingEst   = 'Air 7-15 days';
+}
+
 function rawRowToProduct(row: RawProductRow): Product {
+  const sku = extractSku(row.sourceUrl);
   return {
     id:             uuidv4(),
     name:           row.name,
@@ -39,6 +89,7 @@ function rawRowToProduct(row: RawProductRow): Product {
     scrapedAt:      new Date().toISOString(),
     createdAt:      new Date().toISOString(),
     updatedAt:      new Date().toISOString(),
+    sourceId:       sku,
   };
 }
 
@@ -114,6 +165,7 @@ export async function persistScrapeRows(
   for (const row of rawRows) {
     try {
       const product = rawRowToProduct(row);
+      enrichProductFromRow(product, row);
       const { productId } = await upsertProduct(product);
       upserted++;
 

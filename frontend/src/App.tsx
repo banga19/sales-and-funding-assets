@@ -9,7 +9,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Activity, Bot, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { SystemHealth, QuickActions, ProductSourcing, OutreachPanel, AgentHub, ContactsSection, FeatureRow } from '@/components';
+import { SystemHealth, QuickActionsBar, SlideOverPanel, TestEmailPanel, AgentLogsPanel, ContactsPanel, ProductSourcingCard, OutreachPanel, AgentHub, FeatureRow } from '@/components';
 import type { HealthCheck, AgentStatus } from '@/types';
 
 const DEMO_MODE = String((import.meta.env as any).VITE_DEMO_MODE ?? '0') === '1';
@@ -205,7 +205,7 @@ export default function App() {
     agentConfig.features, () => { void handleRetry(); },
   );
 
-  const [contactsOpen, setContactsOpen]    = useState(false);
+  const [activePanel, setActivePanel] = useState<'email' | 'logs' | 'contacts' | null>(null);
   const [refreshProducts, setRefreshProducts] = useState(0);
   const [retryTrigger, setRetryTrigger]   = useState(0);
 
@@ -285,10 +285,14 @@ export default function App() {
         </div>
 
         {/* ── 2. Quick Actions ── */}
-        <QuickActions />
+        <QuickActionsBar
+          onEmailClick={() => setActivePanel('email')}
+          onLogsClick={() => setActivePanel('logs')}
+          onContactsClick={() => setActivePanel('contacts')}
+        />
 
         {/* ── 3. Product Sourcing ── */}
-        <ProductSourcing key={refreshProducts} />
+        <ProductSourcingCard />
 
         {/* ── 4. Automated Outreach ── */}
         <OutreachPanel />
@@ -363,14 +367,18 @@ export default function App() {
         {/* ── 7. Autonomous Agents ── */}
         <AgentHub onProductsUpdated={handleProductsUpdated} />
 
-        {/* ── Contacts Panel ── */}
-        <ContactsSection
-          open={contactsOpen}
-          contacts={null}
-          loading={false}
-          error={null}
-          onClose={() => setContactsOpen(false)}
-        />
+        {/* ── Slide-over panels ── */}
+        <SlideOverPanel isOpen={activePanel === 'email'}   onClose={() => setActivePanel(null)} title="Test Email">
+          <TestEmailPanel />
+        </SlideOverPanel>
+
+        <SlideOverPanel isOpen={activePanel === 'logs'}    onClose={() => setActivePanel(null)} title="Agent Logs">
+          <AgentLogsPanel />
+        </SlideOverPanel>
+
+        <SlideOverPanel isOpen={activePanel === 'contacts'} onClose={() => setActivePanel(null)} title="Contacts">
+          <ContactsPanel />
+        </SlideOverPanel>
       </main>
 
       <Footer />

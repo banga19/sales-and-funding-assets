@@ -5,21 +5,28 @@ import type { Product, ProductSpecification } from '../../types/index.js';
 // ─── Database row shapes ───────────────────────────────────────────────────────
 
 interface DbProductRow {
-  id:             string;
-  source_url:     string;
-  name:           string;
-  description:    string | null;
-  price_current:  string;        /* stored as NUMERIC(12,2) in DB, surfaced as string/cast */
-  price_raw:      string | null;
-  currency:       string;
-  category:       string | null;
-  images:         string[];
-  in_stock:       boolean;
-  sku:            string | null;
-  specifications: Record<string, string>;
+  id:              string;
+  source_url:      string;
+  name:            string;
+  description:     string | null;
+  price_current:   string;        /* stored as NUMERIC(12,2) in DB, surfaced as string/cast */
+  price_raw:       string | null;
+  currency:        string;
+  category:        string | null;
+  images:          string[];
+  in_stock:        boolean;
+  sku:             string | null;
+  specifications:  Record<string, string>;
   last_scraped_at: string;
-  created_at:     string;
-  updated_at:     string;
+  created_at:      string;
+  updated_at:      string;
+  weight_grams:    number | null;
+  trending_score:  number | null;
+  b2b_suitable:    boolean | null;
+  origin_country:  string | null;
+  shipping_est:    string | null;
+  subcategory:     string | null;
+  source_id:       string | null;
 }
 
 interface PriceHistoryRow {
@@ -85,18 +92,25 @@ export interface PriceDeltaRow {
 function rowToProduct(row: DbProductRow): Product {
   const specs: ProductSpecification[] = Object.entries(row.specifications ?? {}).map(([k, v]) => ({ key: k, value: v }));
   return {
-    id:          row.id,
-    name:        row.name,
-    description: row.description || '',
-    price:       String(row.price_current ?? ''),
-    category:    row.category || 'General',
-    images:      row.images ?? [],
+    id:            row.id,
+    name:          row.name,
+    description:   row.description || '',
+    price:         String(row.price_current ?? ''),
+    category:      row.category || 'General',
+    images:        row.images ?? [],
     specifications: specs,
-    inStock:     row.in_stock,
-    sourceUrl:   row.source_url,
-    scrapedAt:   row.last_scraped_at,
-    createdAt:   row.created_at,
-    updatedAt:   row.updated_at,
+    inStock:       row.in_stock,
+    sourceUrl:     row.source_url,
+    scrapedAt:     row.last_scraped_at,
+    createdAt:     row.created_at,
+    updatedAt:     row.updated_at,
+    weightGrams:   row.weight_grams ?? null,
+    trendingScore: row.trending_score ?? null,
+    b2bSuitable:   row.b2b_suitable ?? null,
+    originCountry: row.origin_country ?? null,
+    shippingEst:   row.shipping_est ?? null,
+    subcategory:   row.subcategory ?? null,
+    sourceId:      row.source_id ?? null,
   };
 }
 
@@ -186,8 +200,9 @@ export async function upsertProduct(prod: Product): Promise<{ upserted: boolean;
   const { rows } = await dbQuery<{ id: string }>(
     `INSERT INTO scraped_products
        (source_url, name, description, price_current, price_raw, currency,
-        category, images, in_stock, sku, specifications)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        category, images, in_stock, sku, specifications,
+        weight_grams, trending_score, b2b_suitable, origin_country, shipping_est, subcategory, source_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      ON CONFLICT (LOWER(source_url)) DO UPDATE SET
        name           = EXCLUDED.name,
        description    = EXCLUDED.description,
@@ -199,6 +214,13 @@ export async function upsertProduct(prod: Product): Promise<{ upserted: boolean;
        in_stock       = EXCLUDED.in_stock,
        sku            = EXCLUDED.sku,
        specifications = EXCLUDED.specifications,
+       weight_grams   = COALESCE(EXCLUDED.weight_grams, scraped_products.weight_grams),
+       trending_score = COALESCE(EXCLUDED.trending_score, scraped_products.trending_score),
+       b2b_suitable   = COALESCE(EXCLUDED.b2b_suitable, scraped_products.b2b_suitable),
+       origin_country = COALESCE(EXCLUDED.origin_country, scraped_products.origin_country),
+       shipping_est   = COALESCE(EXCLUDED.shipping_est, scraped_products.shipping_est),
+       subcategory    = COALESCE(EXCLUDED.subcategory, scraped_products.subcategory),
+       source_id      = COALESCE(EXCLUDED.source_id, scraped_products.source_id),
        last_scraped_at= NOW(), updated_at = NOW()
      RETURNING id`,
     [
@@ -206,13 +228,20 @@ export async function upsertProduct(prod: Product): Promise<{ upserted: boolean;
       prod.price || null, null, 'KES',
       prod.category || null, prod.images, prod.inStock,
       sku, specsJson,
+      prod.weightGrams ?? null,
+      prod.trendingScore ?? null,
+      prod.b2bSuitable ?? null,
+      prod.originCountry ?? null,
+      prod.shippingEst ?? null,
+      prod.subcategory ?? null,
+      prod.sourceId ?? null,
     ],
   );
   return { upserted: true, productId: rows[0]!.id };
 }
 
 export async function listDbProducts(args: {
-  category?: string; inStock?: boolean; search?: string; page?: number; pageSize?: number;
+  category?: string; inStock?: boolean; search?: string; page?: number; pageSize?: number; sortBy?: 'trending' | 'weight_asc' | 'weight_desc' | 'price_asc' | 'price_desc';
 }): Promise<{ data: Product[]; total: number; page: number; pageSize: number; categories: string[] }> {
   const conditions: string[] = [];
   const params: any[]   = [];
@@ -223,13 +252,20 @@ export async function listDbProducts(args: {
   if (args.search)  { conditions.push(`name ILIKE $${idx++}`);     params.push(`%${args.search}%`); }
 
   const where  = conditions.length ? `WHERE ${conditions.join(' AND ')} AND is_active = TRUE` : 'WHERE is_active = TRUE';
+
+  const orderBy = args.sortBy === 'weight_asc' ? 'weight_grams ASC NULLS LAST' :
+                  args.sortBy === 'weight_desc' ? 'weight_grams DESC NULLS LAST' :
+                  args.sortBy === 'price_asc' ? 'price_current ASC NULLS LAST' :
+                  args.sortBy === 'price_desc' ? 'price_current DESC NULLS LAST' :
+                  'trending_score DESC NULLS LAST, last_scraped_at DESC';
+
   const pg     = Math.max(1, args.page ?? 1);
   const ps     = Math.min(100, Math.max(1, args.pageSize ?? 20));
   const offset = (pg - 1) * ps;
 
   const [countRes, dataRes, catRes] = await Promise.all([
     dbQuery<{ count: string }>(`SELECT COUNT(*) AS count FROM scraped_products ${where}`, params),
-    dbQuery<DbProductRow>(`SELECT * FROM scraped_products ${where} ORDER BY last_scraped_at DESC LIMIT $${idx++} OFFSET $${idx++}`, [...params, ps, offset]),
+    dbQuery<DbProductRow>(`SELECT * FROM scraped_products ${where} ORDER BY ${orderBy} LIMIT $${idx++} OFFSET $${idx++}`, [...params, ps, offset]),
     dbQuery<{ category: string }>(`SELECT DISTINCT category FROM scraped_products WHERE category IS NOT NULL AND is_active = TRUE ORDER BY category`),
   ]);
 
@@ -321,10 +357,43 @@ export async function getPriceDeltas(limit = 50): Promise<PriceDeltaRow[]> {
             current_price, current_price_numeric,
             prev_price_numeric, price_direction, last_scraped_at
      FROM ranked
-     WHERE rn = 1
-     ORDER BY last_scraped_at DESC
-     LIMIT $1`,
-    [limit],
+      WHERE rn = 1
+      ORDER BY last_scraped_at DESC
+      LIMIT $1`,
+     [limit],
+   );
+   return rows;
+}
+
+// ─── Product Stats ─────────────────────────────────────────────────────────────
+
+export interface ProductStats {
+  total:       number;
+  trending:    number;
+  lightweight: number;
+  avgPrice:    number | null;
+  minPrice:    number | null;
+  maxPrice:    number | null;
+}
+
+export async function getProductStats(): Promise<ProductStats> {
+  const { rows } = await dbQuery<ProductStats>(
+    `SELECT
+       COUNT(*)                                        AS total,
+       COUNT(CASE WHEN trending_score >= 80 THEN 1 END) AS trending,
+       COUNT(CASE WHEN weight_grams <= 200 THEN 1 END)  AS lightweight,
+       ROUND(AVG(price_current), 2)                    AS avgPrice,
+       MIN(price_current)                              AS minPrice,
+       MAX(price_current)                              AS maxPrice
+     FROM scraped_products
+     WHERE is_active = TRUE`,
   );
-  return rows;
+  return {
+    total:       +rows[0]!.total,
+    trending:    +rows[0]!.trending,
+    lightweight: +rows[0]!.lightweight,
+    avgPrice:    rows[0]!.avgPrice as number | null,
+    minPrice:    rows[0]!.minPrice as number | null,
+    maxPrice:    rows[0]!.maxPrice as number | null,
+  } as ProductStats;
 }
