@@ -270,6 +270,16 @@ class ApiClient {
 
   // ─── Quick Actions ────────────────────────────────────────────────────────────
 
+  /** POST /api/agent/email/send — send a personalized email to a single recipient */
+  async sendEmail(to: string, subject: string, body: string): Promise<any> {
+    return this.client.post('/agent/email/send', { to, subject, body });
+  }
+
+  /** PUT /api/agent/dry-run — toggle dry-run mode on the agent server */
+  async toggleDryRun(dryRun: boolean): Promise<{ dryRun: boolean }> {
+    return this.client.put('/agent/dry-run', { dryRun });
+  }
+
   /** POST /api/agent/email/test — send a test email to confirm the email service works */
   async triggerTestEmail(to?: string, subject?: string): Promise<any> {
     const body: Record<string, any> = {};

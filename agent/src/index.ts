@@ -253,10 +253,10 @@ class SalesAgent {
       try {
         const { to, subject } = req.body;
         const targetTo   = to ?? agentConfig.email.resend.from.email;
-        const targetSubj  = subject ?? 'Sokogate — Test Email';
+        const targetSubj  = subject ?? 'Sokogate \u2014 Test Email';
 
         if (agentConfig.dryRun) {
-          logger.info('[TEST EMAIL] Dry-run — not sending', { to: targetTo, subject: targetSubj });
+          logger.info('[TEST EMAIL] Dry-run \u2014 not sending', { to: targetTo, subject: targetSubj });
           return res.json({ success: true, mode: 'dry-run', message: `[DRY RUN] Would send to ${targetTo}` });
         }
 
@@ -273,6 +273,51 @@ class SalesAgent {
         }
       } catch (error: any) {
         logger.error('Test-email failed', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // POST /api/agent/email/send — send a personalized email to one recipient
+    this.app.post('/api/agent/email/send', async (req: Request, res: Response) => {
+      try {
+        const { to, subject, body } = req.body;
+        if (!to || !subject) {
+          return res.status(400).json({ success: false, error: 'Missing required fields: to, subject' });
+        }
+
+        logger.info('[EMAIL SEND] Sending', { to, subject, dryRun: agentConfig.dryRun });
+
+        const htmlBody = body.replace(/\n/g, '<br/>');
+        const result = await emailService.send({
+          to,
+          subject,
+          html: htmlBody,
+          text: body,
+        });
+
+        if (result.success) {
+          res.json({ success: true, mode: agentConfig.dryRun ? 'dry-run' : 'live', message: result.message_id ? `Sent (message id: ${result.message_id})` : 'Sent.', to, subject });
+        } else {
+          res.status(400).json({ success: false, error: result.error, to, subject });
+        }
+      } catch (error: any) {
+        logger.error('Email send failed', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // PUT /api/agent/dry-run — toggle dry-run mode at runtime
+    this.app.put('/api/agent/dry-run', (req: Request, res: Response) => {
+      try {
+        const { dryRun } = req.body;
+        if (typeof dryRun !== 'boolean') {
+          return res.status(400).json({ error: 'Missing or invalid field: dryRun (boolean)' });
+        }
+        agentConfig.dryRun = dryRun;
+        logger.info('[CONFIG] dryRun toggled', { dryRun: agentConfig.dryRun });
+        res.json({ success: true, dryRun: agentConfig.dryRun });
+      } catch (error: any) {
+        logger.error('Toggle dry-run failed', { error: error.message });
         res.status(500).json({ success: false, error: error.message });
       }
     });
