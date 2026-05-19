@@ -37,6 +37,14 @@ export default defineConfig({
         target: BACKEND_TARGET,
         changeOrigin: true,
       },
+      '/api/contacts': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
+      '/api/metrics': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
     },
   },
 });

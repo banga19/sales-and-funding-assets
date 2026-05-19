@@ -27,6 +27,18 @@ interface DbProductRow {
   shipping_est:    string | null;
   subcategory:     string | null;
   source_id:       string | null;
+  // ─── B2B extensions ──────────────────────────────────────────────────────────
+  moq:                       number | null;
+  air_delivery_days:         string | null;
+  sea_delivery_days:         string | null;
+  supplier_name:             string | null;
+  supplier_verified:         boolean | null;
+  gallery_urls:              string[] | null;
+  specs:                     Record<string, string> | null;
+  b2b_price_tier:            Array<{ min_qty: number; max_qty: number | null; unit_price: number; discount_percent: number }> | null;
+  source_platform:           string | null;
+  volume_cbm:                number | null;
+  translation_map:           Record<string, string> | null;
 }
 
 interface PriceHistoryRow {
@@ -111,6 +123,17 @@ function rowToProduct(row: DbProductRow): Product {
     shippingEst:   row.shipping_est ?? null,
     subcategory:   row.subcategory ?? null,
     sourceId:      row.source_id ?? null,
+    moq:           row.moq ?? null,
+    airDeliveryDays: row.air_delivery_days ?? null,
+    seaDeliveryDays: row.sea_delivery_days ?? null,
+    supplierName:   row.supplier_name ?? null,
+    supplierVerified: row.supplier_verified ?? null,
+    galleryUrls:    row.gallery_urls ?? [],
+    specs:          row.specs ?? null,
+    b2bPriceTier:   row.b2b_price_tier ?? null,
+    sourcePlatform: row.source_platform ?? null,
+    volumeCbm:      row.volume_cbm ?? null,
+    translationMap: row.translation_map ?? null,
   };
 }
 
@@ -191,7 +214,10 @@ export async function getScrapeRunCounts(): Promise<{ total: number; today: numb
 /** Upsert a Product into `scraped_products`. Requires columns:
  *  source_url, name, description, price_current, price_raw, currency,
  *  category, images, in_stock, sku, specifications,
- *  last_scraped_at, updated_at, is_active */
+ *  last_scraped_at, updated_at, is_active,
+ *  weight_grams, trending_score, b2b_suitable, origin_country, shipping_est,
+ *  moq, air_delivery_days, sea_delivery_days, supplier_name, supplier_verified,
+ *  gallery_urls, specs, b2b_price_tier, source_platform, volume_cbm, translation_map */
 export async function upsertProduct(prod: Product): Promise<{ upserted: boolean; productId: string }> {
   const specsJson = JSON.stringify(Object.fromEntries(
     (prod.specifications ?? []).map((s: ProductSpecification) => [s.key, s.value] as [string, string])
@@ -201,27 +227,44 @@ export async function upsertProduct(prod: Product): Promise<{ upserted: boolean;
     `INSERT INTO scraped_products
        (source_url, name, description, price_current, price_raw, currency,
         category, images, in_stock, sku, specifications,
-        weight_grams, trending_score, b2b_suitable, origin_country, shipping_est, subcategory, source_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        weight_grams, trending_score, b2b_suitable, origin_country, shipping_est, subcategory, source_id,
+        last_scraped_at, is_active,
+        moq, air_delivery_days, sea_delivery_days, supplier_name, supplier_verified,
+        gallery_urls, specs, b2b_price_tier, source_platform, volume_cbm, translation_map)
+     VALUES
+       ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+        NOW(), TRUE,
+        $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
      ON CONFLICT (LOWER(source_url)) DO UPDATE SET
-       name           = EXCLUDED.name,
-       description    = EXCLUDED.description,
-       price_current  = EXCLUDED.price_current,
-       price_raw      = EXCLUDED.price_raw,
-       currency       = EXCLUDED.currency,
-       category       = EXCLUDED.category,
-       images         = EXCLUDED.images,
-       in_stock       = EXCLUDED.in_stock,
-       sku            = EXCLUDED.sku,
-       specifications = EXCLUDED.specifications,
-       weight_grams   = COALESCE(EXCLUDED.weight_grams, scraped_products.weight_grams),
-       trending_score = COALESCE(EXCLUDED.trending_score, scraped_products.trending_score),
-       b2b_suitable   = COALESCE(EXCLUDED.b2b_suitable, scraped_products.b2b_suitable),
-       origin_country = COALESCE(EXCLUDED.origin_country, scraped_products.origin_country),
-       shipping_est   = COALESCE(EXCLUDED.shipping_est, scraped_products.shipping_est),
-       subcategory    = COALESCE(EXCLUDED.subcategory, scraped_products.subcategory),
-       source_id      = COALESCE(EXCLUDED.source_id, scraped_products.source_id),
-       last_scraped_at= NOW(), updated_at = NOW()
+       name               = EXCLUDED.name,
+       description        = EXCLUDED.description,
+       price_current      = EXCLUDED.price_current,
+       price_raw          = EXCLUDED.price_raw,
+       currency           = EXCLUDED.currency,
+       category           = EXCLUDED.category,
+       images             = EXCLUDED.images,
+       in_stock           = EXCLUDED.in_stock,
+       sku                = EXCLUDED.sku,
+       specifications     = EXCLUDED.specifications,
+       weight_grams       = COALESCE(EXCLUDED.weight_grams, scraped_products.weight_grams),
+       trending_score     = COALESCE(EXCLUDED.trending_score, scraped_products.trending_score),
+       b2b_suitable       = COALESCE(EXCLUDED.b2b_suitable, scraped_products.b2b_suitable),
+       origin_country     = COALESCE(EXCLUDED.origin_country, scraped_products.origin_country),
+       shipping_est       = COALESCE(EXCLUDED.shipping_est, scraped_products.shipping_est),
+       subcategory        = COALESCE(EXCLUDED.subcategory, scraped_products.subcategory),
+       source_id          = COALESCE(EXCLUDED.source_id, scraped_products.source_id),
+       last_scraped_at    = NOW(), updated_at = NOW(),
+       moq                = COALESCE(EXCLUDED.moq, scraped_products.moq),
+       air_delivery_days  = COALESCE(EXCLUDED.air_delivery_days, scraped_products.air_delivery_days),
+       sea_delivery_days  = COALESCE(EXCLUDED.sea_delivery_days, scraped_products.sea_delivery_days),
+       supplier_name      = COALESCE(EXCLUDED.supplier_name, scraped_products.supplier_name),
+       supplier_verified  = COALESCE(EXCLUDED.supplier_verified, scraped_products.supplier_verified),
+        gallery_urls       = COALESCE(EXCLUDED.gallery_urls, scraped_products.gallery_urls),
+       specs              = COALESCE(EXCLUDED.specs, scraped_products.specs),
+       b2b_price_tier     = COALESCE(EXCLUDED.b2b_price_tier, scraped_products.b2b_price_tier),
+       source_platform    = COALESCE(EXCLUDED.source_platform, scraped_products.source_platform),
+       volume_cbm         = COALESCE(EXCLUDED.volume_cbm, scraped_products.volume_cbm),
+       translation_map    = COALESCE(EXCLUDED.translation_map, scraped_products.translation_map)
      RETURNING id`,
     [
       prod.sourceUrl, prod.name, prod.description || null,
@@ -235,6 +278,12 @@ export async function upsertProduct(prod: Product): Promise<{ upserted: boolean;
       prod.shippingEst ?? null,
       prod.subcategory ?? null,
       prod.sourceId ?? null,
+      prod.moq ?? null, prod.airDeliveryDays ?? null, prod.seaDeliveryDays ?? null,
+      prod.supplierName ?? null, prod.supplierVerified ?? null,
+      JSON.stringify(prod.galleryUrls ?? []),
+      JSON.stringify(prod.specs ?? {}),
+      JSON.stringify(prod.b2bPriceTier ?? []),
+      prod.sourcePlatform ?? null, prod.volumeCbm ?? null, JSON.stringify(prod.translationMap ?? {}),
     ],
   );
   return { upserted: true, productId: rows[0]!.id };
@@ -368,32 +417,38 @@ export async function getPriceDeltas(limit = 50): Promise<PriceDeltaRow[]> {
 // ─── Product Stats ─────────────────────────────────────────────────────────────
 
 export interface ProductStats {
-  total:       number;
-  trending:    number;
-  lightweight: number;
-  avgPrice:    number | null;
-  minPrice:    number | null;
-  maxPrice:    number | null;
+  total:        number;
+  trending:     number;
+  lightweight:  number;
+  avgPrice:     number | null;
+  minPrice:     number | null;
+  maxPrice:     number | null;
+  lowMoqCount:  number;
+  b2bSuitableCount: number;
 }
 
 export async function getProductStats(): Promise<ProductStats> {
   const { rows } = await dbQuery<ProductStats>(
     `SELECT
-       COUNT(*)                                        AS total,
-       COUNT(CASE WHEN trending_score >= 80 THEN 1 END) AS trending,
-       COUNT(CASE WHEN weight_grams <= 200 THEN 1 END)  AS lightweight,
-       ROUND(AVG(price_current), 2)                    AS avgPrice,
-       MIN(price_current)                              AS minPrice,
-       MAX(price_current)                              AS maxPrice
+       COUNT(*)                                                  AS total,
+       COUNT(CASE WHEN trending_score >= 80 THEN 1 END)          AS trending,
+       COUNT(CASE WHEN weight_grams <= 200 THEN 1 END)           AS lightweight,
+       ROUND(AVG(price_current), 2)                              AS avgPrice,
+       MIN(price_current)                                        AS minPrice,
+       MAX(price_current)                                        AS maxPrice,
+       COUNT(CASE WHEN moq IS NOT NULL AND moq <= 20 THEN 1 END)      AS lowMoqCount,
+       COUNT(CASE WHEN b2b_suitable = TRUE THEN 1 END)                  AS b2bSuitableCount
      FROM scraped_products
      WHERE is_active = TRUE`,
   );
   return {
-    total:       +rows[0]!.total,
-    trending:    +rows[0]!.trending,
-    lightweight: +rows[0]!.lightweight,
-    avgPrice:    rows[0]!.avgPrice as number | null,
-    minPrice:    rows[0]!.minPrice as number | null,
-    maxPrice:    rows[0]!.maxPrice as number | null,
+    total:        +rows[0]!.total,
+    trending:     +rows[0]!.trending,
+    lightweight:  +rows[0]!.lightweight,
+    avgPrice:     rows[0]!.avgPrice as number | null,
+    minPrice:     rows[0]!.minPrice as number | null,
+    maxPrice:     rows[0]!.maxPrice as number | null,
+    lowMoqCount:  +rows[0]!.lowMoqCount,
+    b2bSuitableCount: +rows[0]!.b2bSuitableCount,
   } as ProductStats;
 }

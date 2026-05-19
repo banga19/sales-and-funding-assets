@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiClient } from '@/api/client';
 import {
-  Send,
-  Eye,
-  EyeOff,
-  AlertCircle,
-  CheckCircle2,
-  X,
+  Send, Eye, EyeOff, AlertCircle, CheckCircle2, X,
+  Package, Truck, BadgeCheck,
 } from 'lucide-react';
+import { useEmailPanel, type EmailPanelProduct } from '@/context/EmailPanelContext';
 
 interface Contact {
   id: string;
@@ -16,45 +13,73 @@ interface Contact {
   company: string;
 }
 
-const EMAIL_TEMPLATES = {
+// ─── B2B Email Templates ────────────────────────────────────────────────────────
+
+const EMAIL_TEMPLATES: Record<string, { subject: string; body: string }> = {
   product_inquiry: {
-    subject: 'Inquiry: {{product_name}} \u2013 Fast Delivery & Wholesale Pricing',
+    subject: '🔥 Trending {{product_name}} – Lightweight, Fast Shipping, Low MOQ from Sokogate',
     body: `Hi {{first_name}},
 
-I'm reaching out from Sokogate. We've sourced trending {{product_category}} products that are lightweight and high\u2010demand for your market.
+I noticed your company {{company}} operates in the {{product_category}} space. I wanted to share a trending product sourced directly from Sokogate.com -- Africa's leading B2B cross-border marketplace.
 
-Would you be interested in reviewing our latest catalogue? We offer quick shipping and competitive B2B pricing.
+📦 Product: {{product_name}}
+💰 Unit Price: {{currency}}{{price}} | MOQ: {{moq}} units
+⚖️ Weight: {{weight}}g (lightweight -- air freight friendly)
+✈️ Air Delivery: {{air_delivery}} | 🚢 Sea: {{sea_delivery}}
+🏭 Verified Supplier: {{supplier}}
 
-Looking forward to hearing from you.
+Why this product moves fast:
+• Lightweight at {{weight}}g -- minimises shipping cost per unit
+• Low MOQ of {{moq}} units -- test the market without overcommitting
+• Trending score {{trending_score}}/100 -- proven demand
+
+Would you be interested in receiving samples or a full catalogue? I can arrange factory-direct pricing with volume discounts.
 
 Best regards,
-{{sender_name}}`,
+{{sender_name}}
+Sokogate Sales & Funding Agent`,
   },
   follow_up: {
-    subject: 'Following up on our previous conversation',
+    subject: 'Following up on our conversation about {{product_name}}',
     body: `Hi {{first_name}},
 
-Just wanted to follow up on my last message about the {{product_name}} line.
+Just wanted to follow up on my last message regarding the {{product_name}} from Sokogate.
 
-Let me know if you'd like samples or a price quote. I'm happy to jump on a call.
+Quick recap:
+• Price: {{currency}}{{price}} / unit | MOQ: {{moq}}
+• Air delivery: {{air_delivery}} days | Sea: {{sea_delivery}} days
+• Verified supplier with track record
+
+Would you like me to share a formal quotation or arrange a sample order?
+
+Happy to jump on a quick call at your convenience.
 
 Best,
-{{sender_name}}`,
+{{sender_name}}
+Sokogate Sales & Funding Agent`,
   },
   funding_pitch: {
-    subject: 'Funding opportunity: Sokogate supplier partnership',
+    subject: 'Funding opportunity: Sokogate B2B sourcing partnership for {{company}}',
     body: `Dear {{first_name}},
 
-Sokogate is offering funding partnerships for B2B importers of high\u2010velocity products. We've identified {{product_name}} as a strong candidate for your market.
+Sokogate is expanding its strategic distribution network supporting importers across Kenya and East Africa. Our verified product catalog includes {{product_name}} and {{product_category}} ranges ideal for high-volume retail turnover.
 
-Can we schedule a quick call to discuss how this could work for you?
+We offer:
+• Margin-protective wholesale pricing
+• 7–15 day air freight, 45–75 day sea freight from Guangzhou
+• M-Pesa, Wave, Orange Money, Airtel payment channels
+• Verified suppliers with established track records
+
+I'd love to schedule a 15-minute call to discuss how Sokogate can support your growth targets.
 
 Regards,
-{{sender_name}}`,
+{{sender_name}}
+Sokogate Sales & Funding Agent`,
   },
 };
 
 export default function TestEmailPanel() {
+  const { config: panelConfig } = useEmailPanel();
   // Recipients
   const [recipients, setRecipients] = useState<string[]>([]);
   const [recipientInput, setRecipientInput] = useState('');
@@ -97,6 +122,49 @@ export default function TestEmailPanel() {
     }).catch(() => {});
   }, []);
 
+  // Pre-fill from EmailPanelContext (recipients + product)
+  useEffect(() => {
+    if (panelConfig.recipients) {
+      setRecipients(prev => {
+        const merged = [...prev];
+        for (const email of panelConfig.recipients!) {
+          if (!merged.includes(email)) merged.push(email);
+        }
+        return merged;
+      });
+    }
+
+    if (panelConfig.product) {
+      const p = panelConfig.product as EmailPanelProduct;
+      const tmpl = EMAIL_TEMPLATES.product_inquiry;
+      setSubject(tmpl.subject
+        .replace('{{product_name}}', p.title)
+        .replace('{{price}}', p.price.toFixed(2))
+        .replace('{{moq}}', String(p.moq))
+        .replace('{{weight}}', String(p.weight))
+        .replace('{{air_delivery}}', p.airDelivery)
+        .replace('{{sea_delivery}}', p.seaDelivery)
+        .replace('{{supplier}}', p.supplier)
+        .replace('{{product_category}}', p.category)
+        .replace('{{trending_score}}', String(p.trendingScore ?? 90)));
+      setBody(tmpl.body
+        .replace('{{first_name}}', 'there')
+        .replace('{{company}}', 'your company')
+        .replace('{{product_name}}', p.title)
+        .replace('{{currency}}', '$')
+        .replace('{{price}}', p.price.toFixed(2))
+        .replace('{{moq}}', String(p.moq))
+        .replace('{{weight}}', String(p.weight))
+        .replace('{{air_delivery}}', p.airDelivery)
+        .replace('{{sea_delivery}}', p.seaDelivery)
+        .replace('{{supplier}}', p.supplier)
+        .replace('{{product_category}}', p.category)
+        .replace('{{trending_score}}', String(p.trendingScore ?? 90))
+        .replace('{{sender_name}}', senderName));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelConfig.recipients, panelConfig.product]);
+
   // Filter contacts as user types
   const filteredContacts = useMemo(() => {
     if (!recipientInput) return contacts.slice(0, 5);
@@ -130,16 +198,28 @@ export default function TestEmailPanel() {
     setBody(tmpl.body);
   };
 
-  // Replace placeholders with actual values
+  // Replace placeholders with actual values — enriched B2B variant
   const replacePlaceholders = useCallback(
     (text: string, contact?: Contact) => {
       const firstName = contact?.name?.split(' ')[0] || 'there';
       return text
         .replace(/\{\{first_name\}\}/g, firstName)
         .replace(/\{\{company\}\}/g, contact?.company || 'your company')
-        .replace(/\{\{product_name\}\}/g, 'trending product')
+        .replace(/\{\{product_name\}\}/g, 'trending B2B product')
         .replace(/\{\{product_category\}\}/g, 'electronics')
-        .replace(/\{\{sender_name\}\}/g, senderName);
+        .replace(/\{\{sender_name\}\}/g, senderName)
+        .replace(/\{\{price\}\}/g, '15.40')
+        .replace(/\{\{moq\}\}/g, '10')
+        .replace(/\{\{weight\}\}/g, '250')
+        .replace(/\{\{air_delivery\}\}/g, '7-15 days')
+        .replace(/\{\{sea_delivery\}\}/g, '45-75 days')
+        .replace(/\{\{supplier\}\}/g, 'Sokogate Verified Supplier')
+        .replace(/\{\{trending_score\}\}/g, '90')
+        .replace(/\{\{#tiers\}\}[\s\S]*?\{\{\/tiers\}\}/g, '')
+        .replace(/\{\{min_qty\}\}/g, '10')
+        .replace(/\{\{max_qty\}\}/g, '30')
+        .replace(/\{\{unit_price\}\}/g, '15.40')
+        .replace(/\{\{discount_percent\}\}/g, '8');
     },
     [senderName]
   );
@@ -311,8 +391,10 @@ export default function TestEmailPanel() {
           />
         )}
         <p className="mt-1 text-xs text-gray-400">
-          Placeholders: {'{{first_name}} {{company}} {{product_name}} {{product_category}} {{sender_name}}'}
+          {'Placeholders: {{first_name}} {{company}} {{product_name}} {{product_category}} {{price}} {{moq}} {{weight}} {{air_delivery}} {{sea_delivery}} {{supplier}} {{trending_score}} {{sender_name}}'}
         </p>
+
+      {/* Send Button */}
       </div>
 
       {/* Sender Name */}

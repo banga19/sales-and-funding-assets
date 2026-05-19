@@ -108,25 +108,43 @@ export interface ProductSpecification {
 }
 
 export interface Product {
-  id:             string;
-  name:           string;
-  description:    string;
-  price:          string;
-  category:       string;
-  images:         string[];
-  specifications: ProductSpecification[];
-  inStock:        boolean;
-  sourceUrl:      string;
-  scrapedAt:      string;
-  createdAt:      string;
-  updatedAt:      string;
-  weightGrams?:   number | null;
-  trendingScore?: number | null;
-  b2bSuitable?:   boolean | null;
-  originCountry?: string | null;
-  shippingEst?:   string | null;
-  subcategory?:   string | null;
-  sourceId?:      string | null;
+  id:               string;
+  name:             string;
+  description:      string;
+  price:            string;
+  category:         string;
+  images:           string[];
+  specifications:   ProductSpecification[];
+  inStock:          boolean;
+  sourceUrl:        string;
+  scrapedAt:        string;
+  createdAt:        string;
+  updatedAt:        string;
+  weightGrams?:      number | null;
+  trendingScore?:    number | null;
+  b2bSuitable?:      boolean | null;
+  originCountry?:    string | null;
+  shippingEst?:      string | null;
+  subcategory?:      string | null;
+  sourceId?:         string | null;
+  // ─── B2B extensions ──────────────────────────────────────────────────────────
+  moq?:              number | null;
+  airDeliveryDays?:  string | null;
+  seaDeliveryDays?:  string | null;
+  supplierName?:     string | null;
+  supplierVerified?: boolean | null;
+  galleryUrls?:      string[];
+  specs?:            Record<string, string>;
+  b2bPriceTier?:     Array<{
+    id:               string;
+    min_qty:          number;
+    max_qty:          number | null;
+    unit_price:       number;
+    discount_percent: number;
+  }>;
+  sourcePlatform?:   string | null;
+  volumeCbm?:        number | null;
+  translationMap?:   Record<string, string>;
 }
 
 export interface ProductListResponse {
@@ -156,14 +174,24 @@ export interface ScrapeStatusResponse {
 }
 
 export interface ProductStats {
-  total:       number;
-  trending:    number;
-  lightweight: number;
-  avgPrice:    number | null;
-  minPrice:    number | null;
-  maxPrice:    number | null;
+  total:        number;
+  trending:     number;
+  lightweight:  number;
+  avgPrice:     number | null;
+  minPrice:     number | null;
+  maxPrice:     number | null;
+  lowMoqCount:  number;
+  b2bSuitableCount: number;
 }
 
 export type SortKey = 'trending' | 'price_asc' | 'price_desc' | 'weight_asc';
+
+export interface ProductPriceTier {
+  id:               string;
+  min_qty:          number;
+  max_qty:          number | null;
+  unit_price:       number;
+  discount_percent: number;
+}
 
 // Made with Bob

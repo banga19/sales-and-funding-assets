@@ -11,6 +11,9 @@ import { Activity, Bot, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { SystemHealth, QuickActionsBar, SlideOverPanel, TestEmailPanel, AgentLogsPanel, ContactsPanel, ProductSourcingCard, OutreachPanel, AgentHub, FeatureRow } from '@/components';
 import type { HealthCheck, AgentStatus } from '@/types';
+import { EmailPanelProvider } from '@/context/EmailPanelContext';
+
+import { Toaster } from 'react-hot-toast';
 
 const DEMO_MODE = String((import.meta.env as any).VITE_DEMO_MODE ?? '0') === '1';
 
@@ -230,7 +233,11 @@ export default function App() {
   }
 
   return (
+    <EmailPanelProvider>
     <div className="min-h-screen" style={{ background: '#FAFAFF' }}>
+      {/* Global toast container */}
+      <Toaster position="top-right" toastOptions={{ duration: 4000, style: { fontSize: '0.875rem' } }} />
+
       {/* ── HEADER ── */}
       <header style={{ background: '#FFFFFF', borderBottom: '1px solid #E5E5FF', boxShadow: '0 1px 2px rgba(96,91,229,.04)' }}>
         <div style={{ maxWidth: '80rem', margin: '0 auto', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -383,5 +390,6 @@ export default function App() {
 
       <Footer />
     </div>
+    </EmailPanelProvider>
   );
 }

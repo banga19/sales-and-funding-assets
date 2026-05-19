@@ -8,10 +8,10 @@ import { logger } from './utils/logger.js';
 
 import * as productsMem from './routes/products.routes.js';           // in-memory (legacy)
 import productsScrape from './routes/products-scrape.routes.js';       // scraping module
-import productsDb   from './routes/products.db.routes.js';             // PostgreSQL
-import schedule     from './routes/schedule.routes.js';
-import apiRoutes    from './routes/index.js';                          // agent / contacts / metrics
-import outreach     from './routes/outreach.routes.js';                // automated outreach
+import productsB2B   from './routes/products-b2b.routes.js';           // PostgreSQL + B2B enriched
+import schedule      from './routes/schedule.routes.js';
+import apiRoutes     from './routes/index.js';                          // agent / contacts / metrics
+import outreach      from './routes/outreach.routes.js';                // automated outreach
 
 // ── Express App ───────────────────────────────────────────────────────────────
 
@@ -61,11 +61,11 @@ app.get('/api/products/mem/:id',            productsMem.getProduct);
 app.get('/api/products/mem/scrape/status',  productsMem.getScrapeStatusRoute);
 app.delete('/api/products/mem/:id',         productsMem.deleteProduct);
 
-// Dedicated scraping module — mounted BEFORE productsDb so its /scrape POST wins
+// Dedicated scraping module — mounted BEFORE productsB2B so its /scrape POST wins
 app.use('/api/products', productsScrape);
 
-// PostgreSQL-backed product catalogue (production)
-app.use('/api/products', productsDb);
+// PostgreSQL + B2B-enriched product catalogue (production)
+app.use('/api/products', productsB2B);
 
 // Scrape schedule management
 app.use('/api/schedule', schedule);

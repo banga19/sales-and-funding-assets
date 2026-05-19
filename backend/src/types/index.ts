@@ -21,11 +21,14 @@ export interface Contact {
   title?: string;
   stage: ContactStage;
   // ── Outreach-specific fields ────────────────────────────────────────────────
-  persona?: string;           // e.g. "b2b_customer", "investor", "procurement_manager"
-  status?: string;            // "new" | "researched" | "email_sent" | "failed"
+  persona?: string;                    // e.g. "b2b_customer", "investor", "procurement_manager"
+  status?: string;                     // "new" | "researched" | "email_sent" | "failed"
   research?: Record<string, any>;
   lastContactDate?: string;
   nextFollowupDate?: string;
+  outreach_status?: 'none' | 'emailed' | 'replied' | 'bounced';
+  emails_sent?: number;
+  last_contacted?: string;
   notes?: string;
   metadata?: Record<string, unknown>;
   createdAt: string;
@@ -91,25 +94,43 @@ export interface ProductSpecification {
 }
 
 export interface Product {
-  id:             string;
-  name:           string;
-  description:    string;
-  price:          string;
-  category:       string;
-  images:         string[];
-  specifications: ProductSpecification[];
-  inStock:        boolean;
-  sourceUrl:      string;
-  scrapedAt:      string;
-  createdAt:      string;
-  updatedAt:      string;
-  weightGrams?:    number | null;
-  trendingScore?:  number | null;
-  b2bSuitable?:    boolean | null;
-  originCountry?:  string | null;
-  shippingEst?:    string | null;
-  subcategory?:    string | null;
-  sourceId?:       string | null;
+  id:               string;
+  name:             string;
+  description:      string;
+  price:            string;
+  category:         string;
+  images:           string[];
+  specifications:   ProductSpecification[];
+  inStock:          boolean;
+  sourceUrl:        string;
+  scrapedAt:        string;
+  createdAt:        string;
+  updatedAt:        string;
+  weightGrams?:      number | null;
+  trendingScore?:    number | null;
+  b2bSuitable?:      boolean | null;
+  originCountry?:    string | null;
+  shippingEst?:      string | null;
+  subcategory?:      string | null;
+  sourceId?:         string | null;
+  // ─── B2B extensions ──────────────────────────────────────────────────────────
+  moq?:              number | null;             // minimum order quantity (units)
+  airDeliveryDays?:  string | null;             // e.g. "7-15"
+  seaDeliveryDays?:  string | null;             // e.g. "45-75"
+  supplierName?:     string | null;
+  supplierVerified?: boolean | null;
+  galleryUrls?:      string[];
+  specs?:            Record<string, string> | null;
+  b2bPriceTier?:     Array<{
+    id?:              string;
+    min_qty:          number;
+    max_qty:          number | null;
+    unit_price:       number;
+    discount_percent: number;
+  }> | null;
+  sourcePlatform?:   string | null;             // e.g. "sokogate.com"
+  volumeCbm?:        number | null;
+  translationMap?:   Record<string, string> | null;
 }
 
 // Made with Bob

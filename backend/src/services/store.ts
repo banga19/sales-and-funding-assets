@@ -179,6 +179,18 @@ export const contactStore = {
     return contact;
   },
 
+  /** Bulk-create contacts. Returns array of created contacts. */
+  bulkCreate(inputs: Omit<Contact, 'id' | 'createdAt' | 'updatedAt'>[]): Contact[] {
+    const now = new Date().toISOString();
+    const created: Contact[] = inputs.map((input) => {
+      const id = uuidv4();
+      return { ...input, id, createdAt: now, updatedAt: now };
+    });
+    created.forEach((c) => store.contacts.set(c.id, c));
+    store.metrics.totalContacts += created.length;
+    return created;
+  },
+
   /** Update an existing contact (partial). */
   update(id: string, patch: Partial<Contact>): Contact | undefined {
     const existing = store.contacts.get(id);

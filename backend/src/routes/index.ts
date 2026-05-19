@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as agent from './agent.routes.js';
 import * as contacts from './contacts.routes.js';
+import contactsDb from './contacts-db.routes.js';
 import * as metrics from './metrics.routes.js';
 
 const router = Router();
@@ -28,14 +29,18 @@ router.get('/metrics', metrics.getMetrics);
 router.get('/metrics/summary', metrics.getMetricsSummary);
 router.post('/metrics/sync', metrics.syncMetrics);
 
-// ── Contacts ───────────────────────────────────────────────────────────────────
+// ── Contacts — in-memory (legacy) ─────────────────────────────────────────────
 router.get('/contacts', contacts.listContacts);
 router.get('/contacts/pipeline/stages', contacts.getPipeline);
 router.get('/contacts/:id', contacts.getContact);
 router.post('/contacts', contacts.createContact);
+router.post('/contacts/bulk', contacts.bulkCreateContacts);
 router.put('/contacts/:id', contacts.updateContact);
 router.delete('/contacts/:id', contacts.deleteContact);
 router.get('/contacts/:id/messages', contacts.getContactMessages);
 router.post('/contacts/:id/messages', contacts.addContactMessage);
+
+// ── Contacts — PostgreSQL-backed (new) ─────────────────────────────────────────
+router.use('/db/contacts', contactsDb);
 
 export default router;
