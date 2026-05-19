@@ -6,10 +6,12 @@ import { ScraperError, concurrentJobError, invalidInputError } from '../services
 import { persistScrapeRows, beginScrapeRun } from '../services/product-sync.service.js';
 import { scrapeQueue, enqueueScrapeJob, makeWorker, closeQueue, registerStatusCallback } from '../services/scheduler.service.js';
 import { updateScrapeRun } from '../database/repositories/product.repository.js';
+import { config } from '../config/agent.config.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
-const scraper     = new SokogateScraperService();
+const scraper        = new SokogateScraperService();
+const SCRAPER_CONFIG = config.scraper;
 const MAX_PAGES    = 20;
 const MAX_PRODUCTS = 100;
 const DEFAULT_BASE = 'https://sokogate.com';
@@ -86,9 +88,36 @@ router.post('/scrape', async (req: Request, res: Response) => {
 
       const done: Promise<void> = (async () => {
         try {
-          const { rawRows, stats } = await scraper.scrapeCatalog(bodyBaseUrl, maxPages, maxProducts, 800);
-          await finalizeRun(runId, rawRows, stats);
-          await runLifeCycle.complete({ productsScraped: rawRows.length, durationMs: stats.durationMs });
+          let rawRows: RawProductRow[];
+          let durationMs = 0;
+
+          if (config.features.playwrightScraper) {
+            const { scrapeWithPlaywright } = await import('../services/playwright-scraper.service.js');
+            const { products, stats: pwStats } = await scrapeWithPlaywright(
+              { baseUrl: bodyBaseUrl, maxPages, maxProducts, requestDelayMs: SCRAPER_CONFIG.requestDelayMs },
+            );
+            rawRows = products.map(p => ({
+              sourceUrl:       p.sourceUrl,
+              name:            p.name,
+              description:     p.description,
+              priceRaw:        p.price,
+              priceNumeric:    null,
+              currency:        'KES',
+              category:        p.category || 'General',
+              imageUrls:       p.images,
+              specificationRows: (p as any).specifications || [],
+              inStock:         p.inStock,
+              sku:             (p as any).sourceId || null,
+            }));
+            durationMs = pwStats?.durationMs ?? 0;
+          } else {
+            const { rawRows: httpRows, stats: httpStats } = await scraper.scrapeCatalog(bodyBaseUrl, maxPages, maxProducts, SCRAPER_CONFIG.requestDelayMs);
+            rawRows = httpRows;
+            durationMs = httpStats?.durationMs ?? 0;
+          }
+
+          await finalizeRun(runId, rawRows, { durationMs });
+          await runLifeCycle.complete({ productsScraped: rawRows.length, durationMs });
         } catch (err: unknown) {
           await runLifeCycle.fail(err as Error);
           throw err;

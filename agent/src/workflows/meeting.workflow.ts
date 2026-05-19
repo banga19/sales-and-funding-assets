@@ -452,9 +452,9 @@ export class MeetingWorkflow {
   }> {
     const query = `
       SELECT 
-        COUNT(DISTINCT CASE WHEN conv.stage = 'meeting_suggested' THEN conv.contact_id END) as suggested,
-        COUNT(DISTINCT CASE WHEN conv.stage = 'meeting_scheduled' THEN conv.contact_id END) as scheduled,
-        COUNT(DISTINCT CASE WHEN conv.stage = 'meeting_completed' THEN conv.contact_id END) as completed
+        COUNT(DISTINCT CASE WHEN conv.current_stage = 'meeting_suggested' THEN conv.contact_id END) as suggested,
+        COUNT(DISTINCT CASE WHEN conv.current_stage = 'meeting_scheduled' THEN conv.contact_id END) as scheduled,
+        COUNT(DISTINCT CASE WHEN conv.current_stage = 'meeting_completed' THEN conv.contact_id END) as completed
       FROM conversations conv
       WHERE conv.updated_at BETWEEN $1 AND $2
     `;

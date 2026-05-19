@@ -7,6 +7,7 @@ import {
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { useEmailPanel, type EmailPanelProduct } from '@/context/EmailPanelContext';
+import ContentGeneratorPanel from './ContentGeneratorPanel';
 import type { Product, ProductStats, ProductPriceTier } from '@/types';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -185,7 +186,7 @@ function ProductDetail({ product }: ProductDetailProps) {
                 product: {
                   title: product.name,
                   price: typeof product.price === 'string' ? parseFloat(product.price) || 0 : product.price,
-                  weight: product.weightGrams ?? 250,
+                  weight: product.weightGrams || 250,
                   moq: product.moq ?? 10,
                   airDelivery: product.airDeliveryDays ?? '7-15',
                   seaDelivery: product.seaDeliveryDays ?? '45-75',
@@ -218,6 +219,7 @@ export default function ProductSourcingCard() {
   const [sortBy, setSortBy]           = useState<SortKey>('trending');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+  const [generatingFor, setGeneratingFor]     = useState<string | null>(null);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Data fetch ─────────────────────────────────────────────────────────────
@@ -300,6 +302,14 @@ export default function ProductSourcingCard() {
       setTimeout(() => setScrapeProgress(0), 1500);
     }
   }, [isScraping, fetchData, products.length]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedProduct(expandedProduct === id ? null : id);
+  };
+
+  const handleGenerateContent = (productId: string) => {
+    setGeneratingFor(productId);
+  };
 
   // ── Stat bar ────────────────────────────────────────────────────────────────
 
@@ -525,6 +535,10 @@ export default function ProductSourcingCard() {
           </div>
         )}
       </div>
+
+      {generatingFor && (
+        <ContentGeneratorPanel productId={generatingFor} onClose={() => setGeneratingFor(null)} />
+      )}
     </div>
   );
 }

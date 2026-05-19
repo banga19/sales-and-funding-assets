@@ -77,8 +77,8 @@ export class OutreachWorkflow {
       FROM contacts c
       LEFT JOIN conversations conv ON c.id = conv.contact_id
       WHERE 
-        c.status = 'active'
-        AND (conv.id IS NULL OR conv.stage = 'new')
+        c.status IN ('Not Started','Contacted')
+        AND (conv.id IS NULL OR conv.current_stage = 'not_started')
         AND c.last_contacted_at IS NULL
         AND c.do_not_contact = false
       ORDER BY c.engagement_score DESC, c.created_at ASC
@@ -98,7 +98,7 @@ export class OutreachWorkflow {
     await db.query(
       `UPDATE contacts 
        SET last_contacted_at = NOW(), 
-           contact_count = contact_count + 1,
+           emails_sent = emails_sent + 1,
            updated_at = NOW()
        WHERE id = $1`,
       [contactId]
@@ -147,8 +147,8 @@ export class OutreachWorkflow {
       SELECT 
         COUNT(DISTINCT mh.contact_id) as total_sent,
         COUNT(DISTINCT CASE WHEN mh.direction = 'inbound' THEN mh.contact_id END) as responses,
-        COUNT(DISTINCT CASE WHEN conv.stage = 'meeting_scheduled' THEN conv.contact_id END) as meetings,
-        COUNT(DISTINCT CASE WHEN conv.stage = 'escalated' THEN conv.contact_id END) as escalations
+        COUNT(DISTINCT CASE WHEN conv.current_stage = 'meeting_scheduled' THEN conv.contact_id END) as meetings,
+        COUNT(DISTINCT CASE WHEN conv.current_stage = 'escalated' THEN conv.contact_id END) as escalations
       FROM message_history mh
       LEFT JOIN conversations conv ON mh.contact_id = conv.contact_id
       WHERE 

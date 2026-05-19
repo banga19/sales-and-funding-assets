@@ -71,10 +71,10 @@ export class FollowUpWorkflow {
    */
   private async getDueFollowUps(): Promise<any[]> {
     const query = `
-      SELECT sa.*, c.*, conv.stage as conversation_stage
+      SELECT sa.*, c.*, conv.current_stage as conversation_stage
       FROM scheduled_actions sa
       JOIN contacts c ON sa.contact_id = c.id
-      LEFT JOIN conversations conv ON c.id = conv.contact_id
+      LEFT JOIN conversations conv ON c.id::uuid = conv.contact_id
       WHERE 
         sa.action_type = 'follow_up'
         AND sa.status = 'pending'

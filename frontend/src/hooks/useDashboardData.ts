@@ -26,11 +26,12 @@ const MOCK_STATUS: AgentStatus = {
   enabled:  true, dryRun: false,
   features: {
     email: true, autoFollowup: true, autoScheduling: true,
-    sentimentAnalysis: false, objectionHandling: false,
-    productScraping: true, playwrightScraper: false,
+    sentimentAnalysis: true, objectionHandling: true,
+    productScraping: true, playwrightScraper: true,
     agentsEnabled: false,
+    autonomousAgents: false, bulkSourcing: false, marketing: false, content: false, fundingPitch: false,
   },
-  rateLimits: { email: { remaining: 78, limit: 100 } },
+  rateLimits: { email: { remaining: 922, limit: 1000 } },
 };
 const MOCK_PRODUCTS: Product[] = [];
 

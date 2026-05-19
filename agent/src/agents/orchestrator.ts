@@ -555,7 +555,7 @@ class AgentOrchestrator {
 
   private async getConversation(contactId: string): Promise<Conversation | null> {
     const result = await db.query<Conversation>(
-      `SELECT * FROM conversations WHERE contact_id = $1`, [contactId],
+      `SELECT * FROM conversations WHERE contact_id = $1::uuid`, [contactId],
     );
     return result.rows[0] || null;
   }
@@ -586,7 +586,7 @@ private async createOrUpdateConversation(
       await db.query(
         `UPDATE conversations
            SET ${quotedUpdates}, updated_at = NOW()
-         WHERE contact_id = $1`,
+         WHERE contact_id = $1::uuid`,
         [contactId, ...values],
       );
     } else {
@@ -622,7 +622,7 @@ private async createOrUpdateConversation(
          SET current_stage = $1,
              response_count = COALESCE(response_count, 0) + 1,
              updated_at     = NOW()
-       WHERE contact_id = $2`,
+        WHERE contact_id = $2::uuid`,
       [newStage, contactId],
     );
   }
@@ -638,7 +638,7 @@ private async createOrUpdateConversation(
     if (contact_id) {
       try {
         const convRow = await db.query<{ id: string }>(
-          'SELECT id FROM conversations WHERE contact_id = $1', [contact_id],
+          'SELECT id FROM conversations WHERE contact_id = $1::uuid', [contact_id],
         );
         conversationId = convRow.rows[0]?.id;
       } catch { /* non-fatal: FK may be absent on first contact */ }
@@ -698,35 +698,56 @@ private async createOrUpdateConversation(
 
   // ─── Outreach Batch Engines ───────────────────────────────────────────────────
 
+  /**
+   * Core contact fetcher used by all three pipeline run methods.
+   * Status values come from the contacts schema (ContactStatus enum):
+   *   'Not Started' | 'Contacted' | 'Responded' | 'Negotiating'
+   *   'Closed Won' | 'Closed Lost' | 'Nurture' | 'Term Sheet Sent'
+   *   'Due Diligence' | 'Funding Confirmed'
+   *
+   * Returns contacts that are in a stage where we would want to (re-)reach out.
+   * Stage is read from conversations.current_stage — 'not_started' = never touched,
+   * 'delivered' = initial email went out but no reply yet, 'responded' = they replied.
+   */
   private getFilteredContacts(
     typeLabel: string,
-    statusFilter: string[],
+    statusFilter: string[],      // allowed contact statuses
+    stageFilter: string[],       // allowed conversation.current_stage values
     tierFilter: string[] = ['T1', 'T2', 'T3'],
     limit: number = 20,
-  ): any[] {
+  ): Promise<any[]> {
     logger.info(`[orchestrator] ${typeLabel} outreach batch started`, { limit });
     return db.query(
-      `SELECT * FROM market_leads
-         WHERE type = $1
-           AND tier   = ANY($2)
-           AND status = ANY($3)
-       ORDER BY tier ASC, updated_at DESC
-       LIMIT $4`,
-      [typeLabel, tierFilter, statusFilter, Math.min(limit, 100)],
+      `SELECT c.*
+         FROM contacts c
+    LEFT JOIN conversations conv ON c.id::uuid = conv.contact_id
+        WHERE c.type   = $1
+          AND c.status = ANY($2)
+          AND c.tier   = ANY($3)
+          AND (conv.current_stage = ANY($4) OR conv.current_stage IS NULL)
+          AND c.do_not_contact = false
+     ORDER BY c.engagement_score DESC, c.created_at ASC
+     LIMIT $5`,
+      [typeLabel, statusFilter, tierFilter, stageFilter, Math.min(limit, 100)],
     ).then(r => r.rows);
   }
 
   public async runSalesOutreach(limit: number = 20): Promise<{
     total: number; sent: number; failed: number; skipped: number;
   }> {
-    const contacts = await this.getFilteredContacts('prospect', ['active', 'warm', 'qualified'], ['T1', 'T2', 'T3'], limit);
+    // Include not_started (fresh) AND delivered (initial email sent, no reply yet)
+    const contacts = await this.getFilteredContacts('prospect',
+      ['Not Started'],                  // status filter  ($2)
+      ['T1', 'T2', 'T3'],              // tier filter     ($3)
+      ['not_started', 'delivered'],    // stage filter    ($4)
+      limit);                          // limit           ($5)
 
     let sent = 0, failed = 0, skipped = 0;
     for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
         const stage = conv?.current_stage ?? conv?.stage ?? null;
-        if (stage !== 'not_started') { skipped++; continue; }
+        if (stage !== 'not_started') { skipped++; continue; }   // only touch fresh contacts
         const ok = await this.processInitialOutreach(contact);
         ok ? sent++ : failed++;
       } catch (err: any) {
@@ -743,14 +764,19 @@ private async createOrUpdateConversation(
   public async runInvestorOutreach(limit: number = 15): Promise<{
     total: number; sent: number; failed: number; skipped: number;
   }> {
-    const contacts = await this.getFilteredContacts('investor', ['active', 'warm', 'qualified'], ['T1', 'T2'], limit);
+    const contacts = await this.getFilteredContacts('investor',
+      ['Not Started'],               // status filter
+      ['not_started', 'delivered'],  // stage filter
+      ['T1', 'T2'], limit);
 
     let sent = 0, failed = 0, skipped = 0;
     for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
         const stage = conv?.current_stage ?? conv?.stage ?? null;
-        if (stage !== 'not_started') { skipped++; continue; }
+        // Only skip if a conversation exists AND is past 'not_started'
+        // NULL stage (no conversation yet) means we should touch this contact
+        if (stage !== null && stage !== 'not_started') { skipped++; continue; }
         const ok = await this.processInitialOutreach(contact);
         ok ? sent++ : failed++;
       } catch (err: any) {
@@ -767,14 +793,19 @@ private async createOrUpdateConversation(
   public async runFundingOutreach(limit: number = 20): Promise<{
     total: number; sent: number; failed: number; skipped: number;
   }> {
-    const contacts = await this.getFilteredContacts('funding', ['active', 'warm', 'qualified'], ['T1'], limit);
+    const contacts = await this.getFilteredContacts('funding',
+      ['Not Started'],               // status filter
+      ['not_started', 'delivered'],  // stage filter
+      ['T1'], limit);
 
     let sent = 0, failed = 0, skipped = 0;
     for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
         const stage = conv?.current_stage ?? conv?.stage ?? null;
-        if (stage !== 'not_started') { skipped++; continue; }
+        // Only skip if a conversation exists AND is past 'not_started'
+        // NULL stage (no conversation yet) means we should touch this contact
+        if (stage !== null && stage !== 'not_started') { skipped++; continue; }
         const ok = await this.processInitialOutreach(contact);
         ok ? sent++ : failed++;
       } catch (err: any) {
@@ -796,9 +827,9 @@ private async createOrUpdateConversation(
     const { rows: contacts } = await db.query(
       `SELECT c.*, s.action_type, s.scheduled_for, s.status AS action_status
          FROM market_leads c
-    LEFT JOIN scheduled_actions s ON s.contact_id = c.id AND s.status = 'pending'
-        WHERE c.type = 'funding'
-     ORDER BY c.tier, c.updated_at DESC`,
+    LEFT JOIN scheduled_actions s ON s.contact_id = c.id::uuid AND s.status = 'pending'
+         WHERE c.type = 'funding'
+      ORDER BY c.tier, c.updated_at DESC`,
     );
 
     const stageGroups: Record<string, any[]> = {

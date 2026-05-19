@@ -10,6 +10,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X } from 'lucide-react';
 import { SOK } from '@/design-tokens';
 import { useOutreach } from '@/context/OutreachContext';
+import { useEmailPanel } from '@/context/EmailPanelContext';
 
 type Tab = 'contacts' | 'logs';
 
@@ -28,7 +29,7 @@ function TabButton({ active, onClick, icon, label, badge }: { active: boolean; o
   );
 }
 
-function ContactRow({ contact, sending, onSend }: { contact: any; sending: boolean; onSend: (id: string) => void }) {
+function ContactRow({ contact, sending, onSend }: { contact: any; sending: boolean; onSend: (contact: any) => void }) {
   return (
     <div className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 transition-colors">
       <div>
@@ -38,7 +39,7 @@ function ContactRow({ contact, sending, onSend }: { contact: any; sending: boole
       <div className="flex items-center gap-3">
         <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full capitalize">{contact.type || contact.stage}</span>
         <button
-          onClick={() => { void onSend(contact.id); }}
+          onClick={() => { void onSend(contact); }}
           disabled={sending}
           className="flex items-center gap-1 px-3 py-1.5 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50"
           style={{ background: sending ? SOK.borderSoft : SOK.primary }}
@@ -67,9 +68,10 @@ export default function OutreachPanel() {
     lastMessage,
     loadContacts,
     loadEmailLogs,
-    sendOutreach,
     clearMessage,
   } = ctx;
+
+  const { openEmailPanel } = useEmailPanel();
 
   const contacts = Array.isArray(rawContacts) ? rawContacts : [];
   const logs     = Array.isArray(rawLogs    ) ? rawLogs     : [];
@@ -87,9 +89,10 @@ export default function OutreachPanel() {
     }
   }, [activeTab, emailsFetched, loadEmailLogs]);
 
-  const handleSend = useCallback(async (id: string) => {
-    await sendOutreach(id);
-  }, [sendOutreach]);
+  const handleSend = useCallback((contact: { id: string; email?: string; name?: string }) => {
+    // Open the email composer instead of silently sending
+    void openEmailPanel({ recipients: contact.email ? [contact.email] : undefined });
+  }, [openEmailPanel]);
 
   const contactList = contacts;
   const logList      = logs;
@@ -148,7 +151,7 @@ export default function OutreachPanel() {
                   key={c.id}
                   contact={c}
                   sending={sendingIds.has?.(c.id) ?? false}
-                  onSend={handleSend}
+                  onSend={() => handleSend(c)}
                 />
               ))}
             </div>

@@ -9,7 +9,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Activity, Bot, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/api/client';
-import { SystemHealth, QuickActionsBar, SlideOverPanel, TestEmailPanel, AgentLogsPanel, ContactsPanel, ProductSourcingCard, OutreachPanel, AgentHub, FeatureRow } from '@/components';
+import { SystemHealth, QuickActionsBar, SlideOverPanel, TestEmailPanel, AgentLogsPanel, ContactsPanel, ProductSourcingCard, OutreachPanel, AgentHub, AgentControlPanel } from '@/components';
 import type { HealthCheck, AgentStatus } from '@/types';
 import { EmailPanelProvider } from '@/context/EmailPanelContext';
 
@@ -25,9 +25,10 @@ const MOCK_STATUS: AgentStatus = {
   enabled: true, dryRun: false,
   features: {
     email: true, autoFollowup: true, autoScheduling: true,
-    sentimentAnalysis: false, objectionHandling: false,
-    productScraping: true, playwrightScraper: false,
+    sentimentAnalysis: true, objectionHandling: true,
+    productScraping: true, playwrightScraper: true,
     agentsEnabled: true,
+    autonomousAgents: true, bulkSourcing: true, marketing: true, content: true, fundingPitch: true,
   },
   rateLimits: { email: { remaining: 78, limit: 100 } },
 };
@@ -304,74 +305,17 @@ export default function App() {
         {/* ── 4. Automated Outreach ── */}
         <OutreachPanel />
 
-        {/* ── 5. Agent Configuration ── */}
+        {/* ── 6. Agent Control Panel (master switch + sub-features) ── */}
         {featuresLoaded && (
           <section className="mb-8">
             <SectionHeader>Agent Configuration</SectionHeader>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
-              <div className="card" style={{ background: '#FFFFFF', border: '1px solid #E5E5FF', borderRadius: '0.75rem', padding: '1.5rem' }}>
-                <h3 style={{ color: '#070707', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Settings</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div className="flex items-center justify-between">
-                    <span style={{ color: '#555566', fontSize: '0.875rem' }}>Agent Enabled</span>
-                    <span className="badge" style={{ background: agentConfig.enabled ? '#D1FAE5' : '#F3F4F6', color: agentConfig.enabled ? '#065F46' : '#6B7280', padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600 }}>
-                      {agentConfig.enabled ? 'Yes' : 'No'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span style={{ color: '#555566', fontSize: '0.875rem' }}>Mode</span>
-                    <span className="badge" style={{
-                      background: agentConfig.dryRun ? '#FEF3C7' : '#D1FAE5',
-                      color:    agentConfig.dryRun ? '#92400E' : '#065F46',
-                      padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
-                    }}>
-                      {agentConfig.dryRun ? 'Dry Run' : 'Live'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              {agentConfig?.rateLimits?.email && (
-                <div className="card" style={{ background: '#FFFFFF', border: '1px solid #E5E5FF', borderRadius: '0.75rem', padding: '1.5rem' }}>
-                  <h3 style={{ color: '#070707', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>
-                    Rate Limits<span style={{ fontSize: '0.75rem', color: '#888899', fontWeight: 400, marginLeft: '0.5rem' }}>(Today)</span>
-                  </h3>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span style={{ color: '#555566', fontSize: '0.8125rem', fontWeight: 500 }}>Email</span>
-                      <span className="text-sm font-semibold" style={{ color: '#070707' }}>
-                        {agentConfig.rateLimits.email.remaining} / {agentConfig.rateLimits.email.limit}
-                      </span>
-                    </div>
-                    <ProgressBar remaining={agentConfig.rateLimits.email.remaining} limit={agentConfig.rateLimits.email.limit} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* ── 6. Feature Status ── */}
-        {featuresLoaded && (
-          <section className="mb-8">
-            <SectionHeader>Feature Status</SectionHeader>
             <div className="card" style={{ background: '#FFFFFF', border: '1px solid #E5E5FF', borderRadius: '0.75rem', padding: '1.5rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
-                {Object.entries(features).map(([key, val]) => (
-                  <FeatureRow
-                    key={key}
-                    feature={key}
-                    enabled={Boolean(val)}
-                    loading={isToggling(key)}
-                    onToggle={() => toggleFeature(key)}
-                  />
-                ))}
-              </div>
-              {statusIsDemo && <p className="mt-4 text-xs text-center" style={{ color: '#888899' }}>Connect your backend to see live data.</p>}
+              <AgentControlPanel />
             </div>
           </section>
         )}
 
-        {/* ── 7. Autonomous Agents ── */}
+        {/* ── 8. Agent Hub ── */}
         <AgentHub onProductsUpdated={handleProductsUpdated} />
 
         {/* ── Slide-over panels ── */}

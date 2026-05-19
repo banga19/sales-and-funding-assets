@@ -13,6 +13,9 @@ import salesMarketingRoutes from './api/routes/sales-marketing.routes';
 import contentCreationRoutes from './api/routes/content-creation.routes';
 import fundingRoutes from './api/routes/funding.routes';
 import { startWSServer } from './wsServer';
+import { initializeDailyOutreachJob } from './jobs/daily-outreach.job';
+import { initializeFollowUpCheckJob } from './jobs/followup-check.job';
+import { initializeMetricsSyncJob } from './jobs/metrics-sync.job';
 
 class SalesAgent {
   private app: Express;
@@ -60,26 +63,47 @@ class SalesAgent {
   private setupRoutes(): void {    // Health check — 200 with a per-component breakdown so the frontend can
     // render a degraded UI (yellow badges) instead of the error screen.
     this.app.get('/api/health', async (_req: Request, res: Response) => {
-      let dbHealth, emailHealth, nvidiaHealth;
+      let dbHealth: { healthy: boolean; error?: string } = { healthy: false };
+      let emailHealth: boolean = false;
+      let nvidiaHealth: boolean = false;
+
       try {
-        [dbHealth, emailHealth, nvidiaHealth] = await Promise.all([
+        const results = await Promise.allSettled([
           db.healthCheck(),
           emailService.healthCheck(),
           personalizationService.healthCheck(),
         ]);
+
+        // Extract values from settled results — never crash on a single service failure
+        if (results[0].status === 'fulfilled') {
+          dbHealth = results[0].value as { healthy: boolean; error?: string };
+        }
+        if (results[1].status === 'fulfilled') {
+          emailHealth = results[1].value as boolean;
+        } else {
+          emailHealth = false; // fallback when email service fails silently
+        }
+        if (results[2].status === 'fulfilled') {
+          nvidiaHealth = results[2].value as boolean;
+        }
       } catch {
-        dbHealth = { healthy: false, error: 'Connection check threw an exception' };
-        emailHealth = false; nvidiaHealth = false;
+        // If Promise.allSettled itself throws, all services are marked down
+        dbHealth = { healthy: false };
+        emailHealth = false;
+        nvidiaHealth = false;
       }
 
       const checks = {
-        database: dbHealth ?? { healthy: false },
-        email:    !!emailHealth,
-        nvidia:   !!nvidiaHealth,
+        database: dbHealth,
+        email:    emailHealth,
+        nvidia:   nvidiaHealth,
       } as const;
 
-      const unhealthyCount = Object.values(checks).filter((v: any) => (v as any).healthy === false || v === false).length;
-      const status: 'healthy' | 'degraded' = unhealthyCount === 0 ? 'healthy' : 'degraded';
+      const databaseHealthy = dbHealth.healthy === true;
+      const emailBool       = emailHealth === true;
+      const nvidiaBool      = nvidiaHealth === true;
+      const unhealthyCount  = [databaseHealthy, emailBool, nvidiaBool].filter(Boolean).length;
+      const status: 'healthy' | 'degraded' = unhealthyCount === 3 ? 'healthy' : 'degraded';
 
       res.json({ status, timestamp: new Date().toISOString(), checks });
     });
@@ -481,13 +505,57 @@ class SalesAgent {
       }
     });
 
-    // ── Logs alias — simplified shape for frontend LogsDrawer ─────────────────────
+     // ── Logs alias — simplified shape for frontend LogsDrawer ─────────────────────
 
     this.app.get('/api/logs', async (_req: Request, res: Response) => {
       const lines = 20;
       const start = Math.max(0, logBuffer.length - lines);
       const entries = logBuffer.slice(start);
       res.json(entries.map(e => ({ id: `${e.timestamp}-${Math.random().toString(36).slice(2, 8)}`, level: e.level, message: e.message, sentAt: e.timestamp })));
+    });
+
+    // ── Content Generation ────────────────────────────────────────────────────────
+    // POST /api/generate-content — simple content-generation endpoint
+    // Body: { productId: string }
+    // Returns: { email_sequence, social_post, ad_copy, landing_page }
+    this.app.post('/api/generate-content', async (req: Request, res: Response) => {
+      try {
+        const { productId } = req.body ?? {};
+        if (!productId || typeof productId !== 'string') {
+          return res.status(400).json({ error: 'Field "productId" (string) is required' });
+        }
+
+        const productRows = await db.query(
+          'SELECT id, name, description, price_current, moq, weight_grams, air_delivery_days, sea_delivery_days, supplier_name, category FROM scraped_products WHERE id = $1 AND is_active = TRUE',
+          [productId],
+        );
+
+        if (productRows.rows.length === 0) {
+          return res.status(404).json({ error: 'Product not found' });
+        }
+
+        const p = productRows.rows[0];
+        const title            = p.name       || 'this product';
+        const price            = p.price_current ?? 'TBD';
+        const moq              = p.moq         ?? 'TBD';
+        const weight           = p.weight_grams ?? 'N/A';
+        const airDelivery      = p.air_delivery_days  ?? '7-15';
+        const seaDelivery      = p.sea_delivery_days  ?? '45-75';
+        const supplier         = p.supplier_name ?? 'Sokogate Verified Supplier';
+        const category         = p.category    || 'General';
+
+        res.json({
+          success: true,
+          productId,
+          email_sequence: `Introducing ${title} — now available on Sokogate.com. Price: $${price} | MOQ: ${moq} units | Weight: ${weight}g. Air freight in ${airDelivery} days, sea freight in ${seaDelivery} days. Contact ${supplier} for bulk pricing.`,
+          social_post:    `🔥 ${title} just landed on Sokogate! • $${price} • MOQ ${moq} • Air ${airDelivery}d • from ${supplier}`,
+          ad_copy:        `Headline: ${title} — Premium ${category} at ${price}\nCopy: Lightweight at ${weight}g. Low MOQ of ${moq}. Verified supplier ${supplier}. Air ${airDelivery}d · Sea ${seaDelivery}d delivery to you.`,
+          landing_page:   `<h1>${title}</h1><p>Price: $${price} | MOQ: ${moq} | Category: ${category}</p><p>Weight: ${weight}g | Supplier: ${supplier}</p><p>Air delivery: ${airDelivery} days · Sea delivery: ${seaDelivery} days</p><p>Contact us today for a quotation.</p>`,
+        });
+      } catch (error: any) {
+        logger.error('Content generation failed', { error: error.message });
+        res.status(500).json({ error: 'Content generation failed', message: error.message });
+      }
     });
 
     // ── Product Scraping ───────────────────────────────────────────────────────────
@@ -671,6 +739,34 @@ class SalesAgent {
       }
     });
 
+    // ── Generate Content (inline product-card + agent flow) ────────────────────
+    this.app.post('/api/generate-content', async (req: Request, res: Response) => {
+      try {
+        const { productId } = req.body;
+        if (!productId || !String(productId).startsWith('prod_') && String(productId).length < 3) {
+          return res.status(400).json({ success: false, error: 'Missing or invalid productId' });
+        }
+
+        const { rows } = await db.query(
+          'SELECT * FROM scraped_products WHERE id = $1',
+          [productId],
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: 'Product not found' });
+
+        const p = rows[0];
+        res.json({
+          success: true,
+          email_sequence: `Introducing ${p.title} from Sokogate – lightweight at ${p.weight_grams || 0}g, air delivery in ${p.air_delivery_days || '7-15 days'}. Only $${Number(p.price || 0).toFixed(2)}.`,
+          social_post:    `🔥 Hot new product: ${p.title}. Low MOQ, fast shipping from ${p.origin_country || 'Guangzhou'}. Check it out on Sokogate.com!`,
+          ad_copy:        `Headline: Upgrade your inventory with ${p.title}\nCopy: Lightweight, trending, and ready for B2B buyers. From $${Number(p.price || 0).toFixed(2)}/unit (MOQ: ${p.moq || 10}). Air freight available in ${p.air_delivery_days || '7-15'}.`,
+          landing_page:   `<h1>${p.title}</h1><p>${p.description || 'Premium B2B product from Sokogate.com'}</p><p>MOQ: ${p.moq || 10} | Price: $${Number(p.price || 0).toFixed(2)}</p>`,
+        });
+      } catch (error: any) {
+        logger.error('Content generation failed', { error: error.message });
+        res.status(500).json({ success: false, error: 'Generation failed: ' + error.message });
+      }
+    });
+
     // ── Funding Pipeline Digest ───────────────────────────────────────────────────
     this.app.get('/api/agent/funding/digest', async (req: Request, res: Response) => {
       try {
@@ -747,6 +843,22 @@ class SalesAgent {
           note: 'Server continues running; DB-dependent endpoints will return 503',
         });
       });
+
+      // ── Start autonomous job workers ─────────────────────────────────────────
+      // Daily outreach batch (sales + investor + funding) — runs every morning at 9 AM EAT
+      try { initializeDailyOutreachJob(); } catch (err: any) {
+        logger.warn('Daily-outreach worker failed to initialize', { error: err.message });
+      }
+
+      // Hourly follow-up + 30-min meeting-reminder loops
+      try { initializeFollowUpCheckJob(); } catch (err: any) {
+        logger.warn('Follow-up worker failed to initialize', { error: err.message });
+      }
+
+      // Daily metrics sync at midnight EAT
+      try { initializeMetricsSyncJob(); } catch (err: any) {
+        logger.warn('Metrics-sync worker failed to initialize', { error: err.message });
+      }
 
       // Handle graceful shutdown
       process.on('SIGTERM', () => this.shutdown());

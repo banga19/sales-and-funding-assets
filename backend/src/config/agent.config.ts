@@ -37,7 +37,7 @@ const envSchema = z.object({
   // ── Agent feature flags ────────────────────────────────────────────────────
   AGENT_ENABLED:             z.coerce.boolean().default(true),
   AGENT_DRY_RUN:             z.coerce.boolean().default(true),
-  EMAIL_RATE_LIMIT:          z.coerce.number().default(50),
+  EMAIL_RATE_LIMIT:          z.coerce.number().default(1000),
   FEATURE_EMAIL:             z.coerce.boolean().default(true),
   FEATURE_AUTO_FOLLOWUP:     z.coerce.boolean().default(true),
   FEATURE_AUTO_SCHEDULING:   z.coerce.boolean().default(true),
@@ -45,8 +45,13 @@ const envSchema = z.object({
   FEATURE_OBJECTION_HANDLING: z.coerce.boolean().default(true),
   FEATURE_PRODUCT_SCRAPING:  z.coerce.boolean().default(true),
   FEATURE_PLAYWRIGHT_SCRAPER: z.coerce.boolean().default(true),
+  FEATURE_AUTONOMOUS_AGENTS:   z.coerce.boolean().default(true),
+  FEATURE_BULK_SOURCING:       z.coerce.boolean().default(true),
+  FEATURE_MARKETING:           z.coerce.boolean().default(true),
+  FEATURE_CONTENT:             z.coerce.boolean().default(true),
+  FEATURE_FUNDING_PITCH:       z.coerce.boolean().default(true),
 
-  // ── Logging ────────────────────────────────────────────────────────────────
+  // ── Logging ──────────────────────────────────────────────────────────────────
   LOG_LEVEL: z.string().default('info'),
 });
 
@@ -63,13 +68,18 @@ export const config = {
     origins: result.data.CORS_ORIGINS.split(',').map((s) => s.trim()),
   },
   features: {
-    email:             result.data.FEATURE_EMAIL,
-    autoFollowup:      result.data.FEATURE_AUTO_FOLLOWUP,
-    autoScheduling:    result.data.FEATURE_AUTO_SCHEDULING,
-    sentimentAnalysis: result.data.FEATURE_SENTIMENT_ANALYSIS,
-    objectionHandling: result.data.FEATURE_OBJECTION_HANDLING,
-    productScraping:   result.data.FEATURE_PRODUCT_SCRAPING,
-    playwrightScraper: result.data.FEATURE_PLAYWRIGHT_SCRAPER,
+    email:              result.data.FEATURE_EMAIL,
+    autoFollowup:       result.data.FEATURE_AUTO_FOLLOWUP,
+    autoScheduling:     result.data.FEATURE_AUTO_SCHEDULING,
+    sentimentAnalysis:  result.data.FEATURE_SENTIMENT_ANALYSIS,
+    objectionHandling:  result.data.FEATURE_OBJECTION_HANDLING,
+    productScraping:    result.data.FEATURE_PRODUCT_SCRAPING,
+    playwrightScraper:  result.data.FEATURE_PLAYWRIGHT_SCRAPER,
+    autonomousAgents:   result.data.FEATURE_AUTONOMOUS_AGENTS,
+    bulkSourcing:       result.data.FEATURE_BULK_SOURCING,
+    marketing:          result.data.FEATURE_MARKETING,
+    content:            result.data.FEATURE_CONTENT,
+    fundingPitch:       result.data.FEATURE_FUNDING_PITCH,
   },
   rateLimits: {
     email:    { perDay: result.data.EMAIL_RATE_LIMIT },

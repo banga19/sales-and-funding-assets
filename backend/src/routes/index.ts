@@ -3,6 +3,7 @@ import * as agent from './agent.routes.js';
 import * as contacts from './contacts.routes.js';
 import contactsDb from './contacts-db.routes.js';
 import * as metrics from './metrics.routes.js';
+import agentFeatures from './agentFeatures.js';
 
 const router = Router();
 
@@ -20,11 +21,9 @@ router.post('/meeting/suggest/:contactId', agent.suggestMeeting);
 router.post('/meeting/confirm/:contactId', agent.confirmMeeting);
 router.post('/meeting/reminders/trigger', agent.triggerReminders);
 
-// ── Feature Toggles (backed by feature_flags DB table) ─────────────────────────
-router.get('/agent/features', (agent as any).getFeatureFlags);
-router.put('/agent/features/:key', (agent as any).setFeatureFlag);
-
-// ── Metrics ───────────────────────────────────────────────────────────────────
+// ── Agent Autonomous-Mode Features (master + sub, DB-backed) ───────────────────
+router.use('/agent', agentFeatures);
+// ── Metrics ────────────────────────────────────────────────────────────────────
 router.get('/metrics', metrics.getMetrics);
 router.get('/metrics/summary', metrics.getMetricsSummary);
 router.post('/metrics/sync', metrics.syncMetrics);

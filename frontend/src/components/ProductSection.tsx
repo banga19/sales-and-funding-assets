@@ -126,7 +126,7 @@ function ProductCard({ product }: { product: Product }) {
             alt={product.name}
             loading="lazy"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder-product.svg'; }}
           />
         ) : (
           <ImageIcon className="w-8 h-8" style={{ color: SOK.borderSoft }} />

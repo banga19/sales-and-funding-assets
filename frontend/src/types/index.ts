@@ -17,14 +17,19 @@ export interface AgentStatus {
   enabled: boolean;
   dryRun: boolean;
   features: {
-    email: boolean;
-    autoFollowup: boolean;
-    autoScheduling: boolean;
+    email:             boolean;
+    autoFollowup:      boolean;
+    autoScheduling:    boolean;
     sentimentAnalysis: boolean;
     objectionHandling: boolean;
-    productScraping: boolean;
+    productScraping:   boolean;
     playwrightScraper: boolean;
-    agentsEnabled: boolean;
+    agentsEnabled:     boolean;
+    autonomousAgents:  boolean;
+    bulkSourcing:      boolean;
+    marketing:         boolean;
+    content:           boolean;
+    fundingPitch:      boolean;
   };
   rateLimits: {
     email: {

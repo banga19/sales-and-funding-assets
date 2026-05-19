@@ -325,10 +325,11 @@ class ApiClient {
     return response.data as { features: Record<string, boolean>; source: string };
   }
 
-  /** PUT /api/agent/features/:key — persist one flag and return the new state */
-  async toggleFeature(key: string, enabled: boolean): Promise<{ key: string; enabled: boolean; updated_at: string }> {
-    const response = await this.client.put(`/agent/features/${encodeURIComponent(key)}`, { enabled });
-    return response.data as { key: string; enabled: boolean; updated_at: string };
+  /** PUT /api/agent/features/:key — persist one flag value (boolean) and return the new state */
+  async toggleFeature(key: string, enabled: boolean): Promise<{ key: string; value: boolean; updated_at: string }> {
+    // Sends { value: boolean } — matches the agent route's `const { value }` destructure.
+    const response = await this.client.put(`/agent/features/${encodeURIComponent(key)}`, { value: enabled });
+    return response.data as { key: string; value: boolean; updated_at: string };
   }
 }
 

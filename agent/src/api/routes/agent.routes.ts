@@ -39,7 +39,7 @@ router.get('/status', async (_req: Request, res: Response) => {
       rateLimits: {
         email: {
           remaining: emailService.getRemainingToday(),
-          limit: agentConfig.rateLimits?.email?.perDay ?? 50,
+          limit: agentConfig.rateLimits?.email?.perDay ?? 1000,
         },
       },
     });
@@ -457,30 +457,30 @@ router.get('/features', async (_req: Request, res: Response) => {
 router.put('/features/:key', async (req: Request, res: Response) => {
   try {
     const { key }  = req.params;
-    const { enabled } = req.body ?? {};
+    const { value } = req.body ?? {};
 
     if (!RECOGNISED_KEYS.includes(key)) {
       return void res.status(400).json({
         error: `Unknown feature key "${key}". Valid: ${RECOGNISED_KEYS.join(', ')}`,
       });
     }
-    if (typeof enabled !== 'boolean') {
-      return void res.status(400).json({ error: 'Body must include boolean "enabled"' });
+    if (typeof value !== 'boolean') {
+      return void res.status(400).json({ error: 'Body must include boolean "value"' });
     }
 
     await db.query(
       `INSERT INTO feature_flags (key, value, updated_at)
        VALUES ($1, $2, NOW())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [key, enabled],
+      [key, value],
     );
 
-    logger.info('Feature flag toggled', { key, enabled });
-    res.json({ key, enabled, updated_at: new Date().toISOString() });
+    logger.info('Feature flag toggled', { key, value });
+    res.json({ key, value, updated_at: new Date().toISOString() });
   } catch (err: any) {
     logger.warn('setFeatureFlag error', { error: err.message });
     // Return the value anyway so UI can proceed
-    res.json({ key: req.params.key, enabled: !!req.body?.enabled, updated_at: new Date().toISOString() });
+    res.json({ key: req.params.key, value: !!req.body?.value, updated_at: new Date().toISOString() });
   }
 });
 

@@ -26,8 +26,8 @@ export const agentConfig = {
   // Rate Limiting
   rateLimits: {
     email: {
-      perDay: parseInt(process.env.EMAIL_RATE_LIMIT_PER_DAY || '50', 10),
-      perHour: parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR || '10', 10),
+      perDay:   parseInt(process.env.EMAIL_RATE_LIMIT_PER_DAY   || '1000', 10),
+      perHour:  parseInt(process.env.EMAIL_RATE_LIMIT_PER_HOUR  || '100',  10),
     },
   },
   
