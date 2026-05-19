@@ -41,6 +41,11 @@ export default defineConfig({
         target: BACKEND_TARGET,
         changeOrigin: true,
       },
+      // ── bare contacts/* → Backend (port 3000)  — matched by ContactsPanel via axios
+      '/contacts': {
+        target: BACKEND_TARGET,
+        changeOrigin: true,
+      },
       '/api/metrics': {
         target: BACKEND_TARGET,
         changeOrigin: true,

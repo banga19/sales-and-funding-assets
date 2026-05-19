@@ -16,7 +16,7 @@ services:
     container_name: sokogate-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: sokogate
       POSTGRES_PASSWORD: sokogate-dev-change-me
@@ -24,11 +24,14 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-      - ./scraper/migrations/002_add_scraper_tables.sql:/docker-entrypoint-initdb.d/002_add_scraper_tables.sql:ro
+      - ./002_add_scraper_tables.sql:/docker-entrypoint-initdb.d/002_add_scraper_tables.sql:ro
+      - ./003_add_product_sourcing_columns.sql:/docker-entrypoint-initdb.d/003_add_product_sourcing_columns.sql:ro
+      - ./004_b2b_product_extensions.sql:/docker-entrypoint-initdb.d/004_b2b_product_extensions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sokogate"]
       interval: 2s
-      timeout: 5s       retries: 10
+      timeout: 5s
+      retries: 10
       start_period: 15s
     networks: [app-net]
 
@@ -52,7 +55,7 @@ services:
   # ── Sokogate Scraper ────────────────────────────────────────────────────────
   scraper:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile.scraper
     container_name: sokogate-scraper
     restart: unless-stopped
@@ -98,7 +101,7 @@ services:
   # ── Scraper API (FastAPI — trigger, status, price alerts) ────────────────────
   scraper-api:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile.scraper
     container_name: sokogate-scraper-api
     restart: unless-stopped

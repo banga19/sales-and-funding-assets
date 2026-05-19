@@ -67,7 +67,7 @@ export default function ContactsPanel() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await axios.get('/contacts', { params: { pageSize: 500 } });
+      const { data } = await axios.get('/api/contacts', { params: { pageSize: 500 } });
 
       // ── Normalise response ──────────────────────────────────────────────────
       let list: Contact[];
@@ -112,7 +112,7 @@ export default function ContactsPanel() {
     }
     setSaving(true);
     try {
-      await axios.post('/contacts', manualContact);
+      await axios.post('/api/contacts', manualContact);
       toast.success('Contact saved successfully!');
       setManualContact({ name: '', email: '', phone: '', company: '' });
       setShowManualForm(false);
@@ -171,7 +171,7 @@ export default function ContactsPanel() {
         }
 
         try {
-          const { data } = await axios.post('/contacts/bulk', { contacts: mapped });
+          const { data } = await axios.post('/api/contacts/bulk', { contacts: mapped });
           const count = typeof data?.imported === 'number' ? data.imported : mapped.length;
           toast.success(`Imported ${count} contact${count === 1 ? '' : 's'} successfully!`);
           fetchContacts();

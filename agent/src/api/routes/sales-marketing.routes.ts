@@ -41,7 +41,7 @@ router.post('/sales-marketing', async (req: Request, res: Response) => {
     let products: any[] = [];
     try {
       const result = await db.query(
-        'SELECT id, name, description FROM scraped_products WHERE id = ANY($1::text[])',
+        'SELECT id, name, description FROM scraped_products WHERE id = ANY($1::uuid[])',
         [ids],
       );
       products = result.rows;
@@ -104,7 +104,7 @@ Respond ONLY with valid JSON having exactly these keys:
 
         try {
           await db.query(
-            'INSERT INTO marketing_assets (id, product_id, type, content, created_at) VALUES (gen_random_uuid()::text, $1, $2, $3, NOW())',
+            'INSERT INTO marketing_assets (id, product_id, type, content, created_at) VALUES (gen_random_uuid()::text, $1::uuid, $2, $3, NOW())',
             [product.id, type, content],
           );
         } catch (err: any) {

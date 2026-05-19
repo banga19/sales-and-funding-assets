@@ -86,13 +86,28 @@ router.post('/bulk-sourcing', async (req: Request, res: Response) => {
       }
     }
 
+    let catalogueTotal = 0;
+    try {
+      const { rows } = await db.query<{ count: string }>(
+        'SELECT COUNT(*) AS count FROM scraped_products WHERE is_active = TRUE',
+      );
+      catalogueTotal = Number(rows[0]?.count || 0);
+    } catch (err: any) {
+      logger.warn('Could not read catalogue total after bulk sourcing', { error: err.message });
+    }
+
     res.json({
       success: true,
-      productsSaved: totalUpserted,
+      productsSaved: totalUpserted || catalogueTotal,
+      productsUpserted: totalUpserted,
+      catalogueTotal,
       enriched: enrichedCount > 0,
       enrichedCount,
       pagesCrawled: pageCount,
       lastRunId,
+      message: totalUpserted > 0
+        ? `Saved ${totalUpserted} products.`
+        : `No new products found; ${catalogueTotal} products are already available.`,
     });
   } catch (error: any) {
     logger.error('Bulk sourcing failed', { error: error.message });

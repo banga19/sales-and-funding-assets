@@ -47,7 +47,7 @@ Include an engaging title, an introduction, 2–3 body sections, and a conclusio
       let names = 'selected products';
       try {
         const { rows: products } = await db.query(
-          'SELECT name FROM scraped_products WHERE id = ANY($1::text[])',
+          'SELECT name FROM scraped_products WHERE id = ANY($1::uuid[])',
           [productIds],
         );
         names = products.map((p: any) => p.name).join(', ') || 'selected products';

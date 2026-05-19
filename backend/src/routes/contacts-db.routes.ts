@@ -94,10 +94,10 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // POST /contacts  –  create or upsert a single contact
-// ═══════════════════════════════════════════════════════════════════════════════
 router.post('/', async (req: Request, res: Response) => {
-  const { name, email, phone, company, title, tiertag, notes } = req.body;
+  const { name, email, phone, company, title, tiertag, notes, type } = req.body;
   const contactName = name || req.body.contact_name || '';
+  const contactType = type || req.body.contact_type || 'prospect';  // default: prospect
   if (!email || !contactName) {
     return res.status(400).json({ success: false, error: 'Name and email are required' });
   }
@@ -105,12 +105,13 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const { rows } = await dbQuery(
       `INSERT INTO contacts
-         (contact_name, email, phone, company, tier, status, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+         (contact_name, email, phone, company, type, tier, status, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (email) DO UPDATE SET
          contact_name = EXCLUDED.contact_name,
          phone        = EXCLUDED.phone,
          company      = EXCLUDED.company,
+         type         = COALESCE(EXCLUDED.type, contacts.type),
          tier         = COALESCE(EXCLUDED.tier, contacts.tier),
          notes        = COALESCE(EXCLUDED.notes, contacts.notes),
          updated_at   = NOW()
@@ -120,6 +121,7 @@ router.post('/', async (req: Request, res: Response) => {
         email,
         phone || null,
         company || '',
+        contactType,
         tiertag || 'T3',
         'Not Started',
         notes || null,
@@ -150,16 +152,18 @@ router.post('/bulk', async (req: Request, res: Response) => {
     for (const c of valid) {
       const contactName = c.name || c.contact_name || '';
       if (!contactName) continue;
+      const contactType = c.type || c.contact_type || 'prospect';
       await dbQuery(
         `INSERT INTO contacts
-           (contact_name, email, phone, company, tier, status)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (contact_name, email, phone, company, type, tier, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (email) DO UPDATE SET
            contact_name = EXCLUDED.contact_name,
            phone        = EXCLUDED.phone,
            company      = EXCLUDED.company,
+           type         = COALESCE(EXCLUDED.type, contacts.type),
            updated_at   = NOW()`,
-        [contactName, c.email, c.phone || null, c.company || '', 'T3', 'Not Started']
+        [contactName, c.email, c.phone || null, c.company || '', contactType, 'T3', 'Not Started']
       );
       imported++;
     }

@@ -113,10 +113,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_conversations_updated_at
-  BEFORE UPDATE ON conversations
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_conversations_updated_at') THEN
+    CREATE TRIGGER update_conversations_updated_at
+      BEFORE UPDATE ON conversations
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
 -- ============================================
 -- Views for Analytics
@@ -127,7 +131,7 @@ SELECT
   c.current_stage,
   c.sentiment,
   COUNT(*) as count,
-  AVG(c.response_count) as avg_responses,
+  AVG(c.response_count)::NUMERIC(5,2) as avg_responses,
   COUNT(CASE WHEN c.escalation_required THEN 1 END) as escalations
 FROM conversations c
 GROUP BY c.contact_type, c.current_stage, c.sentiment;

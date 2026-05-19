@@ -235,7 +235,7 @@ export async function upsertProduct(prod: Product): Promise<{ upserted: boolean;
        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
         NOW(), TRUE,
         $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
-     ON CONFLICT (LOWER(source_url)) DO UPDATE SET
+     ON CONFLICT (source_url) DO UPDATE SET
        name               = EXCLUDED.name,
        description        = EXCLUDED.description,
        price_current      = EXCLUDED.price_current,

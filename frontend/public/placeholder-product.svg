@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640" role="img" aria-labelledby="title desc">
+  <title id="title">Product placeholder</title>
+  <desc id="desc">Neutral product package placeholder for unavailable catalogue images.</desc>
+  <rect width="640" height="640" fill="#f3f4f6"/>
+  <rect x="148" y="176" width="344" height="304" rx="20" fill="#ffffff" stroke="#d1d5db" stroke-width="12"/>
+  <path d="M148 254h344" stroke="#d1d5db" stroke-width="12"/>
+  <path d="M250 176l70 78 70-78" fill="none" stroke="#d1d5db" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="320" cy="365" r="64" fill="#e0f2fe"/>
+  <path d="M292 365h56M320 337v56" stroke="#0284c7" stroke-width="14" stroke-linecap="round"/>
+  <text x="320" y="536" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#6b7280">Sokogate Product</text>
+</svg>

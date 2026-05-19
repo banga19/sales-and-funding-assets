@@ -21,11 +21,6 @@ export default defineConfig({
     server: {
         port: 3001,
         strictPort: true,
-        hmr: {
-            // Explicit HMR host/port — no token in the path
-            host: 'localhost',
-            port: 3001,
-        },
         proxy: {
             // ── /api/* → Agent (port 3002)
             //    Agent owns /api/health, /api/status, /api/agent/*, /api/contacts/*
@@ -36,6 +31,19 @@ export default defineConfig({
             // ── /api/products → Backend (port 3000) — wins over /api catch-all above
             //    because it is a more specific prefix match
             '/api/products': {
+                target: BACKEND_TARGET,
+                changeOrigin: true,
+            },
+            '/api/contacts': {
+                target: BACKEND_TARGET,
+                changeOrigin: true,
+            },
+            // ── bare contacts/* → Backend (port 3000)  — matched by ContactsPanel via axios
+            '/contacts': {
+                target: BACKEND_TARGET,
+                changeOrigin: true,
+            },
+            '/api/metrics': {
                 target: BACKEND_TARGET,
                 changeOrigin: true,
             },

@@ -246,7 +246,7 @@ async function upsertProduct(prod: Product): Promise<{ upserted: boolean; produc
       `INSERT INTO scraped_products
          (source_url, name, description, price_current, category, images, in_stock, sku, specifications)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (LOWER(source_url)) DO UPDATE SET
+       ON CONFLICT (source_url) DO UPDATE SET
          name          = EXCLUDED.name,
          description   = EXCLUDED.description,
          price_current = EXCLUDED.price_current,

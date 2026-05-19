@@ -90,6 +90,15 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/stats', async (_req: Request, res: Response) => {
+  try {
+    const stats = await getProductStats();
+    res.json({ success: true, stats });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch stats', message: err.message });
+  }
+});
+
 /**
  * GET /api/products/:id
  * Returns a single product with its variants and B2B pricing tiers.
@@ -136,15 +145,6 @@ router.get('/:id', async (req: Request, res: Response) => {
  * GET /api/products/stats
  * Returns aggregate stats including B2B metrics.
  */
-router.get('/stats', async (_req: Request, res: Response) => {
-  try {
-    const stats = await getProductStats();
-    res.json({ success: true, stats });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch stats', message: err.message });
-  }
-});
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Price history
 // ═══════════════════════════════════════════════════════════════════════════════

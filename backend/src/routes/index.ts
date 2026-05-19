@@ -29,18 +29,11 @@ router.get('/metrics', metrics.getMetrics);
 router.get('/metrics/summary', metrics.getMetricsSummary);
 router.post('/metrics/sync', metrics.syncMetrics);
 
-// ── Contacts — in-memory (legacy) ─────────────────────────────────────────────
-router.get('/contacts', contacts.listContacts);
-router.get('/contacts/pipeline/stages', contacts.getPipeline);
-router.get('/contacts/:id', contacts.getContact);
-router.post('/contacts', contacts.createContact);
-router.post('/contacts/bulk', contacts.bulkCreateContacts);
-router.put('/contacts/:id', contacts.updateContact);
-router.delete('/contacts/:id', contacts.deleteContact);
-router.get('/contacts/:id/messages', contacts.getContactMessages);
-router.post('/contacts/:id/messages', contacts.addContactMessage);
+// ── Contacts — PostgreSQL-backed (used by frontend hits /api/contacts) ───────────
+// Mount the DB router so GET /, POST /, POST /bulk all resolve correctly.
+router.use('/contacts', contactsDb);
 
-// ── Contacts — PostgreSQL-backed (new) ─────────────────────────────────────────
+// Alias: also expose at /api/db/contacts for any external consumers.
 router.use('/db/contacts', contactsDb);
 
 export default router;

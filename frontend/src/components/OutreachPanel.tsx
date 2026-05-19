@@ -9,17 +9,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X } from 'lucide-react';
 import { SOK } from '@/design-tokens';
+import { useOutreach } from '@/context/OutreachContext';
 
 type Tab = 'contacts' | 'logs';
-
-/** Lazy-bridge: import OutreachContext only after this file is parsed */
-function useOutreachBridge(): any {
-  let ctx: any;
-  try {
-    ctx = require('@/context/OutreachContext').useOutreach();
-  } catch { ctx = { contacts: [], emailLogs: [], sendingIds: new Set(), loading: false, logsLoading: false, error: null, loadContacts: () => {}, loadEmailLogs: () => {}, sendOutreach: async () => ({ ok: false, message: '' }), clearMessage: () => {} }; }
-  return ctx;
-}
 
 /** Horizontal pill tab */
 function TabButton({ active, onClick, icon, label, badge }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; badge?: React.ReactNode }) {
@@ -64,14 +56,13 @@ export default function OutreachPanel() {
   const [emailsFetched, setEmailsFetched] = useState(false);
   const contactsContactsLoaded = useRef(false);
 
-  const ctx = useOutreachBridge();
+  const ctx = useOutreach();
   const {
     contacts:        rawContacts,
     emailLogs:       rawLogs,
     sendingIds,
     loading,
     logsLoading,
-    logsError,
     error,
     lastMessage,
     loadContacts,

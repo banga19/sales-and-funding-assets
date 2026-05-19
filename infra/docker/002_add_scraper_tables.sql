@@ -20,6 +20,8 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- ─── Helper: updated_at trigger (idempotent) ──────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -75,7 +77,15 @@ DO $$ BEGIN
     CREATE INDEX idx_scraped_products_tags_gin     ON scraped_products USING gin(tags);
     RAISE NOTICE 'Created scraped_products table.';
   ELSE
-    RAISE NOTICE 'scraped_products already exists.';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS price_raw      TEXT;
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS currency       TEXT NOT NULL DEFAULT 'KES';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS sku            TEXT;
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS attributes     JSONB    NOT NULL DEFAULT '{}';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS variations     JSONB    NOT NULL DEFAULT '[]';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS tags           TEXT[]   NOT NULL DEFAULT '{}';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS first_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS is_active      BOOLEAN  NOT NULL DEFAULT TRUE;
+    RAISE NOTICE 'scraped_products already existed - added missing columns.';
   END IF;
 END $$;
 
@@ -154,7 +164,6 @@ DO $$ BEGIN
     CREATE INDEX idx_price_history_product_observed ON price_history(product_id, observed_at DESC);
     CREATE INDEX idx_price_history_observed          ON price_history(observed_at DESC);
     CREATE INDEX idx_price_history_scrape_run        ON price_history(scrape_run_id);
-    COMMIT;
     RAISE NOTICE 'Created price_history table.';
   ELSE
     RAISE NOTICE 'price_history already exists.';
@@ -166,11 +175,15 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'scrape_runs') THEN
     CREATE TABLE scrape_runs (
       id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      triggered_by     VARCHAR(20) NOT NULL DEFAULT 'manual' CHECK (triggered_by IN ('manual', 'schedule', 'webhook')),
       started_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       finished_at      TIMESTAMPTZ,
+      completed_at     TIMESTAMPTZ,
       base_url         TEXT        NOT NULL DEFAULT 'https://sokogate.com',
+      max_pages        INTEGER     NOT NULL DEFAULT 10,
       products_found   INTEGER     NOT NULL DEFAULT 0,
       products_scraped INTEGER     NOT NULL DEFAULT 0,
+      products_upserted INTEGER    NOT NULL DEFAULT 0,
       products_failed  INTEGER     NOT NULL DEFAULT 0,
       products_new     INTEGER     NOT NULL DEFAULT 0,
       products_updated INTEGER     NOT NULL DEFAULT 0,
@@ -190,7 +203,19 @@ DO $$ BEGIN
     CREATE INDEX idx_scrape_runs_phase   ON scrape_runs(phase);
     RAISE NOTICE 'Created scrape_runs table.';
   ELSE
-    RAISE NOTICE 'scrape_runs already exists.';
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS triggered_by       VARCHAR(20) NOT NULL DEFAULT 'manual';
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS max_pages          INTEGER NOT NULL DEFAULT 10;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS products_scraped   INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS products_upserted  INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS products_new       INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS products_updated   INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS products_deleted   INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS completed_at       TIMESTAMPTZ;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS phase_message      TEXT;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS user_agent         TEXT;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS proxy_used         TEXT;
+    ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS page_fetches       INTEGER NOT NULL DEFAULT 0;
+    RAISE NOTICE 'scrape_runs already exists - added missing columns.';
   END IF;
 END $$;
 

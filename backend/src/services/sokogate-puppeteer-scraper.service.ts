@@ -336,7 +336,7 @@ async function persistProducts(products: Product[]): Promise<number> {
             source_url, last_scraped_at, is_active)
          VALUES
            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),TRUE)
-         ON CONFLICT (LOWER(source_url)) DO UPDATE SET
+         ON CONFLICT (source_url) DO UPDATE SET
            price_current    = EXCLUDED.price_current,
            last_scraped_at  = NOW(),
            weight_grams     = COALESCE(EXCLUDED.weight_grams, scraped_products.weight_grams),

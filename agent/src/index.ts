@@ -150,29 +150,44 @@ class SalesAgent {
     this.app.use('/api/agents', fundingRoutes);
 
     // ── Contact Management ───────────────────────────────────────────────────────
+    const mapContact = (r: any) => ({
+      id: r.id,
+      type: r.type || 'prospect',
+      name: r.contact_name || r.name || 'Unknown',
+      email: r.email || '',
+      phone: r.phone || '',
+      company: r.company || '',
+      title: r.contact_person_title || '',
+      tier: r.tier || 'T3',
+      status: r.status || 'Not Started',
+      stage: r.status || 'Not Started',
+      notes: r.notes || '',
+      outreach_status: r.outreach_status || 'none',
+      emails_sent: r.emails_sent ?? 0,
+      last_contacted: r.last_contact_date || null,
+      lastContactDate: r.last_contact_date || null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at || r.created_at,
+      created_at: r.created_at,
+      updated_at: r.updated_at || r.created_at,
+    });
+
     this.app.get('/api/contacts', async (req: Request, res: Response) => {
       try {
         const { type, search, stage, page = '1', pageSize = '20' } = req.query;
-        // All rows from market_leads are 'prospect' contacts
         const where: string[] = [];
         const params: any[] = [];
         let idx = 1;
+        if (type)   { where.push(`type = $${idx}`); params.push(String(type)); idx++; }
         if (stage)  { where.push(`status = $${idx}`); params.push(String(stage)); idx++; }
-        if (search) { where.push(`(company_name ILIKE $${idx} OR contact_person ILIKE $${idx} OR email ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+        if (search) { where.push(`(company ILIKE $${idx} OR contact_name ILIKE $${idx} OR email ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
         const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
         const pg = Math.max(1, parseInt(String(page), 10) || 1);
         const ps = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
         const offset = (pg - 1) * ps;
-        const countRow = await db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM market_leads ${whereClause}`, params);
-        const dataRows = await db.query(`SELECT * FROM market_leads ${whereClause} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]);
-        const data = (dataRows.rows ?? []).map((r: any) => ({
-          id: r.id, type: 'prospect', name: r.contact_person || 'Unknown',
-          email: r.email || '', phone: r.phone, company: r.company_name,
-          title: '', stage: r.status || 'new', notes: r.notes || r.product_interest || '',
-          lastContactDate: r.last_contact_date || null,
-          nextFollowupDate: r.next_followup_date || null,
-          createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
-        }));
+        const countRow = await db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM contacts ${whereClause}`, params);
+        const dataRows = await db.query(`SELECT * FROM contacts ${whereClause} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]);
+        const data = (dataRows.rows ?? []).map(mapContact);
         res.json({ data, total: +(countRow.rows[0]?.count || '0'), page: pg, pageSize: ps });
       } catch (error: any) {
         logger.warn('List contacts failed', { error: error.message });
@@ -181,18 +196,74 @@ class SalesAgent {
       }
     });
 
+    this.app.post('/api/contacts', async (req: Request, res: Response) => {
+      try {
+        const contactName = req.body?.name || req.body?.contact_name || '';
+        const email = req.body?.email || '';
+        if (!contactName || !email) return res.status(400).json({ success: false, error: 'Name and email are required' });
+
+        const { rows } = await db.query(
+          `INSERT INTO contacts (contact_name, email, phone, company, type, tier, status, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (email) DO UPDATE SET
+             contact_name = EXCLUDED.contact_name,
+             phone = EXCLUDED.phone,
+             company = EXCLUDED.company,
+             updated_at = NOW()
+           RETURNING *`,
+          [
+            contactName,
+            email,
+            req.body?.phone || null,
+            req.body?.company || '',
+            req.body?.type || 'prospect',
+            req.body?.tier || 'T3',
+            req.body?.status || 'Not Started',
+            req.body?.notes || null,
+          ],
+        );
+        res.status(201).json({ success: true, contact: mapContact(rows[0]) });
+      } catch (error: any) {
+        logger.warn('Create contact failed', { error: error.message });
+        res.status(500).json({ success: false, error: 'Failed to add contact' });
+      }
+    });
+
+    this.app.post('/api/contacts/bulk', async (req: Request, res: Response) => {
+      try {
+        const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
+        if (contacts.length === 0) return res.status(400).json({ success: false, error: 'No valid contacts provided' });
+
+        let imported = 0;
+        for (const c of contacts) {
+          const contactName = c.name || c.contact_name || '';
+          if (!contactName || !c.email) continue;
+          await db.query(
+            `INSERT INTO contacts (contact_name, email, phone, company, type, tier, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (email) DO UPDATE SET
+               contact_name = EXCLUDED.contact_name,
+               phone = EXCLUDED.phone,
+               company = EXCLUDED.company,
+               updated_at = NOW()`,
+            [contactName, c.email, c.phone || null, c.company || '', c.type || 'prospect', c.tier || 'T3', c.status || 'Not Started'],
+          );
+          imported++;
+        }
+
+        const { rows } = await db.query('SELECT * FROM contacts ORDER BY created_at DESC LIMIT 500');
+        res.json({ success: true, imported, contacts: rows.map(mapContact) });
+      } catch (error: any) {
+        logger.warn('Bulk contact import failed', { error: error.message });
+        res.status(500).json({ success: false, error: 'Import failed' });
+      }
+    });
+
     this.app.get('/api/contacts/:id', async (req: Request, res: Response) => {
       try {
-        const { rows } = await db.query('SELECT * FROM market_leads WHERE id = $1', [req.params.id]);
+        const { rows } = await db.query('SELECT * FROM contacts WHERE id = $1', [req.params.id]);
         if (!rows.length) return res.status(404).json({ error: 'Contact not found' });
-        const r = rows[0];
-        res.json({
-          id: r.id, type: r.type || 'prospect', name: r.contact_person || 'Unknown',
-          email: r.email || '', phone: r.phone, company: r.company_name, title: '',
-          stage: r.status || 'new', lastContactDate: r.last_contact_date || null,
-          nextFollowupDate: r.next_followup_date || null, notes: r.notes || r.product_interest || '',
-          createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
-        });
+        res.json(mapContact(rows[0]));
       } catch (error: any) {
         logger.error('Get contact failed', { error: error.message });
         res.status(500).json({ error: 'Failed to get contact', message: error.message });
@@ -232,6 +303,17 @@ class SalesAgent {
     // ── Logs ─────────────────────────────────────────────────────────────────────
     const LOG_BUFFER_MAX = 200;
     const logBuffer: { timestamp: string; level: string; message: string }[] = [];
+    const outreachEmailLogs: {
+      id: string;
+      contactId: string;
+      contactName: string;
+      to: string;
+      subject: string;
+      body: string;
+      status: 'sent' | 'failed';
+      error?: string;
+      sentAt: string;
+    }[] = [];
 
     const origInfo  = logger.info;
     const origWarn  = logger.warn;
@@ -247,6 +329,83 @@ class SalesAgent {
       const lines = req.query.lines ? Math.min(parseInt(String(req.query.lines), 10), LOG_BUFFER_MAX) : 100;
       const start = Math.max(0, logBuffer.length - lines);
       res.json({ logs: logBuffer.slice(start), total: logBuffer.length });
+    });
+
+    this.app.get('/api/outreach/logs', (_req: Request, res: Response) => {
+      res.json(outreachEmailLogs.slice().reverse());
+    });
+
+    this.app.post('/api/outreach/send', async (req: Request, res: Response) => {
+      try {
+        const { contactId, dryRun = false } = req.body ?? {};
+        if (!contactId || typeof contactId !== 'string') {
+          return res.status(400).json({ success: false, error: 'contactId (string) is required in request body.' });
+        }
+
+        const { rows } = await db.query('SELECT * FROM contacts WHERE id = $1', [contactId]);
+        if (!rows.length) return res.status(404).json({ success: false, error: 'Contact not found' });
+        const contact = mapContact(rows[0]);
+
+        const subject = `Sokogate sourcing support for ${contact.company || contact.name}`;
+        const body = [
+          `Hi ${contact.name},`,
+          '',
+          'I wanted to share how Sokogate can help your team source B2B products with clear pricing, MOQ, delivery windows, and supplier details.',
+          '',
+          'Would you be open to a short conversation about your current procurement priorities?',
+          '',
+          'Best,',
+          'Sokogate Sales & Funding Agent',
+        ].join('\n');
+
+        const sentAt = new Date().toISOString();
+        const liveSend = !agentConfig.dryRun && !dryRun;
+        let status: 'sent' | 'failed' = 'sent';
+        let error: string | undefined;
+
+        if (liveSend) {
+          const result = await emailService.send({
+            to: contact.email,
+            subject,
+            html: body.replace(/\n/g, '<br/>'),
+            text: body,
+          });
+          if (!result.success) {
+            status = 'failed';
+            error = result.error || 'Email service rejected the message';
+          }
+        }
+
+        const log = {
+          id: `${sentAt}-${Math.random().toString(36).slice(2, 8)}`,
+          contactId,
+          contactName: contact.name,
+          to: contact.email,
+          subject,
+          body,
+          status,
+          error,
+          sentAt,
+        };
+        outreachEmailLogs.push(log);
+
+        if (status === 'sent') {
+          await db.query(
+            'UPDATE contacts SET emails_sent = COALESCE(emails_sent, 0) + 1, outreach_status = $1, last_contact_date = CURRENT_DATE, updated_at = NOW() WHERE id = $2',
+            [liveSend ? 'emailed' : 'dry-run', contactId],
+          );
+          return res.json({
+            success: true,
+            message: liveSend ? `Email sent to ${contact.name}.` : `Dry-run: email prepared for ${contact.name}.`,
+            logId: log.id,
+          });
+        }
+
+        res.status(500).json({ success: false, message: error || 'Send failed', logId: log.id });
+      } catch (error: any) {
+        logger.warn('Outreach send failed', { error: error.message });
+        res.status(500).json({ success: false, error: error.message || 'Outreach failed' });
+      }
     });
 
     this.app.post('/api/test-email', async (req: Request, res: Response) => {
@@ -373,16 +532,44 @@ class SalesAgent {
     });
 
     // GET /api/products — list products from the database
+    this.app.get('/api/products/stats', async (_req: Request, res: Response) => {
+      try {
+        const { rows } = await db.query(
+          `SELECT
+             COUNT(*)::int AS total,
+             COUNT(CASE WHEN trending_score >= 80 THEN 1 END)::int AS trending,
+             COUNT(CASE WHEN weight_grams <= 200 THEN 1 END)::int AS lightweight,
+             ROUND(AVG(price_current), 2) AS "avgPrice",
+             MIN(price_current) AS "minPrice",
+             MAX(price_current) AS "maxPrice",
+             COUNT(CASE WHEN moq IS NOT NULL AND moq <= 20 THEN 1 END)::int AS "lowMoqCount",
+             COUNT(CASE WHEN b2b_suitable = TRUE THEN 1 END)::int AS "b2bSuitableCount"
+           FROM scraped_products
+           WHERE is_active = TRUE`,
+        );
+        res.json({ success: true, stats: rows[0] });
+      } catch (error: any) {
+        logger.warn('Product stats failed', { error: error.message });
+        res.status(500).json({ success: false, error: 'Failed to fetch stats', message: error.message });
+      }
+    });
+
     this.app.get('/api/products', async (req: Request, res: Response) => {
       try {
-        const { category, inStock, search, page = '1', pageSize = '20' } = req.query;
+        const { category, inStock, search, page = '1', pageSize = '20', sort = 'trending' } = req.query;
         const conditions: string[] = [];
         const params: any[]      = [];
         let idx = 1;
         if (category)  { conditions.push(`category ILIKE $${idx++}`); params.push(`%${category}%`); }
         if (inStock !== undefined) { conditions.push(`in_stock = $${idx++}`); params.push(inStock === 'true'); }
         if (search)   { conditions.push(`name ILIKE $${idx++}`);   params.push(`%${search}%`); }
-        const where  = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        conditions.push('is_active = TRUE');
+        const where  = `WHERE ${conditions.join(' AND ')}`;
+        const orderBy =
+          sort === 'weight_asc' ? 'weight_grams ASC NULLS LAST' :
+          sort === 'price_asc' ? 'price_current ASC NULLS LAST' :
+          sort === 'price_desc' ? 'price_current DESC NULLS LAST' :
+          'trending_score DESC NULLS LAST, last_scraped_at DESC';
         const pg     = Math.max(1, parseInt(String(page), 10) || 1);
         const ps     = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
         const offset = (pg - 1) * ps;
@@ -391,11 +578,14 @@ class SalesAgent {
         // shift the count sub-query's positional parameters.
         const [countRow, dataRows, catRows] = await Promise.all([
           db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM scraped_products ${where}`, params),
-          db.query(`SELECT * FROM scraped_products ${where} ORDER BY last_scraped_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]),
-          db.query(`SELECT DISTINCT category FROM scraped_products WHERE category IS NOT NULL ORDER BY category`),
+          db.query(`SELECT * FROM scraped_products ${where} ORDER BY ${orderBy} LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]),
+          db.query(`SELECT DISTINCT category FROM scraped_products WHERE category IS NOT NULL AND is_active = TRUE ORDER BY category`),
         ]);
         const specsJsonToArr = (row: any) => {
-          try { return Object.entries(JSON.parse(row.specifications || '{}')).map(([k, v]: [string, string]) => ({ key: k, value: v })); }
+          try {
+            const specs = typeof row.specifications === 'string' ? JSON.parse(row.specifications || '{}') : row.specifications || {};
+            return Object.entries(specs).map(([k, v]) => ({ key: k, value: String(v) }));
+          }
           catch { return []; }
         };
         const data = (dataRows.rows ?? []).map((row: any) => ({
@@ -404,6 +594,24 @@ class SalesAgent {
           inStock: row.in_stock, sourceUrl: row.source_url,
           scrapedAt: row.last_scraped_at, createdAt: row.created_at, updatedAt: row.updated_at,
           specifications: specsJsonToArr(row),
+          weightGrams: row.weight_grams ?? null,
+          trendingScore: row.trending_score ?? null,
+          b2bSuitable: row.b2b_suitable ?? null,
+          originCountry: row.origin_country ?? null,
+          shippingEst: row.shipping_est ?? null,
+          subcategory: row.subcategory ?? null,
+          sourceId: row.source_id ?? null,
+          moq: row.moq ?? null,
+          airDeliveryDays: row.air_delivery_days ?? null,
+          seaDeliveryDays: row.sea_delivery_days ?? null,
+          supplierName: row.supplier_name ?? null,
+          supplierVerified: row.supplier_verified ?? null,
+          galleryUrls: row.gallery_urls ?? [],
+          specs: row.specs ?? null,
+          b2bPriceTier: row.b2b_price_tier ?? [],
+          sourcePlatform: row.source_platform ?? null,
+          volumeCbm: row.volume_cbm ?? null,
+          translationMap: row.translation_map ?? null,
         }));
         res.json({
           success: true,

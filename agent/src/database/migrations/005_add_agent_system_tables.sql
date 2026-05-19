@@ -9,7 +9,7 @@
 -- ============================================
 CREATE TABLE IF NOT EXISTS marketing_assets (
   id          TEXT   PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  product_id  TEXT                     REFERENCES scraped_products(id) ON DELETE SET NULL,
+  product_id  UUID                     REFERENCES scraped_products(id) ON DELETE SET NULL,
   type        TEXT   NOT NULL,                     -- "email_sequence" | "social_post" | "ad_copy" | "landing_page"
   content     TEXT   NOT NULL,
   created_at  TIMESTAMP DEFAULT NOW()
