@@ -36,20 +36,39 @@ router.post('/funding', async (req: Request, res: Response) => {
     logger.info('Funding generation triggered', { investorProfile });
 
     // ── Generate pitch summary and suggested contacts via NVIDIA ──────────────
-    const prompt = `You are a seasoned venture advisor at Sokogate, an AI-powered B2B e-commerce platform owned by Ultimo Trading Company Limited.
+    const prompt = `You are a seasoned venture advisor at Sokogate — an AI-powered B2B e-commerce platform for construction materials and industrial goods, owned by Ultimo Trading Company Limited (sokogate.com).
 
-Given the target investor type "${investorProfile}" and these company details:
-${JSON.stringify(companyDetails, null, 2)}
+Company facts:
+- Name: Ultimo Trading Company Limited (trading as Sokogate)
+- Founded: Nairobi, Kenya
+- Revenue: ~$600K+ ARR
+- Customers: ~10,000+ across East and West Africa
+- Repeat rate: >90%
+- Category: B2B e-commerce · Construction materials · Industrial goods
 
-Generate a JSON response with exactly these fields:
+Requested detail:
+- Target investor type: ${investorProfile}
+${Object.entries(companyDetails).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
+
+Your role:
+Write the pitch for "${investorProfile}" investors relevant to East and West Africa.
+
+Respond ONLY with raw valid JSON. No markdown, no code fences:
 {
-  "pitch": "A 200-300 word compelling pitch summary tailored for ${investorProfile} investors...",
+  "pitch": "200–300 words. Lead with the market gap. Mention Sokogate's V1 product, 90%+ repeat rate, 10K+ customers, and $600K+ revenue."
+    " Deliverables: 12-month growth plan (revenue, GMV, customer segments).",
   "suggestedContacts": [
-    { "name": "Full Name", "email": "email@example.com", "firm": "Firm Name" }
+    {
+      "name": "Full Name of partner or principal at that firm",
+      "email": "realistic.email@firm-domain.com",
+      "firm": "Firm or Fund Name",
+      "role": "their role relevant to B2B or Africa",
+      "fit": "one sentence why this investor is a strong match"
+    }
   ]
 }
 
-Include 3 to 5 plausible investor contacts relevant to "${investorProfile}" in the African market.`;
+Include exactly 3 to 5 plausible contacts for "${investorProfile}" investors who are active in the African market.`;
 
     let aiResponse = '';
     try {

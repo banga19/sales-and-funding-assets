@@ -5,6 +5,7 @@ import { db } from '../database/db.client';
 import { personalizationService } from '../agents/personalization';
 import { emailService } from '../channels/email.service';
 import { agentConfig } from '../config/agent.config';
+import { MessageContext } from '../types/message.types';
 
 /**
  * Follow-up Workflow
@@ -98,39 +99,91 @@ export class FollowUpWorkflow {
       stage: action.conversation_stage,
     });
 
-    // Get conversation history
-    const messages = await this.getMessageHistory(action.contact_id);
+    // Validate action object is well-formed
+    const action_: {
+      id: string; contact_id: string;
+      contact_type: string; action_type: string;
+      scheduled_for: Date; status: string;
+      preferred_channel?: string; email?: string;
+      conversation_stage?: string;
+    } = ((): any => {
+      if (!action || typeof action !== 'object') throw new Error('Invalid action object');
+      const { id, contact_id, contact_type, action_type, scheduled_for, status } = action;
+      if (!id) throw new Error('Action missing id');
+      if (!contact_id) throw new Error('Action missing contact_id');
+      if (contact_type !== 'follow_up') throw new Error(`Unexpected action_type: ${action_type}`);
+      if (status !== 'pending') return null; // silently skip non-pending
+      return action;
+    })();
+    if (!action_) return; // skip if not pending
 
-    // Generate follow-up message
-    const context = {
-      contact_type: action.type,
-      stage: action.conversation_stage || 'follow_up',
-      previousMessages: messages.map((m: any) => ({
+    // Get conversation history
+    const messages = await this.getMessageHistory(action_.contact_id);
+
+    // ── Fetch full Contact record ────────────────────────────────────────────────
+    const contact = await this.getContact(action_.contact_id);
+    if (!contact) {
+      throw new Error(`Contact not found for contact_id=${action_.contact_id}`);
+    }
+
+    // ── Build MessageContext matching what personalizationService.generateMessage expects ────
+    const context: MessageContext = {
+      contact_type:  contact.type,
+      tier:          contact.tier,
+      company:       contact.company,
+      contact_name:  contact.contact_name || contact.name || '',
+      is_first_contact: false,
+      // ── Prospect ──
+      location:            contact.location,
+      annual_spend_kes:    contact.annual_spend_kes,
+      pain_point:          contact.pain_point,
+      engagement_angle:    contact.engagement_angle,
+      decision_maker_title: contact.decision_maker_title,
+      // ── Investor ──
+      fund_name:             contact.fund_name,
+      ticket_size_usd_min:   contact.ticket_size_usd_min,
+      ticket_size_usd_max:   contact.ticket_size_usd_max,
+      geographic_focus:      contact.geographic_focus,
+      investment_thesis:     contact.investment_thesis,
+      decision_timeline_weeks: contact.decision_timeline_weeks,
+      meetings_count:        contact.meetings_count,
+      // ── Partner ──
+      country:                 contact.country,
+      capability:              contact.capability,
+      interest_level:          contact.interest_level,
+      revenue_model:           contact.revenue_model,
+      monthly_revenue_potential_usd: contact.monthly_revenue_potential_usd,
+      // ── Funding ──
+      institution_type:              contact.institution_type,
+      product_pitched:               contact.product_pitched,
+      ticket_size_usd_requested:     contact.ticket_size_usd_requested,
+      tenor_months:                  contact.tenor_months,
+      tenor_years:                   contact.tenor_years,
+      interest_rate_requested:       contact.interest_rate_requested,
+      collateral_available:          contact.collateral_available,
+      audited_financials_available:  contact.audited_financials_available,
+      bank_relationships:            contact.bank_relationships,
+      credit_rating:                  contact.credit_rating,
+      urgency:                        contact.urgency,
+      contact_person_title:           contact.contact_person_title,
+      // ── Success / nurture context ──
+      previous_messages: messages.map((m: any) => ({
         role: m.direction === 'outbound' ? 'assistant' : 'user',
         content: m.content,
       })),
-      contactData: {
-        name: action.name,
-        company: action.company,
-        role: action.role,
-        industry: action.industry,
-        location: action.location,
-      },
     };
 
-    const message = await personalizationService.generateMessage(
-      context,
-      'follow_up'
-    );
+    const generated = await personalizationService.generateMessage(contact, context);
 
     // Send via preferred channel
     let sent = false;
-    if (action.preferred_channel === 'email' && action.email) {
+    const preferredChannel = contact.preferred_channel || 'email';
+    if (preferredChannel === 'email' && contact.email) {
       const response = await emailService.send({
-        to: action.email,
-        subject: message.subject || 'Following up',
-        html: message.body,
-        text: message.body.replace(/<[^>]*>/g, ''),
+        to: contact.email,
+        subject: generated.subject || 'Following up',
+        html: generated.body,
+        text: generated.body.replace(/<[^>]*>/g, ''),
       });
       sent = response.success;
     }
@@ -144,21 +197,21 @@ export class FollowUpWorkflow {
       `INSERT INTO message_history (
         contact_id, direction, channel, content, sent_at
       ) VALUES ($1, $2, $3, $4, NOW())`,
-      [action.contact_id, 'outbound', action.preferred_channel, message.body]
+      [action_.contact_id, 'outbound', preferredChannel, generated.body]
     );
 
     // Update conversation
     await db.query(
       `UPDATE conversations 
-       SET last_message_at = NOW(),
-           message_count = message_count + 1,
-           updated_at = NOW()
-       WHERE contact_id = $1`,
-      [action.contact_id]
+        SET last_message_at = NOW(),
+            message_count = COALESCE(message_count, 0) + 1,
+            updated_at = NOW()
+        WHERE contact_id = $1`,
+      [action_.contact_id]
     );
 
     // Schedule next follow-up if no response
-    await this.scheduleNextFollowUp(action.contact_id, action.conversation_stage);
+    await this.scheduleNextFollowUp(action_.contact_id, action_.conversation_stage);
   }
 
   /**

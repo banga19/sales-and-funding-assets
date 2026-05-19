@@ -52,18 +52,22 @@ router.post('/sales-marketing', async (req: Request, res: Response) => {
     const generatedAssets: { product: string; type: string; content: string }[] = [];
 
     for (const product of products) {
-      const prompt = `Generate a full marketing campaign for "${product.name}".
-Target channel: ${targetChannel}.
-Product description: ${product.description ?? 'No description available.'}
+      const prompt = `You are the head of marketing at Sokogate / Ultimo Trading Company Limited — an AI-powered B2B e-commerce platform for construction materials and industrial goods in East and West Africa.
 
-Respond ONLY with valid JSON having exactly these keys:
+Product: "${product.name}"
+${product.description ? `Description: ${product.description}` : ''}
+Target channel: ${targetChannel}
+
+IMPORTANT: Respond ONLY with raw valid JSON. No markdown, no code fences, no commentary before or after.
+
+Generate a full marketing campaign in this exact JSON shape (every key is required):
 {
-  "emailSubject": "...",
-  "emailBody": "...",
-  "socialPost": "...",
-  "adHeadline": "...",
-  "adCopy": "...",
-  "landingPageCopy": "..."
+  "emailSubject": "short, curiosity-grabbing subject line under 60 chars",
+  "emailBody": "full HTML email body — welcome / intro, 3 value bullets, call to action, closing",
+  "socialPost": "LinkedIn/Twitter-style post — 1–2 paragraphs, relevant hashtags at end",
+  "adHeadline": "Facebook/Google Ads — headline under 40 chars",
+  "adCopy": "Facebook/Google Ads ad body — 90–125 characters, includes value prop",
+  "landingPageCopy": "hero headline + 3 benefit bullets + CTA button text"
 }`;
 
       let campaign: Record<string, string> = {};
@@ -72,7 +76,15 @@ Respond ONLY with valid JSON having exactly these keys:
         try {
           campaign = JSON.parse(aiResponse);
         } catch {
-          campaign = { emailSubject: '', emailBody: aiResponse, socialPost: '', adHeadline: '', adCopy: '', landingPageCopy: '' };
+          logger.warn('Sales-marketing: malformed JSON returned, using fallback', { preview: aiResponse?.slice(0, 120) });
+          campaign = {
+            emailSubject: product.name || 'Sokogate',
+            emailBody: aiResponse,
+            socialPost: '',
+            adHeadline: '',
+            adCopy: '',
+            landingPageCopy: '',
+          };
         }
       } catch (err: any) {
         logger.warn('NVIDIA AI request failed for sales-marketing', { error: err.message });

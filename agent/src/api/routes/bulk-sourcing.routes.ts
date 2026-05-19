@@ -72,9 +72,13 @@ router.post('/bulk-sourcing', async (req: Request, res: Response) => {
       for (const prod of products) {
         if (!prod.description) continue;
         try {
-          const enriched = await aiCompletion(
-            `Rewrite the following e-commerce product description to be more compelling and sales-oriented. Keep it under 200 words. Product name: "${prod.name}". Original: "${prod.description}"`,
+        const enriched = await aiCompletion(
+          `Rewrite the following product description for B2B buyers. Make it compelling, specific, and sales-oriented. Include: what the product is, who it is for, the key benefits (price, quality, lead time), and a clear call to action. Keep it to 120–180 words. Product name: "${prod.name}". Original: "${prod.description}"`,
           );
+        if (!enriched || enriched.startsWith('[aiCompletion]')) {
+          logger.warn('AI enrichment returned empty/invalid response; keeping original', { productId: prod.id });
+          continue;
+        }
           await db.query(
             'UPDATE scraped_products SET description = $1, updated_at = NOW() WHERE id = $2',
             [enriched, prod.id],

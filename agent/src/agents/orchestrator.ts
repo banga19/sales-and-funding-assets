@@ -178,13 +178,13 @@ class AgentOrchestrator {
       contact_type:  contact.type,
       tier:          'T1',
       company:       contact.company,
+      contact_name:  contact.contact_name || contact.name || '',
       role:          research.role,
       industry:      research.industry,
       location:      research.location,
       pain_point:    research.pain_points[0] || undefined,
       engagement_angle: research.engagement_hook,
       is_first_contact: stage === 'initial',
-      contact_name:  contact.contact_name || contact.name,
     };
   }
 
@@ -393,7 +393,7 @@ class AgentOrchestrator {
     if (contact.email) {
       await emailService.send({
         to:      contact.email,
-        subject: `Re: Following up`,
+        subject: `Re: Following up — ${contact.company}`,
         html:    response,
         from:    agentConfig.email.resend.from.email,
       });
@@ -427,7 +427,7 @@ class AgentOrchestrator {
     if (contact.email) {
       await emailService.send({
         to:      contact.email,
-        subject: `Re: Answering your question`,
+        subject: `Re: Answering your question — ${contact.company}`,
         html:    response,
         from:    agentConfig.email.resend.from.email,
       });
@@ -464,7 +464,7 @@ class AgentOrchestrator {
     if (contact.email) {
       await emailService.send({
         to:      contact.email,
-        subject: `Re: Addressing your concerns`,
+        subject: `Re: Addressing your concerns — ${contact.company}`,
         html:    response,
         from:    agentConfig.email.resend.from.email,
       });

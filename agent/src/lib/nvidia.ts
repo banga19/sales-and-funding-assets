@@ -33,7 +33,7 @@ export async function aiCompletion(prompt: string, maxTokens: number = 1500): Pr
     {
       model: NVIDIA_MODEL,
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.8,
+      temperature: 0.4,
       max_tokens: maxTokens,
     },
     { headers: buildHeaders() },

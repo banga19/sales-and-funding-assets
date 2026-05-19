@@ -78,34 +78,26 @@ class PersonalizationService {
     contact: Contact
   ): Promise<Intent> {
     try {
-      const prompt = `Analyze this response from ${contact.company}:
+      const prompt = `You are a strict intent-classification engine. Analyze this response from "${(contact as any).company || 'a contact'}" and output ONLY a single JSON object — no extra words, no markdown, no code fences.
 
+Message:
 "${messageContent}"
 
-Determine:
-1. Intent type: positive_interest, question, objection, not_interested, out_of_office, or unclear
-2. Sentiment: positive, neutral, or negative
-3. Key points mentioned
-4. Suggested next action
-5. Whether this requires human escalation
-
-Respond in JSON format:
+Return EXACTLY this JSON shape and nothing else:
 {
-  "type": "intent_type",
-  "sentiment": "sentiment",
-  "confidence": 0.0-1.0,
-  "key_points": ["point1", "point2"],
-  "suggested_action": "action description",
-  "requires_escalation": true/false
+  "type": "positive_interest" | "question" | "objection" | "not_interested" | "out_of_office" | "unclear",
+  "sentiment": "positive" | "neutral" | "negative",
+  "confidence": 0.0,
+  "key_points": ["..."],
+  "suggested_action": "one-sentence action",
+  "requires_escalation": false
 }`;
 
       const response = await this.openai.chat.completions.create({
         model: agentConfig.ai.model,
-        max_tokens: 512,
-        messages: [{
-          role: 'user',
-          content: prompt,
-        }],
+        max_tokens: 256,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
       });
 
       const analysisText = response.choices[0]?.message?.content || '{}';
@@ -153,39 +145,48 @@ Respond in JSON format:
     intent: Intent
   ): Promise<string> {
     try {
-      const roleDescriptor = contact.type === 'prospect'
-        ? `sales representative for Sokogate`
-        : contact.type === 'investor'
-          ? `fundraising lead on behalf of the founder of Ultimo Trading Company Limited (sokogate.com)`
-          : contact.type === 'funding'
-            ? `capital-raising advisor for Ultimo Trading Company Limited, trading as sokogate.com`
-            : `business development lead for Sokogate / Ultimo Trading Company Limited`;
+      const roleDescriptor = ((): string => {
+        switch (contact.type) {
+          case 'prospect': return `sales representative for Sokogate`;
+          case 'investor': return `fundraising lead on behalf of the founder of Ultimo Trading Company Limited (sokogate.com)`;
+          case 'funding':  return `capital-raising advisor for Ultimo Trading Company Limited, trading as sokogate.com`;
+          default:          return `business development lead for Sokogate / Ultimo Trading Company Limited`;
+        }
+      })();
 
-      const prompt = `You are a ${roleDescriptor}. A ${contact.type} named ${contact.company} sent this message:
+      const intentLabel = intent.type === 'question'
+        ? 'question'
+        : intent.type === 'objection'
+          ? 'concern'
+          : intent.type === 'positive_interest'
+            ? 'interest'
+            : intent.type;
+
+      const prompt = `You are a ${roleDescriptor}. ${(contact as any).company || 'The contact'} sent this message:
 
 "${incomingMessage}"
 
 Intent detected: ${intent.type}
-Sentiment: ${intent.sentiment}
+Sentiment: ${intent.sentiment||'neutral'}
+${(intent as any).key_points?.length ? 'Key points raised: ' + (intent as any).key_points.join('; ') + '\n' : ''}
 
-Generate an appropriate response that:
-1. Addresses their ${intent.type === 'question' ? 'question' : intent.type === 'objection' ? 'concern' : intent.type === 'positive_interest' ? 'interest' : 'message'} directly
-2. Maintains a professional but friendly tone
-3. Moves the conversation toward a clear next step (call, meeting, shared document)
-4. Keep it concise (under 150 words)`;
+Write a short, helpful, and natural reply that:
+1. Addresses ${intentLabel} directly and specifically — do NOT give a generic stock reply.
+2. Maintains a professional but warm, approachable tone.
+3. Moves the conversation toward one clear next step (call, meeting, demo, or relevant document).
+4. Keep it concise — no more than 150 words.
+
+Only respond with the email body text. Do not add a subject line.`;
 
       const response = await this.openai.chat.completions.create({
         model: agentConfig.ai.model,
         max_tokens: 512,
-        messages: [{
-          role: 'user',
-          content: prompt,
-        }],
+        messages: [{ role: 'user', content: prompt }],
       });
 
-      return response.choices[0]?.message?.content || '';
-} catch (error: any) {
-       loggers.apiError('nvidia', error);
+      return response.choices[0]?.message?.content?.trim() || '';
+    } catch (error: any) {
+      loggers.apiError('nvidia', error);
       throw new Error(`Failed to generate response: ${error.message}`);
     }
   }
@@ -199,20 +200,30 @@ Generate an appropriate response that:
 
     return `${basePrompt}
 
+────────────────────────────────────────────────────────
+STRICT RULES — READ FIRST
+────────────────────────────────────────────────────────
+1. You MUST use the contact's actual name in the first sentence and naturally again within the opening paragraph.
+2. You MUST reference the company by name and the contact by name at least once each — never use generic placeholders.
+3. Output STRICTLY the subject separated from the body by a line containing exactly three dashes and nothing else:  ---
+4. Never include code fences, markdown, or any preamble before the SUBJECT line.
+────────────────────────────────────────────────────────
+
 Contact Information:
 - Company: ${context.company}
+- Contact Name: ${(context as any).contact_name || contact.contact_name || 'N/A'}
 - Type: ${context.contact_type}
 - Tier: ${context.tier}
 ${context.pain_point ? `- Pain Point: ${context.pain_point}` : ''}
-${context.engagement_angle ? `- Engagement Angle: ${context.engagement_angle}` : ''}
+${context.engagement_angle ? `- Personalised Opening Angle: ${context.engagement_angle}` : ''}
 ${context.annual_spend ? `- Annual Spend: KES ${context.annual_spend.toLocaleString()}` : ''}
-${context.decision_maker ? `- Decision Maker: ${context.decision_maker}` : ''}
+${(context as any).decision_maker ? `- Decision Maker: ${(context as any).decision_maker}` : ''}
 
 ${context.contact_type === 'prospect' ? `
 Additional Context:
-- Location: ${context.location || 'N/A'}
+- Location: ${(context as any).location || 'N/A'}
 - Annual Spend: KES ${context.annual_spend_kes ? context.annual_spend_kes.toLocaleString() : 'N/A'}
-- Decision Maker Title: ${context.decision_maker_title || 'N/A'}
+- Decision Maker Title: ${(context as any).decision_maker_title || 'N/A'}
 ` : ''}
 
 ${context.contact_type === 'investor' ? `
@@ -252,7 +263,12 @@ Success Context:
 ${context.days_since_last_contact ? `- Days Since Last Contact: ${context.days_since_last_contact}` : ''}
 ${context.previous_messages?.length ? `- Previous Messages: ${context.previous_messages.length}` : ''}
 
-Generate a personalized ${contact.type === 'prospect' ? 'sales' : contact.type === 'investor' ? 'investor pitch' : contact.type === 'funding' ? 'funding / trade-finance pitch' : 'partnership'} message.
+Generate a personalised, human-sounding ${contact.type === 'prospect' ? 'sales' : contact.type === 'investor' ? 'investor pitch' : contact.type === 'funding' ? 'funding / trade-finance pitch' : 'partnership'} message that does all of the following:
+• Greet ${(context as any).contact_name || 'them'} by name on the first line.
+• Reference their company "${context.company}" by name.
+• Name-drop the specific pain point or engagement angle where it naturally fits.
+• Lead with specific data or a concrete benefit relevant to their industry.
+• End with a clear, low-friction next action.
 
 Format your response as:
 SUBJECT: [email subject line]
@@ -310,14 +326,17 @@ SUBJECT: [email subject line]
    * Parse generated message into subject and body
    */
   private parseGeneratedMessage(text: string): { subject?: string; body: string } {
-    const parts = text.split('---');
-    
-    if (parts.length >= 2) {
-      const subjectLine = parts[0].replace('SUBJECT:', '').trim();
-      const body = parts[1].trim();
-      return { subject: subjectLine, body };
+    const separatorIndex = text.indexOf('\n---\n');
+    if (separatorIndex !== -1) {
+      const subjectLine = text.slice(0, separatorIndex).replace(/^SUBJECT:\s*/i, '').trim();
+      const body = text.slice(separatorIndex + 5).trim();
+      if (subjectLine) return { subject: subjectLine, body };
+      return { body };
     }
-    
+    const subjectMatch = text.match(/^SUBJECT:\s*(.+?)(?:\n|$)/i);
+    if (subjectMatch) {
+      return { subject: subjectMatch[1].trim(), body: text.replace(/^SUBJECT:.*\n/, '').trim() };
+    }
     return { body: text.trim() };
   }
 
@@ -349,28 +368,26 @@ SUBJECT: [email subject line]
    */
   private calculatePersonalizationScore(message: string, context: MessageContext): number {
     let score = 0;
-    
-    // Check for company name
-    if (message.includes(context.company)) score += 20;
-    
-    // Check for pain point
-    if (context.pain_point && message.toLowerCase().includes(context.pain_point.toLowerCase())) {
-      score += 20;
-    }
-    
-    // Check for engagement angle
-    if (context.engagement_angle && message.toLowerCase().includes(context.engagement_angle.toLowerCase())) {
-      score += 20;
-    }
-    
-    // Check for specific numbers/data
-    if (/\d+%|\$\d+|KES\s*\d+/.test(message)) score += 20;
-    
-    // Check for decision maker
-    if (context.decision_maker && message.includes(context.decision_maker)) {
-      score += 20;
-    }
-    
+    const lowerMessage = message.toLowerCase();
+
+    // Company name mentioned
+    if (context.company && lowerMessage.includes(context.company.toLowerCase())) score += 20;
+
+    // Specific pain point referenced
+    if (context.pain_point && lowerMessage.includes(context.pain_point.toLowerCase())) score += 20;
+
+    // Engagement angle referenced
+    if (context.engagement_angle && lowerMessage.includes(context.engagement_angle.toLowerCase())) score += 20;
+
+    // Concrete data / numbers present
+    if (/\d+[%$ks]|\$\d+|KES\s+\d/.test(message)) score += 20;
+
+    // Decision maker name or title present
+    const dm = context.decision_maker || '';
+    const dmt = context.decision_maker_title || '';
+    if (dm && lowerMessage.includes(dm.toLowerCase())) score += 20;
+    if (!dm && dmt && lowerMessage.includes(dmt.toLowerCase())) score += 10;
+
     return Math.min(100, score);
   }
 
