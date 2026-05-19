@@ -14,7 +14,7 @@
  */
 
 import React from 'react';
-import { Loader2, Users, X } from 'lucide-react';
+import { Loader2, Users, X, UserPlus } from 'lucide-react';
 import { SOK } from '../design-tokens';
 import type { Contact } from '../types';
 
@@ -85,12 +85,29 @@ export const ContactsSection = React.memo(function ContactsSection({
 
         {/* ── Empty state ── */}
         {!loading && !error && (!contacts || contacts.length === 0) && (
-          <div style={{ textAlign: 'center', padding: '2rem', color: SOK.textMuted }}>
-            <Users className="w-10 h-10 mx-auto mb-3" style={{ opacity: 0.3 }} />
-            <p style={{ fontWeight: 500, color: SOK.neutral }}>No contacts yet</p>
-            <p style={{ fontSize: '0.8125rem' }}>
-              Contacts will appear here once added to the database.
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', padding: '3rem 1.5rem',
+            background: '#FAFAFF', borderRadius: '0.75rem',
+            border: '1px dashed #E5E5FF',
+          }}>
+            <UserPlus className="w-12 h-12 mb-3" style={{ color: '#888899', opacity: 0.5 }} />
+            <p style={{ fontWeight: 500, color: '#070707', fontSize: '0.9375rem', marginBottom: '0.25rem' }}>No contacts yet</p>
+            <p style={{ fontSize: '0.8125rem', color: '#888899', marginBottom: '1.25rem', textAlign: 'center', maxWidth: '20rem' }}>
+              Contacts will appear here once added to the database via CSV import or manual entry.
             </p>
+            <button
+              onClick={onClose}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                padding: '0.5rem 1.25rem', borderRadius: '0.5rem',
+                border: 'none', cursor: 'pointer',
+                background: '#605BE5', color: '#fff',
+                fontSize: '0.8125rem', fontWeight: 500,
+              }}
+            >
+              <UserPlus className="w-4 h-4" /> Import Contacts
+            </button>
           </div>
         )}
       </div>

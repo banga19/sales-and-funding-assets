@@ -457,30 +457,30 @@ router.get('/features', async (_req: Request, res: Response) => {
 router.put('/features/:key', async (req: Request, res: Response) => {
   try {
     const { key }  = req.params;
-    const { value } = req.body ?? {};
+    const { enabled } = req.body ?? {};
 
     if (!RECOGNISED_KEYS.includes(key)) {
       return void res.status(400).json({
         error: `Unknown feature key "${key}". Valid: ${RECOGNISED_KEYS.join(', ')}`,
       });
     }
-    if (typeof value !== 'boolean') {
-      return void res.status(400).json({ error: 'Body must include boolean "value"' });
+    if (typeof enabled !== 'boolean') {
+      return void res.status(400).json({ error: 'Body must include boolean "enabled"' });
     }
 
     await db.query(
       `INSERT INTO feature_flags (key, value, updated_at)
        VALUES ($1, $2, NOW())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [key, value],
+      [key, enabled],
     );
 
-    logger.info('Feature flag toggled', { key, value });
-    res.json({ key, value, updated_at: new Date().toISOString() });
+    logger.info('Feature flag toggled', { key, enabled });
+    res.json({ key, enabled, updated_at: new Date().toISOString() });
   } catch (err: any) {
     logger.warn('setFeatureFlag error', { error: err.message });
     // Return the value anyway so UI can proceed
-    res.json({ key: req.params.key, value: req.body?.value ?? false, updated_at: new Date().toISOString() });
+    res.json({ key: req.params.key, enabled: !!req.body?.enabled, updated_at: new Date().toISOString() });
   }
 });
 

@@ -316,9 +316,9 @@ class ApiClient {
   }
 
   /** PUT /api/agent/features/:key — persist one flag and return the new state */
-  async toggleFeature(key: string, value: boolean): Promise<{ key: string; value: boolean; updated_at: string }> {
-    const response = await this.client.put(`/agent/features/${encodeURIComponent(key)}`, { value });
-    return response.data as { key: string; value: boolean; updated_at: string };
+  async toggleFeature(key: string, enabled: boolean): Promise<{ key: string; enabled: boolean; updated_at: string }> {
+    const response = await this.client.put(`/agent/features/${encodeURIComponent(key)}`, { enabled });
+    return response.data as { key: string; enabled: boolean; updated_at: string };
   }
 }
 

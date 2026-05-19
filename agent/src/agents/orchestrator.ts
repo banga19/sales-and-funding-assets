@@ -387,14 +387,14 @@ class AgentOrchestrator {
     if (!contact) return;
 
     const response = await personalizationService.generateResponse(
-      intent, contact,
+      intent.suggested_action || 'Your message', contact, intent
     );
 
     if (contact.email) {
       await emailService.send({
         to:      contact.email,
-        subject: `Re: ${response.subject || 'Following up'}`,
-        html:    response.content,
+        subject: `Re: Following up`,
+        html:    response,
         from:    agentConfig.email.resend.from.email,
       });
     }
@@ -403,7 +403,7 @@ class AgentOrchestrator {
       contact_id: contactId,
       direction:  'outbound',
       channel:    'email',
-      content:    response.content,
+      content:    response,
       sent_at:    new Date(),
     });
 
@@ -420,13 +420,15 @@ class AgentOrchestrator {
     const contact = await this.getContact(contactId);
     if (!contact) return;
 
-    const response = await personalizationService.generateResponse(intent, contact);
+    const response = await personalizationService.generateResponse(
+      intent.suggested_action || '', contact, intent
+    );
 
     if (contact.email) {
       await emailService.send({
         to:      contact.email,
-        subject: `Re: ${response.subject || 'Answering your question'}`,
-        html:    response.content,
+        subject: `Re: Answering your question`,
+        html:    response,
         from:    agentConfig.email.resend.from.email,
       });
     }
@@ -435,7 +437,7 @@ class AgentOrchestrator {
       contact_id: contactId,
       direction:  'outbound',
       channel:    'email',
-      content:    response.content,
+      content:    response,
       sent_at:    new Date(),
     });
 
@@ -455,13 +457,15 @@ class AgentOrchestrator {
     const contact = await this.getContact(contactId);
     if (!contact) return;
 
-    const response = await personalizationService.generateResponse(intent, contact);
+    const response = await personalizationService.generateResponse(
+      intent.suggested_action || '', contact, intent
+    );
 
     if (contact.email) {
       await emailService.send({
         to:      contact.email,
-        subject: `Re: ${response.subject || 'Addressing your concerns'}`,
-        html:    response.content,
+        subject: `Re: Addressing your concerns`,
+        html:    response,
         from:    agentConfig.email.resend.from.email,
       });
     }
@@ -470,7 +474,7 @@ class AgentOrchestrator {
       contact_id: contactId,
       direction:  'outbound',
       channel:    'email',
-      content:    response.content,
+      content:    response,
       sent_at:    new Date(),
     });
   }
@@ -568,7 +572,7 @@ class AgentOrchestrator {
    * alias (stage / current_stage / message_count / response_count) that maps to
    * the actual DB column wins.
    */
-  private async createOrUpdateConversation(
+private async createOrUpdateConversation(
     contactId: string, data: Partial<Conversation>,
   ): Promise<void> {
     const existing = await this.getConversation(contactId);
@@ -590,26 +594,11 @@ class AgentOrchestrator {
       const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
       const values = [contactId, ...Object.values(data)];
 
-    await db.query(
-      `INSERT INTO message_history (${keys.join(', ')}) VALUES (${placeholders})`,
-      values,
-    );
-
-    // Log the event through the winston helper (no free-form logMessage method)
-    if (payload.direction === 'inbound') {
-      loggers.messageReceived(
-        payload.contact_id ?? 'unknown',
-        payload.channel ?? 'email',
-        payload.intent_detected ?? 'unknown',
-      );
-    } else {
-      loggers.messageSent(
-        payload.contact_id ?? 'unknown',
-        payload.channel ?? 'email',
-        true,
+      await db.query(
+        `INSERT INTO conversations (${keys.join(', ')}) VALUES (${placeholders})`,
+        values,
       );
     }
-  }
   }
 
   /**

@@ -21,6 +21,11 @@ export default defineConfig({
     server: {
         port: 3001,
         strictPort: true,
+        hmr: {
+            // Explicit HMR host/port — no token in the path
+            host: 'localhost',
+            port: 3001,
+        },
         proxy: {
             // ── /api/* → Agent (port 3002)
             //    Agent owns /api/health, /api/status, /api/agent/*, /api/contacts/*

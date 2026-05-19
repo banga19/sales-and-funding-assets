@@ -61,8 +61,8 @@ if settings.celery.beat_enabled:
         "full-scrape-daily": {
             "task":    "sokogate_scraper.scheduler.tasks.full_scrape",
             "schedule": crontab(
-                minute = int(settings.celery.full_scrape_schedule_minute),
-                hour   = int(settings.celery.full_scrape_schedule_hour),
+                minute = int(settings.celery.full_scrape_minute),
+                hour   = int(settings.celery.full_scrape_hour),
             ),
             "args":    [settings.sokogate.base_url, settings.scraper.max_pages_per_run, settings.scraper.max_products_per_run],
             "kwargs":  {},

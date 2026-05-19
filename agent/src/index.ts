@@ -1,6 +1,7 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { createServer } from 'http';
 import { agentConfig, validateConfig } from './config/agent.config';
 import { logger } from './utils/logger';
 import { db } from './database/db.client';
@@ -11,6 +12,7 @@ import bulkSourcingRoutes from './api/routes/bulk-sourcing.routes';
 import salesMarketingRoutes from './api/routes/sales-marketing.routes';
 import contentCreationRoutes from './api/routes/content-creation.routes';
 import fundingRoutes from './api/routes/funding.routes';
+import { startWSServer } from './wsServer';
 
 class SalesAgent {
   private app: Express;
@@ -55,8 +57,7 @@ class SalesAgent {
   /**
    * Setup API routes
    */
-  private setupRoutes(): void {
-    // Health check — 200 with a per-component breakdown so the frontend can
+  private setupRoutes(): void {    // Health check — 200 with a per-component breakdown so the frontend can
     // render a degraded UI (yellow badges) instead of the error screen.
     this.app.get('/api/health', async (_req: Request, res: Response) => {
       let dbHealth, emailHealth, nvidiaHealth;
@@ -462,8 +463,11 @@ class SalesAgent {
         return;
       }
 
-      // Start Express server FIRST (even without DB) so health checks work
-      this.app.listen(this.port, () => {
+      // Create shared HTTP server (Express + WS on the same port 3002)
+      const httpServer = createServer(this.app);
+
+      // Start HTTP server — health checks work even before DB connects
+      httpServer.listen(this.port, () => {
         logger.info(`Sales & Funding Agent started`, {
           port: this.port,
           environment: agentConfig.monitoring.sentry.environment,
@@ -476,6 +480,11 @@ class SalesAgent {
         });
 
         logger.info('Health check: GET http://localhost:' + this.port + '/api/health');
+
+        // Attach WebSocket server to the same HTTP listener
+        try { startWSServer(httpServer); } catch (err: any) {
+          logger.warn('WebSocket server failed to start', { error: err.message });
+        }
       });
 
       // Initialize database connection in background (non-blocking)

@@ -378,7 +378,7 @@ def _record_scrape_error(
         )
         import re as _re
 
-        engine = get_engine()
+        engine = get_engine(settings.database_url)
         SF     = get_session_factory(engine)
         with SF() as session:
             session.add(

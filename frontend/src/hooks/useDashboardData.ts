@@ -1,22 +1,22 @@
 /**
  * useDashboardData
  *
- * Health / status / products — 30 s polling.
- * Each call is independent — a failure in one does NOT invalidate the others.
- * The AbortController singleton (cancelableFetch.ts) is used only for
- * health and status (short, fast 200 ms-ish GETs). Product list Requests are
- * larger (retail catalogue) so we skip the abort middleware for them and
- * rely on the interval tick setting loading=true to prevent flash-of-stale-data.
+ * Polls three endpoints independently:
+ *   Status  → GET /api/status  every 30 s  (AbortController-cancelled)
+ *   Health  → GET /api/health  every 60 s  (AbortController-cancelled)
+ *   Products → GET /api/products one-shot + on-demand refresh
+ *
+ * A stale tick from a previous interval never overwrites the UI because each
+ * tick creates a fresh AbortController that cancels any still-in-flight call.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { api } from '../api/cancelableFetch';
+import { useState, useCallback, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import type { HealthCheck, AgentStatus, Product } from '../types';
 
 const DEMO_MODE = String((import.meta.env as any).VITE_DEMO_MODE ?? '0') === '1';
 
-/* Demo fall — created once at module scope and shared by all */
+/* Demo fallbacks — shared by both hooks */
 const MOCK_HEALTH: HealthCheck = {
   status:    'healthy',
   timestamp: new Date().toISOString(),
@@ -33,8 +33,6 @@ const MOCK_STATUS: AgentStatus = {
   rateLimits: { email: { remaining: 78, limit: 100 } },
 };
 const MOCK_PRODUCTS: Product[] = [];
-
-const POLL_INTERVAL = 30_000;
 
 export interface DashboardData {
   health:     HealthCheck | null;
@@ -56,10 +54,10 @@ export function useDashboardData(): DashboardData {
   const [errorState, setError]      = useState<string | null>(null);
   const [lastUpdate, setLastUpd]    = useState(new Date());
 
-  /* ── Status ── */
+  /* ── Status ── 30-second poll ─────────────────────────────── */
   const fetchStatus = useCallback(async (signal?: AbortSignal) => {
     try {
-      const raw: any = await api.getStatus(signal);
+      const raw: any = await (apiClient.get as any)('/api/status', { signal });
       if (raw != null && typeof raw === 'object' && 'features' in raw) {
         setStatus(raw as AgentStatus);
         setIsDemo(false);
@@ -70,10 +68,10 @@ export function useDashboardData(): DashboardData {
     }
   }, []);
 
-  /* ── Health ── */
+  /* ── Health ── 60-second poll ─────────────────────────────── */
   const fetchHealth = useCallback(async (signal?: AbortSignal) => {
     try {
-      const raw: any = await api.getHealth(signal);
+      const raw: any = await (apiClient.get as any)('/api/health', { signal });
       if (raw != null && typeof raw === 'object' && 'checks' in raw) {
         setHealth(raw as HealthCheck);
       }
@@ -91,7 +89,7 @@ export function useDashboardData(): DashboardData {
     }
   }, []);
 
-  /* ── Products (direct call — no signal wrapper; large payload) ── */
+  /* ── Products — one-shot ─────────────────────────────────── */
   const fetchProducts = useCallback(async () => {
     try {
       const raw: any = await apiClient.get('/api/products');
@@ -102,43 +100,58 @@ export function useDashboardData(): DashboardData {
     }
   }, []);
 
-  /* ── Combined fetch ── */
+  /* ── Combined fetch (called by tick + manual refresh) ────── */
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     setIsDemo(false);
 
-    const statusP  = fetchStatus();
-    const healthP  = fetchHealth();
-    const prodP    = fetchProducts();
+    await fetchStatus();
+    await Promise.race([fetchHealth(), new Promise(r => setTimeout(r, 5000))]); // health: don't wait >5 s
+    await fetchProducts();
 
-    await statusP; await healthP; await prodP;
-
-    // Demo fallback — use mock data when ALL three failed
+    // Demo fallback when ALL three failed
     if (DEMO_MODE && !status && !health) {
       setHealth(MOCK_HEALTH); setStatus(MOCK_STATUS); setProducts(MOCK_PRODUCTS); setIsDemo(true);
     }
 
     setLastUpd(new Date());
     setLoading(false);
-  }, [fetchStatus, fetchHealth, fetchProducts]);
+  }, [fetchStatus, fetchHealth, fetchProducts, DEMO_MODE]);
 
-  const refresh = useCallback(() => fetchAll(), [fetchAll]);
+  const refresh = useCallback(() => { void fetchAll(); }, [fetchAll]);
 
-  /* ── Mount: 30 s interval — abort the prior tick before firing next ── */
+  /* ── Mount: status every 30 s, health every 60 s ─────────── */
   useEffect(() => {
-    let ctrl = new AbortController();
-    const tick = () => {
-      ctrl.abort();            // cancel any in-flight calls from previous tick
-      ctrl = new AbortController();
-      fetchAll();
+    let statusCtrl = new AbortController();
+    let healthCtrl = new AbortController();
+
+    const statusTick = () => {
+      statusCtrl.abort();
+      statusCtrl = new AbortController();
+      void fetchStatus(statusCtrl.signal);
+    };
+    const healthTick = () => {
+      healthCtrl.abort();
+      healthCtrl = new AbortController();
+      void fetchHealth(healthCtrl.signal);
     };
 
-    fetchAll();               // initial fetch
-    const timer = setInterval(tick, POLL_INTERVAL);
+    statusTick();                 // immediate status fetch
+    healthTick();                 // immediate health fetch
+    const statusTimer = setInterval(statusTick, 30_000);
+    const healthTimer = setInterval(healthTick, 60_000);
 
-    return () => { ctrl.abort(); clearInterval(timer); };
-  }, [fetchAll]);
+    return () => {
+      statusCtrl.abort(); clearInterval(statusTimer);
+      healthCtrl.abort(); clearInterval(healthTimer);
+    };
+  }, [fetchStatus, fetchHealth]);
+
+  /* ── Products refresh button ─────────────────────────────── */
+  useEffect(() => {
+    void fetchProducts();
+  }, [fetchProducts]);
 
   return { health, status, products, isDemo, loading, error: errorState, lastUpdate, refresh };
 }

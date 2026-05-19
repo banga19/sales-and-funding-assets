@@ -79,6 +79,16 @@ class ScraperConfig(BaseSettings):
     celery_full_scrape_minute: int      = Field(default=0)
     celery_full_scrape_hour:   int      = Field(default=2)
 
+    @property
+    def celery(self) -> dict:
+        return {
+            'broker_url': self.celery_broker_url,
+            'result_backend': self.celery_result_backend,
+            'beat_enabled': self.celery_beat_enabled,
+            'full_scrape_minute': self.celery_full_scrape_minute,
+            'full_scrape_hour': self.celery_full_scrape_hour,
+        }
+
     # ── FastAPI ────────────────────────────────────────────────────────────────
     fastapi_port:       int = Field(default=8000, ge=1, le=65535)
     fastapi_reload:     bool = Field(default=False)
@@ -118,6 +128,59 @@ class ScraperConfig(BaseSettings):
     @property
     def user_agent_pool_file(self) -> Path:
         return Path(self.scraper_user_agent_pool_file)
+
+    @property
+    def fastapi(self) -> dict:
+        from fastapi import FastAPI
+        return {
+            'port': self.fastapi_port,
+            'reload': self.fastapi_reload,
+            'cors_origins': self.fastapi_cors_origins,
+        }
+
+    @property
+    def scraper(self) -> dict:
+        return {
+            'max_concurrency': self.scraper_max_concurrency,
+            'max_pages_per_run': self.scraper_max_pages_per_run,
+            'max_products_per_run': self.scraper_max_products_per_run,
+            'request_delay_ms': self.scraper_request_delay_ms,
+            'timeout_seconds': self.scraper_timeout_seconds,
+            'retry_attempts': self.scraper_retry_attempts,
+            'user_agent_pool_file': self.scraper_user_agent_pool_file,
+            'proxy_pool_file': self.scraper_proxy_pool_file,
+            'proxy_enabled': self.scraper_proxy_enabled,
+            'proxy_rotation_after': self.scraper_proxy_rotation_after,
+            'use_playwright': self.scraper_use_playwright,
+            'playwright_headless': self.scraper_playwright_headless,
+            'disable_web_security': self.scraper_disable_web_security,
+            'verify_ssl': self.scraper_verify_ssl,
+            'cookies_file': self.scraper_cookies_file,
+        }
+
+    @property
+    def sokogate(self) -> dict:
+        return {
+            'base_url': self.sokogate_base_url,
+            'listing_path': self.sokogate_listing_path,
+            'product_path': self.sokogate_product_path,
+        }
+
+    @property
+    def redis(self) -> dict:
+        return {'url': self.redis_url}
+
+    @property
+    def postgres(self) -> dict:
+        return {
+            'host': self.postgres_host,
+            'port': self.postgres_port,
+            'user': self.postgres_user,
+            'password': self.postgres_password,
+            'db': self.postgres_db,
+            'pool_size': self.postgres_pool_size,
+            'max_overflow': self.postgres_max_overflow,
+        }
 
 
 settings = ScraperConfig()

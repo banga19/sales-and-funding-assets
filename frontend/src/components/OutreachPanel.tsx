@@ -137,11 +137,17 @@ export default function OutreachPanel() {
               <Loader2 className="w-5 h-5 mr-2 animate-spin" style={{ color: SOK.primary }} /> Loading contacts…
             </div>
           ) : contactList.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 text-sm">
-              <Inbox className="w-8 h-8 mx-auto mb-3 opacity-30" />
-              No contacts yet. They will appear once added to the database.
-              <button onClick={() => { void loadContacts(); }} style={{ marginTop: '1rem', display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.375rem 1rem', borderRadius: '0.375rem', border: `1px solid ${SOK.border}`, background: SOK.surfaceRaised, fontSize: '0.8125rem', color: SOK.primary, cursor: 'pointer' }}>
-                <RefreshCw className="w-3 h-3" /> Retry
+            <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-sm gap-3">
+              <Inbox className="w-10 h-10 opacity-30" />
+              <p className="text-center" style={{ color: '#888899' }}>No contacts yet. They will appear once added to the database.</p>
+              <button onClick={() => { void loadContacts(); }} style={{
+                display: 'inline-flex', alignItems: 'center',
+                gap: '0.375rem', padding: '0.5rem 1.25rem',
+                borderRadius: '0.5rem', border: 'none', cursor: 'pointer',
+                background: '#605BE5', color: '#fff',
+                fontSize: '0.8125rem', fontWeight: 500,
+              }}>
+                <RefreshCw className="w-4 h-4" /> Reload
               </button>
             </div>
           ) : (
@@ -166,9 +172,9 @@ export default function OutreachPanel() {
             <Loader2 className="w-5 h-5 mr-2 animate-spin" style={{ color: SOK.primary }} /> Loading email logs…
           </div>
         ) : logList.length === 0 ? (
-          <div className="text-center py-8 text-gray-400 text-sm">
-            <Mail className="w-8 h-8 mx-auto mb-3 opacity-30" />
-            No email logs yet. Sent emails will appear here.
+          <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-sm gap-3">
+            <Mail className="w-10 h-10 opacity-30" />
+            <p style={{ color: '#888899' }}>No email logs yet. Sent emails will appear here.</p>
           </div>
         ) : (
           <div className="space-y-1">

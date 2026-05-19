@@ -43,7 +43,8 @@ async def _run_full_scrape(base_url: str, max_pages: int, max_products: int) -> 
     from sokogate_scraper.stealth.user_agents import UserAgentPool
     from sokogate_scraper.stealth.proxy_rotation import ProxyPool
     from sokogate_scraper.stealth.rate_limiter import TokenBucket
-    from sokogate_scraparsers.woocommerce import WooCommerceParser
+    from sokogate_scraper.parsers.woocommerce import WooCommerceParser
+    from sqlalchemy import select, and_
 
     engine = get_engine(settings.database_url)
     SF     = get_session_factory(engine)
@@ -141,7 +142,6 @@ async def _run_full_scrape(base_url: str, max_pages: int, max_products: int) -> 
         # ── Phase 3: upsert into products table ──────────────────────────────────
 
         from sqlalchemy.dialects.postgresql import insert as pg_insert
-        from sokogate_scraper.db.postgres import flake_to_uuid
 
         engine = get_engine(settings.database_url)
         SF_upsert = get_session_factory(engine)

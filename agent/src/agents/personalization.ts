@@ -144,7 +144,7 @@ Respond in JSON format:
     }
   }
 
-  /**
+/**
    * Generate response to incoming message
    */
   public async generateResponse(
