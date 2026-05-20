@@ -16,11 +16,11 @@
  */
 
 import type { BaseMessage } from '@langchain/core/messages';
-import type { Product } from '../types/product.types';
+import { ChatOpenAI } from '@langchain/openai';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
-import { agentConfig } from '../config/agent.config';
-import { langchainService } from './langchain.service';
+import type { Product } from '../types/product.types';
+import { langchainService, parseJsonFromLLM, EnrichmentSchema } from './langchain.service';
 import { sourceProductData } from './product-source.service';
 
 // ── Run succinct struct ────────────────────────────────────────────────────────
@@ -165,21 +165,18 @@ export class BulkSourcingAgent {
       const response = await langchainService.withRetry(() => this.enrichmentLLM.invoke([['human', prompt]]));
       const rawContent = (response as BaseMessage).content?.toString() || '{}';
 
-      // Extract the first JSON block from the response
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      const parsed = parseJsonFromLLM(rawContent, EnrichmentSchema);
+      if (!parsed) {
         logger.warn('[bulk-sourcing] no JSON in enrichment response', {
           productId: product.id, raw: rawContent?.slice(0, 120),
         });
         return null;
       }
-
-      const parsed = JSON.parse(jsonMatch[0]);
       return {
-        keywords:         Array.isArray(parsed.enrichment_keywords)           ? parsed.enrichment_keywords        : [],
-        tagline:          typeof  parsed.enrichment_tagline                   === 'string' ? parsed.enrichment_tagline  : '',
-        sellingPoints:    Array.isArray(parsed.enrichment_selling_points)     ? parsed.enrichment_selling_points  : [],
-        data:              parsed,
+        keywords:       parsed.enrichment_keywords,
+        tagline:        parsed.enrichment_tagline,
+        sellingPoints:  parsed.enrichment_selling_points,
+        data:           parsed,
       };
     } catch (err: any) {
       logger.warn('[bulk-sourcing] enrichment call failed', {

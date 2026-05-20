@@ -158,6 +158,7 @@ export interface Message {
   intent_detected?: string;
   sentiment?: Sentiment;
   sent_at: Date;
+  received_at?: Date;
   delivered_at?: Date;
   opened_at?: Date;
   clicked_at?: Date;

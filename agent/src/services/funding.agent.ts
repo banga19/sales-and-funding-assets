@@ -4,14 +4,7 @@ import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
 import { langchainService } from './langchain.service';
 
-// Helpers — safely extract the first JSON object from an LLM response
-const stripFences = (s: string) => s.replace(/^```(?:json)?\s*[\r\n]*/i, '').replace(/[\r\n]*```\s*$/i, '').trim();
-const extractJson = (raw: string): Record<string, any> | null => {
-  const clean = stripFences(raw);
-  const jsonMatch = clean.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
-  try { return JSON.parse(jsonMatch[0]); } catch { return null; }
-};
+import { parseJsonFromLLM, FundingResearchSchema, FundingPitchSchema } from './langchain.service';
 
 export class FundingPitchAgent {
   private get llm() { return langchainService.getLLM(0.2, 1024); }
@@ -27,7 +20,7 @@ Return ONLY valid JSON, no markdown code fences:
 {"contacts":[{"name":"..","email":"..","firm":"..","fit":".."}]}`;
       const raw = await langchainService.withRetry(() => this.llm.invoke([['human', researchPrompt]]));
       const text = (raw as any).content?.toString().trim() || '';
-      const parsed = extractJson(text);
+      const parsed = parseJsonFromLLM(text, FundingResearchSchema);
       if (parsed?.contacts?.length) contacts = parsed.contacts;
     } catch { /* proceed without research data */ }
 
@@ -55,7 +48,7 @@ Output ONLY a JSON object. Do not write anything before or after the JSON. Do no
 
       const raw2 = await langchainService.withRetry(() => this.llm.invoke([['human', synthesis]]));
       const text2 = (raw2 as any).content?.toString().trim() || '';
-      parsed = extractJson(text2) || {};
+      parsed = parseJsonFromLLM(text2, FundingPitchSchema) || { pitch: '', suggestedContacts: [] };
     } catch (err: any) {
       logger.warn('[funding-agent] synthesis failed', { error: err.message });
     }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { logger, loggers } from '../utils/logger';
 import { db } from '../database/db.client';
 import { emailService } from '../channels/email.service';
@@ -52,7 +51,7 @@ interface ProductSummary {
  */
 async function enrichContact(client: Contact): Promise<{ contact: Contact; research: ResearchBrief; products: ProductSummary[] }> {
   const company    = client.company || '';
-  const name       = client.contact_name || client.name || '';
+  const name       = client.contact_name || '';
   const email      = client.email || '';
   const type_ = client.type;
 
@@ -72,7 +71,7 @@ Required JSON schema (all fields mandatory; use empty string / empty array for u
 {
   "role": "<e.g. Procurement Manager, Head of Purchasing, CEO, Partners, CFO — best guess from company size and name>",
   "industry": "<e.g. construction, manufacturing, retail, logistics, healthcare, agriculture>",
-  "location": "<city and country, e.g. Nairobi, Kenya > ${client.location || 'UNKNOWN'}>",
+  "location": "<city and country, e.g. Nairobi, Kenya > ${(client as any).location || 'UNKNOWN'}>",
   "pain_points": [
     "<one concise pain this contact's role / company is likely to face that Sokogate solves — supply-chain delays, stock-outs, high procurement costs, payment gaps>",
     "<a second distinct pain>",
@@ -179,9 +178,7 @@ class AgentOrchestrator {
       contact_type:  contact.type,
       tier:          'T1',
       company:       contact.company,
-      contact_name:  contact.contact_name || contact.name || '',
-      role:          research.role,
-      industry:      research.industry,
+      decision_maker: contact.contact_name || '',
       location:      research.location,
       pain_point:    research.pain_points[0] || undefined,
       engagement_angle: research.engagement_hook,
@@ -208,15 +205,15 @@ class AgentOrchestrator {
 
       // ── Stage 2: Check / create conversation ────────────────────────────────
       const existingConvo = await this.getConversation(enriched.id);
-      if (existingConvo && (existingConvo.current_stage ?? existingConvo.stage) !== 'not_started') {
+      if (existingConvo && existingConvo.current_stage !== 'not_started') {
         logger.warn('Contact already has active conversation', {
           contact_id: enriched.id,
-          stage: existingConvo.current_stage ?? existingConvo.stage,
+          stage: existingConvo.current_stage,
         });
         return false;
       }
 
-      const stage = existingConvo ? (existingConvo.current_stage ?? existingConvo.stage) : 'initial';
+      const stage = existingConvo ? existingConvo.current_stage : 'initial';
 
       // ── Stage 3: Build rich context for LLM ─────────────────────────────────
       const context = this.buildMessageContext(enriched, research, stage);
@@ -236,36 +233,34 @@ class AgentOrchestrator {
           });
           sent = true;
         } else {
-          sent = await emailService.send({
+          const emailResult = await emailService.send({
             to:      enriched.email,
             subject,
-            html:    generatedMessage.content,
+            html:    generatedMessage.body,
             text:    generatedMessage.body || undefined,
-            from:    agentConfig.email.resend.from.email,
           });
+          sent = emailResult.success;
         }
       }
 
       if (!sent) return false;
 
       // ── Stage 6: Persist conversation + log message ──────────────────────────
-      const stageLabel = 'delivered';
       await this.createOrUpdateConversation(enriched.id, {
-        'current_stage':         stageLabel,
-        'last_message_date':    new Date(),
-        'response_count':       1,
-        'escalation_required':  false,
-        'created_at':           new Date(),
-        'updated_at':           new Date(),
+        current_stage:        'contacted',
+        last_message_date:    new Date(),
+        response_count:       1,
+        escalation_required:  false,
+        created_at:           new Date(),
+        updated_at:           new Date(),
       });
 
       await this.logMessage({
         contact_id:      enriched.id,
-        direction:       'outbound',
-        channel:         'email',
-        content:         generatedMessage.content,
+        direction:       'outbound' as const,
+        channel:         'email' as const,
+        content:         generatedMessage.body,
         subject,
-        personalization_score: generatedMessage.personalizationScore,
         sent_at:         new Date(),
       });
 
@@ -274,7 +269,6 @@ class AgentOrchestrator {
       logger.info('Initial outreach sent successfully', {
         contact_id:    enriched.id,
         company:       enriched.company,
-        personalization_score: generatedMessage.personalizationScore,
       });
 
       return true;
@@ -289,22 +283,23 @@ class AgentOrchestrator {
   // ─── Inbound Message Handling ────────────────────────────────────────────────
 
   public async processIncomingMessage(incomingMessage: IncomingMessage): Promise<void> {
+    const contactId = incomingMessage.from;
     try {
       logger.info('Processing incoming message', {
-        contact_id: incomingMessage.contactId,
+        contact_id: contactId,
         channel:    incomingMessage.channel,
       });
 
-      const conversation = await this.getConversation(incomingMessage.contactId);
+      const conversation = await this.getConversation(contactId);
       if (!conversation) {
         logger.warn('No conversation found for incoming message', {
-          contact_id: incomingMessage.contactId,
+          contact_id: contactId,
         });
         return;
       }
 
       // ── Stage 1: Re-research contact on reply (fresh context for LLM) ────────
-      const contact = await this.getContact(incomingMessage.contactId);
+      const contact = await this.getContact(contactId);
       if (!contact) return;
 
       let research: ResearchBrief | undefined;
@@ -315,12 +310,12 @@ class AgentOrchestrator {
 
       // ── Stage 2: AI intent analysis ──────────────────────────────────────────
       const intent = await personalizationService.analyzeIntent(
-        incomingMessage.content,
+        incomingMessage.body,
         contact,
       );
 
       logger.info('Intent analyzed', {
-        contact_id: incomingMessage.contactId,
+        contact_id: contactId,
         intent: intent.type,
         sentiment: intent.sentiment,
         confidence: intent.confidence,
@@ -328,24 +323,24 @@ class AgentOrchestrator {
 
       // ── Stage 3: Log inbound message ─────────────────────────────────────────
       await this.logMessage({
-        contact_id:      incomingMessage.contactId,
+        contact_id:      contactId,
         conversation_id: conversation.id,
-        direction:       'inbound',
+        direction:       'inbound' as const,
         channel:         incomingMessage.channel,
-        content:         incomingMessage.content,
+        content:         incomingMessage.body,
         intent_detected: intent.type,
         sentiment:       intent.sentiment,
         received_at:     new Date(),
       });
 
       // ── Stage 4: Route & handle ───────────────────────────────────────────────
-      await this.handleIntent(incomingMessage.contactId, intent, conversation);
+      await this.handleIntent(contactId, intent, conversation);
 
       // ── Stage 5: Update stage ─────────────────────────────────────────────────
-      await this.updateConversationStage(incomingMessage.contactId, intent.type);
+      await this.updateConversationStage(contactId, intent.type);
     } catch (error) {
       logger.error('Error processing incoming message', {
-        contact_id: incomingMessage.contactId, error,
+        contact_id: contactId, error,
       });
     }
   }
@@ -396,7 +391,6 @@ class AgentOrchestrator {
         to:      contact.email,
         subject: `Re: Following up — ${contact.company}`,
         html:    response,
-        from:    agentConfig.email.resend.from.email,
       });
     }
 
@@ -430,7 +424,6 @@ class AgentOrchestrator {
         to:      contact.email,
         subject: `Re: Answering your question — ${contact.company}`,
         html:    response,
-        from:    agentConfig.email.resend.from.email,
       });
     }
 
@@ -467,7 +460,6 @@ class AgentOrchestrator {
         to:      contact.email,
         subject: `Re: Addressing your concerns — ${contact.company}`,
         html:    response,
-        from:    agentConfig.email.resend.from.email,
       });
     }
 
@@ -484,11 +476,10 @@ class AgentOrchestrator {
     logger.info('Handling not interested', { contact_id: contactId });
 
     await this.createOrUpdateConversation(contactId, {
-      'current_stage':    'closed',
-      'escalation_reason': 'not_interested',
-      'closed_at':        new Date(),
-      'updated_at':       new Date(),
-    });
+      current_stage:      'closed',
+      escalation_reason:  'not_interested',
+      updated_at:         new Date(),
+    } as any);
 
     await this.cancelScheduledActions(contactId);
   }
@@ -798,8 +789,8 @@ private async createOrUpdateConversation(
     for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
-        const stage = conv?.current_stage ?? conv?.stage ?? null;
-        if (stage !== 'not_started') { skipped++; continue; }   // only touch fresh contacts
+        const stage = conv?.current_stage ?? null;
+        if (stage !== 'not_started') { skipped++; continue; }
         const ok = await this.processInitialOutreach(contact);
         ok ? sent++ : failed++;
       } catch (err: any) {
@@ -826,7 +817,7 @@ private async createOrUpdateConversation(
     for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
-        const stage = conv?.current_stage ?? conv?.stage ?? null;
+        const stage = conv?.current_stage ?? null;
         // Only skip if a conversation exists AND is past 'not_started'
         // NULL stage (no conversation yet) means we should touch this contact
         if (stage !== null && stage !== 'not_started') { skipped++; continue; }
@@ -856,7 +847,7 @@ private async createOrUpdateConversation(
     for (const contact of contacts) {
       try {
         const conv = await this.getConversation(contact.id);
-        const stage = conv?.current_stage ?? conv?.stage ?? null;
+        const stage = conv?.current_stage ?? null;
         // Only skip if a conversation exists AND is past 'not_started'
         // NULL stage (no conversation yet) means we should touch this contact
         if (stage !== null && stage !== 'not_started') { skipped++; continue; }

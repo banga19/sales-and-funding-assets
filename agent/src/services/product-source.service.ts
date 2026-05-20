@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ProductSourceService
  *
@@ -216,7 +215,7 @@ async function createScrapeRun(triggeredBy: 'manual' | 'autonomous' | 'schedule'
 
 async function updateScrapeRun(
   runId: string,
-  data: { status?: string; products_found?: number; products_upserted?: number; price_changes?: number; error_message?: string },
+  data: { status?: string; products_found?: number; products_upserted?: number; price_changes?: number; error_message?: string; duration_ms?: number },
 ): Promise<void> {
   const fields: string[] = [];
   const values: any[] = [];
@@ -326,7 +325,7 @@ function parsePriceFromUA(raw: string): string {
 
 async function scrapeDetailPage(pageUrl: string, _origin: string, signal?: AbortSignal): Promise<Product | null> {
   let html: string;
-  try { const { data } = await httpGet<string>(pageUrl, { signal, responseType: 'text' }); html = data; }
+  try { const { data } = await httpGet<string>(pageUrl, signal); html = data; }
   catch { if (signal?.aborted) throw new DOMException('Scrape aborted', 'AbortError'); return null; }
   const $ = $$(html);
   let name = '';

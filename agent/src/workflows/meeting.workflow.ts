@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { logger } from '../utils/logger';
 import { db } from '../database/db.client';
 import { emailService } from '../channels/email.service';
@@ -278,8 +277,8 @@ export class MeetingWorkflow {
    * Generate meeting invitation message
    */
   private generateMeetingInvitation(contact: any): string {
-    const calendlyLink = agentConfig.calendly.enabled
-      ? agentConfig.calendly.schedulingUrl
+    const calendlyLink = agentConfig.calendly.apiKey
+      ? (process.env.CALENDLY_SCHEDULING_URL || 'https://calendly.com/sokogate')
       : 'https://calendly.com/sokogate';
 
     return `

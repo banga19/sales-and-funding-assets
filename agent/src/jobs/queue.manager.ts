@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Queue, Worker, QueueEvents } from 'bullmq';
 import IORedis from 'ioredis';
 import { logger } from '../utils/logger';
@@ -86,15 +85,15 @@ export class QueueManager {
 
     // Event handlers
     worker.on('completed', (job) => {
-      logger.logJob(name, 'completed', {
-        job_id: job.id,
+      logger.info(`Queue job completed: ${name}`, {
+        jobId: job.id,
         duration: job.finishedOn ? job.finishedOn - job.processedOn! : 0,
       });
     });
 
     worker.on('failed', (job, error) => {
-      logger.logJob(name, 'failed', {
-        job_id: job?.id,
+      logger.error(`Queue job failed: ${name}`, {
+        jobId: job?.id,
         error: error.message,
         attempts: job?.attemptsMade,
       });

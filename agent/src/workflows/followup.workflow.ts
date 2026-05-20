@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { logger } from '../utils/logger';
 import { orchestrator } from '../agents/orchestrator';
 import { db } from '../database/db.client';
@@ -121,7 +120,8 @@ export class FollowUpWorkflow {
     const messages = await this.getMessageHistory(action_.contact_id);
 
     // ── Fetch full Contact record ────────────────────────────────────────────────
-    const contact = await this.getContact(action_.contact_id);
+    const rows = await db.query('SELECT * FROM contacts WHERE id = $1', [action_.contact_id]);
+    const contact = rows.rows[0] as any;
     if (!contact) {
       throw new Error(`Contact not found for contact_id=${action_.contact_id}`);
     }
@@ -131,7 +131,6 @@ export class FollowUpWorkflow {
       contact_type:  contact.type,
       tier:          contact.tier,
       company:       contact.company,
-      contact_name:  contact.contact_name || contact.name || '',
       is_first_contact: false,
       // ── Prospect ──
       location:            contact.location,

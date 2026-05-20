@@ -22,8 +22,78 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import type { AIMessage } from '@langchain/core/messages';
+import { z } from 'zod';
 import { agentConfig } from '../config/agent.config';
 import { logger } from '../utils/logger';
+
+/* ─── Zod Schemas for structured LLM outputs ─────────────────────── */
+
+const IntentSchema = z.object({
+  type: z.enum(['positive_interest', 'question', 'objection', 'not_interested', 'out_of_office', 'unclear']),
+  sentiment: z.enum(['positive', 'neutral', 'negative']),
+  confidence: z.number().min(0).max(1),
+  key_points: z.array(z.string()),
+  suggested_action: z.string(),
+});
+
+const SendabilitySchema = z.object({
+  verdict: z.enum(['send', 'soft-quarantine', 'nhod', 'no-email']),
+  reason: z.string().max(200),
+  confidence: z.number().min(0).max(1),
+});
+
+const EnrichmentSchema = z.object({
+  enrichment_keywords: z.array(z.string()).min(1).max(20),
+  enrichment_tagline: z.string().min(10).max(500),
+  enrichment_selling_points: z.array(z.string()).min(1).max(10),
+});
+
+const FundingResearchSchema = z.object({
+  contacts: z.array(z.object({
+    name: z.string(),
+    email: z.string().optional(),
+    firm: z.string().optional(),
+    fit: z.string().optional(),
+  })).min(1).max(10),
+});
+
+const FundingPitchSchema = z.object({
+  pitch: z.string().min(50).max(1000),
+  suggestedContacts: z.array(z.object({
+    name: z.string(),
+    email: z.string().optional(),
+    firm: z.string(),
+    role: z.string().optional(),
+    fit: z.string(),
+  })).min(1).max(10),
+});
+
+/**
+ * parseJsonFromLLM — extracts first JSON object from LLM text and validates
+ * against a Zod schema. Returns parsed data or null on failure.
+ */
+function parseJsonFromLLM<T>(raw: string, schema: z.ZodSchema<T>): T | null {
+  const clean = raw.replace(/^```(?:json)?\s*[\r\n]*/i, '').replace(/[\r\n]*```\s*$/i, '').trim();
+  const jsonMatch = clean.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    logger.warn('[langchain] parseJsonFromLLM: no JSON block found', { snippet: raw.slice(0, 120) });
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    const result = schema.safeParse(parsed);
+    if (!result.success) {
+      logger.warn('[langchain] parseJsonFromLLM: schema validation failed', {
+        errors: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`),
+      });
+      return null;
+    }
+    return result.data;
+  } catch (err: any) {
+    logger.warn('[langchain] parseJsonFromLLM: JSON parse failed', { error: err.message });
+    return null;
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * LangChain service singleton
@@ -199,13 +269,7 @@ SUBJECT: <polished subject line>
   async classifyIntent(params: {
     messageContent: string;
     companyName: string;
-  }): Promise<{
-    type:        'positive_interest' | 'question' | 'objection' | 'not_interested' | 'out_of_office' | 'unclear';
-    sentiment:   'positive' | 'neutral' | 'negative';
-    confidence:  number;
-    key_points:  string[];
-    suggested_action: string;
-  }> {
+  }): Promise<z.infer<typeof IntentSchema>> {
     const INTENT_PROMPT = `You are a strict intent-classification engine.
 Analyse this inbound message from "${params.companyName}" and output ONLY a single JSON object — no extra words, no markdown, no code fences.
 
@@ -228,15 +292,14 @@ Return EXACTLY this JSON shape:
     const response = await this.withRetry(() => chain.invoke({}));
     const content = (response as AIMessage).content?.toString() || '{}';
 
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-    return {
-      type:        parsed.type       || 'unclear',
-      sentiment:   parsed.sentiment  || 'neutral',
-      confidence:  parsed.confidence || 0,
-      key_points:  parsed.key_points || [],
-      suggested_action: parsed.suggested_action || 'follow_up',
-    };
+    const parsed = parseJsonFromLLM(content, IntentSchema);
+    return parsed ?? ({
+      type: 'unclear',
+      sentiment: 'neutral',
+      confidence: 0,
+      key_points: [],
+      suggested_action: 'follow_up',
+    } as z.infer<typeof IntentSchema>);
   }
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -304,11 +367,7 @@ Only respond with the email body text. Do not add a subject line.`;
     csvNotes: string;
     csvDoNotSend: boolean;
     csvSoftQuarantine: boolean;
-  }): Promise<{
-    verdict: 'send' | 'soft-quarantine' | 'nhod' | 'no-email';
-    reason:  string;
-    confidence: number;
-  }> {
+  }): Promise<z.infer<typeof SendabilitySchema>> {
     const notesBlock = [...params.sendNotes, ...params.rawHints].join('\n  ');
     const CLASSIFY_PROMPT = `You are an email sendability classifier.
 
@@ -339,13 +398,12 @@ Output EXACTLY this JSON — nothing else:
     const response = await this.withRetry(() => chain.invoke({}));
     const content = (response as AIMessage).content?.toString() || '{}';
 
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-    return {
-      verdict:       parsed.verdict || 'send',
-      reason:        parsed.reason  || 'LLM-determined',
-      confidence:    parsed.confidence ?? 0.5,
-    };
+    const parsed = parseJsonFromLLM(content, SendabilitySchema);
+    return parsed ?? ({
+      verdict: 'send',
+      reason: 'LLM-unparseable — defaulted to send',
+      confidence: 0.3,
+    } as z.infer<typeof SendabilitySchema>);
   }
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -513,4 +571,5 @@ Output EXACTLY this JSON — nothing else:
   }
 }
 
+export { parseJsonFromLLM, EnrichmentSchema, FundingResearchSchema, FundingPitchSchema };
 export const langchainService = LangChainService.getInstance();

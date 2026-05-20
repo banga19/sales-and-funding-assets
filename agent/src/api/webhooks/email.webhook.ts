@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router, Request, Response } from 'express';
 import { orchestrator } from '../../agents/orchestrator';
 import { logger } from '../../utils/logger';
@@ -60,12 +59,13 @@ router.post('/', async (req: Request, res: Response) => {
  * Verify Resend webhook signature
  */
 function verifyResendSignature(signature: string, payload: string): boolean {
-  if (!signature || !agentConfig.email.resend.webhookSecret) {
+  const webhookSecret = agentConfig.email.resend.apiKey || process.env.RESEND_WEBHOOK_SECRET || '';
+  if (!signature || !webhookSecret) {
     return false;
   }
 
   try {
-    const hmac = crypto.createHmac('sha256', agentConfig.email.resend.webhookSecret);
+    const hmac = crypto.createHmac('sha256', webhookSecret);
     const digest = hmac.update(payload).digest('hex');
     return signature === digest;
   } catch (error) {
