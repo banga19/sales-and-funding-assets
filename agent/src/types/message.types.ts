@@ -29,7 +29,8 @@ export interface MessageContext {
   contact_type: ContactType;
   is_first_contact: boolean;
   days_since_last_contact?: number;
-  previous_messages?: string[];
+  previous_messages?: { role: 'user' | 'assistant'; content: string; intent?: string }[];
+  conversation_summary?: string;
 
   // ── Prospect / Sales ────────────────────────────────────────────────────────
   location?: string;

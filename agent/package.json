@@ -26,6 +26,8 @@
   "author": "Sokogate Team",
   "license": "MIT",
   "dependencies": {
+    "@langchain/core": "^1.1.47",
+    "@langchain/openai": "^1.4.6",
     "@sentry/node": "^7.108.0",
     "axios": "^1.16.1",
     "bullmq": "^5.4.0",

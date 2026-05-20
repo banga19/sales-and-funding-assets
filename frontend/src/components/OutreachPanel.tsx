@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X, Tag } from 'lucide-react';
+import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X, Tag, ChevronDown, Check } from 'lucide-react';
 import { SOK } from '@/design-tokens';
 import { useOutreach } from '@/context/OutreachContext';
 import { useEmailPanel } from '@/context/EmailPanelContext';
@@ -39,9 +39,116 @@ function TabButton({ active, onClick, icon, label, badge }: { active: boolean; o
   );
 }
 
-function ContactRow({ contact, sending, onSend }: { contact: any; sending: boolean; onSend: (contact: any) => void }) {
-  const ct = (contact.type || contact.stage || 'prospect') as ContactType;
+/** ── Split send control ────────────────────────────────────────────────────────
+ *
+ *  Primary (left) zone  — Quick-Send: fires-and-forgets via sendOutreach()
+ *  Dropdown (right) ▼    — "Compose Email": opens the TestEmailPanel so the user
+ *                          can review or customise before sending.
+ */
+function SplitSendButton({
+  sending,
+  sentCount,
+  onQuickSend,
+  onCompose,
+}: {
+  sending:              boolean;
+  sentCount?:           number | null;
+  onQuickSend:          () => void;
+  onCompose:            () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef      = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  useEffect(() => { if (sending) setOpen(false); }, [sending]);
+
+  return (
+    <div
+      ref={wrapperRef}
+      className="send-split inline-flex rounded-lg overflow-hidden text-xs font-semibold shadow-sm"
+      style={{ display: 'inline-flex' }}
+    >
+      {/* ── Primary Button: Quick-Send ──────────────────────────────────────── */}
+      <button
+        onClick={onQuickSend}
+        disabled={sending}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-white transition disabled:opacity-50"
+        style={{ background: sending ? SOK.borderSoft : SOK.primary }}
+        title="Quick-Send (AI-powered)"
+      >
+        {sending ? (
+          <Loader2 className="w-3.5 h-3.5" style={{ animation: 'sok-spin 1s linear infinite' }} />
+        ) : (
+          <Send className="w-3.5 h-3.5" />
+        )}
+        {sending ? 'Sending…' : 'Quick Send'}
+      </button>
+
+      {/* ── Dropdown Toggle ─────────────────────────────────────────────────── */}
+      <button
+        onClick={() => { if (!sending) setOpen(!open); }}
+        disabled={sending}
+        className="flex items-center justify-center px-2 py-1.5 border-l transition disabled:opacity-50"
+        style={{
+          background:   'white',
+          borderColor:  SOK.borderSoft,
+          color:        SOK.primary,
+        }}
+        {...(open ? { 'aria-expanded': 'true' } : {})}
+        aria-haspopup="listbox"
+      >
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* ── Dropdown menu ───────────────────────────────────────────────────── */}
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute z-50 right-0 mt-9 w-44 rounded-lg border bg-white shadow-lg ring-1 ring-black/5 py-1 text-xs text-gray-700"
+        >
+          {/* Previous send count, if any */}
+          {sentCount != null && sentCount > 0 && (
+            <li className="px-3 py-1.5 flex items-center gap-1.5 text-gray-400 border-b" style={{ borderColor: SOK.borderSoft }}>
+              <Check className="w-3 h-3" />
+              {sentCount} sent previously
+            </li>
+          )}
+
+          <li>
+            <button
+              role="option"
+              onClick={() => { setOpen(false); void onCompose(); }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              Compose Email
+            </button>
+          </li>
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ContactRow({ contact, sending, onCompose, onQuickSend }: {
+  contact: any;
+  sending: boolean;
+  onCompose: () => void;
+  onQuickSend: () => void;
+}) {
+  const ct = (contact.type || contact.stage || 'prospect') as keyof typeof TYPE_STYLE;
   const ts = TYPE_STYLE[ct] || TYPE_STYLE.prospect;
+
+  // Emails already sent to this contact (from backend contact row)
+  const sentCount = typeof contact.emails_sent === 'number' ? contact.emails_sent : undefined;
 
   return (
     <div className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 transition-colors">
@@ -57,15 +164,12 @@ function ContactRow({ contact, sending, onSend }: { contact: any; sending: boole
         >
           <Tag className="w-3 h-3" />{ts.label}
         </span>
-        <button
-          onClick={() => { void onSend(contact); }}
-          disabled={sending}
-          className="flex items-center gap-1 px-3 py-1.5 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50"
-          style={{ background: sending ? SOK.borderSoft : SOK.primary }}
-        >
-          {sending && <Loader2 className="w-3 h-3" style={{ animation: 'sok-spin 1s linear infinite' }} />}
-          {sending ? 'Sending' : 'Send'}
-        </button>
+        <SplitSendButton
+          sending={sending}
+          sentCount={sentCount}
+          onQuickSend={onQuickSend}
+          onCompose={onCompose}
+        />
       </div>
     </div>
   );
@@ -89,6 +193,7 @@ export default function OutreachPanel() {
     loadContacts,
     loadEmailLogs,
     clearMessage,
+    sendOutreach,   // ← already exported from OutreachContext
   } = ctx;
 
   const { openEmailPanel } = useEmailPanel();
@@ -109,10 +214,15 @@ export default function OutreachPanel() {
     }
   }, [activeTab, emailsFetched, loadEmailLogs]);
 
-  const handleSend = useCallback((contact: { id: string; email?: string; name?: string }) => {
-    // Open the email composer instead of silently sending
+  const openComposer = useCallback((contact: { id: string; email?: string; name?: string }) => {
     void openEmailPanel({ recipients: contact.email ? [contact.email] : undefined });
   }, [openEmailPanel]);
+
+  /** Quick-Send: AI-personalised one-click outreach — no compose panel opened. */
+  const handleQuickSend = useCallback((contact: { id: string; email?: string; name?: string; company?: string }) => {
+    if (!contact.id) return;
+    void sendOutreach(contact.id, false /* dryRun */);
+  }, [sendOutreach]);
 
   const contactList = contacts.filter((c: any) =>
     typeFilter === 'all' ? true : (c.type || 'prospect') === typeFilter,
@@ -204,7 +314,8 @@ export default function OutreachPanel() {
                   key={c.id}
                   contact={c}
                   sending={sendingIds.has?.(c.id) ?? false}
-                  onSend={() => handleSend(c)}
+                  onCompose={() => openComposer(c)}
+                  onQuickSend={() => void handleQuickSend(c)}
                 />
               ))}
             </div>

@@ -7,9 +7,11 @@ import { logger } from './utils/logger';
 import { db } from './database/db.client';
 import { emailService } from './channels/email.service';
 import { personalizationService } from './agents/personalization';
+import { langchainService } from './services/langchain.service';
 import agentRoutes from './api/routes/agent.routes';
 import bulkSourcingRoutes from './api/routes/bulk-sourcing.routes';
 import salesMarketingRoutes from './api/routes/sales-marketing.routes';
+import { marketingAgent, type ProductContext } from './services/marketing.agent';
 import contentCreationRoutes from './api/routes/content-creation.routes';
 import fundingRoutes from './api/routes/funding.routes';
 import { startWSServer } from './wsServer';
@@ -17,6 +19,8 @@ import { initializeDailyOutreachJob } from './jobs/daily-outreach.job';
 import { initializeFollowUpCheckJob } from './jobs/followup-check.job';
 import { initializeMetricsSyncJob } from './jobs/metrics-sync.job';
 import outreachBatchRoutes from './api/routes/outreach-batch.routes';
+import batchSendRoutes from './api/routes/batch-send.routes';
+import masterSwitchRoutes from './api/routes/master-switch.routes';
 
 class SalesAgent {
   private app: Express;
@@ -61,18 +65,20 @@ class SalesAgent {
   /**
    * Setup API routes
    */
-  private setupRoutes(): void {    // Health check — 200 with a per-component breakdown so the frontend can
+   private setupRoutes(): void {    // Health check — 200 with a per-component breakdown so the frontend can
     // render a degraded UI (yellow badges) instead of the error screen.
     this.app.get('/api/health', async (_req: Request, res: Response) => {
       let dbHealth: { healthy: boolean; error?: string } = { healthy: false };
       let emailHealth: boolean = false;
       let nvidiaHealth: boolean = false;
+      let langchainHealth: boolean = false;
 
       try {
         const results = await Promise.allSettled([
           db.healthCheck(),
           emailService.healthCheck(),
           personalizationService.healthCheck(),
+          langchainService.healthCheck(),
         ]);
 
         // Extract values from settled results — never crash on a single service failure
@@ -87,24 +93,31 @@ class SalesAgent {
         if (results[2].status === 'fulfilled') {
           nvidiaHealth = results[2].value as boolean;
         }
+        if (results[3].status === 'fulfilled') {
+          langchainHealth = results[3].value as boolean;
+        }
       } catch {
         // If Promise.allSettled itself throws, all services are marked down
         dbHealth = { healthy: false };
         emailHealth = false;
         nvidiaHealth = false;
+        langchainHealth = false;
       }
 
-      const checks = {
-        database: dbHealth,
-        email:    emailHealth,
-        nvidia:   nvidiaHealth,
+    const checks = {
+        database:  dbHealth,
+        email:     emailHealth,
+        nvidia:    nvidiaHealth,
+        langchain: langchainHealth,
       } as const;
 
-      const databaseHealthy = dbHealth.healthy === true;
-      const emailBool       = emailHealth === true;
-      const nvidiaBool      = nvidiaHealth === true;
-      const unhealthyCount  = [databaseHealthy, emailBool, nvidiaBool].filter(Boolean).length;
-      const status: 'healthy' | 'degraded' = unhealthyCount === 3 ? 'healthy' : 'degraded';
+    const databaseHealthy  = dbHealth.healthy === true;
+    const emailBool         = emailHealth === true;
+    const nvidiaBool        = nvidiaHealth === true;
+    const langchainBool     = langchainHealth === true;
+    const healthyComponents = [databaseHealthy, emailBool, nvidiaBool, langchainBool].filter(Boolean).length;
+    const needsAllFourToBeHealthy = [databaseHealthy, emailBool, nvidiaBool, langchainBool].every(Boolean);
+    const status: 'healthy' | 'degraded' = needsAllFourToBeHealthy ? 'healthy' : 'degraded';
 
       res.json({ status, timestamp: new Date().toISOString(), checks });
     });
@@ -174,6 +187,10 @@ class SalesAgent {
     this.app.use('/api/agents', contentCreationRoutes);
     this.app.use('/api/agents', fundingRoutes);
     this.app.use('/api/agents', outreachBatchRoutes);
+    this.app.use('/api/agents', batchSendRoutes);
+
+    // ── Master Switch — autonomous sub-agent panel ────────────────────────────
+    this.app.use('/api/agent/agents', masterSwitchRoutes);
 
     // ── Contact Management ───────────────────────────────────────────────────────
     const mapContact = (r: any) => ({
@@ -363,71 +380,33 @@ class SalesAgent {
 
     this.app.post('/api/outreach/send', async (req: Request, res: Response) => {
       try {
-        const { contactId, dryRun = false } = req.body ?? {};
+        const { contactId, dryRun = false, subject, body } = req.body ?? {};
+
         if (!contactId || typeof contactId !== 'string') {
-          return res.status(400).json({ success: false, error: 'contactId (string) is required in request body.' });
+          return res.status(400).json({
+            success: false,
+            error: 'contactId (string) is required in request body.',
+          });
         }
 
+        // Fetch contact from the contacts table (source of truth for the CRM UI)
         const { rows } = await db.query('SELECT * FROM contacts WHERE id = $1', [contactId]);
         if (!rows.length) return res.status(404).json({ success: false, error: 'Contact not found' });
         const contact = mapContact(rows[0]);
 
-        const subject = `Sokogate sourcing support for ${contact.company || contact.name}`;
-        const body = [
-          `Hi ${contact.name},`,
-          '',
-          'I wanted to share how Sokogate can help your team source B2B products with clear pricing, MOQ, delivery windows, and supplier details.',
-          '',
-          'Would you be open to a short conversation about your current procurement priorities?',
-          '',
-          'Best,',
-          'Sokogate Sales & Funding Agent',
-        ].join('\n');
+        // ── Route through the orchestrator's quick-send pipeline ───────────────────
+        // The orchestrator exposes sendQuickPersonalized which delegates to
+        // QuickSendService.  That service has two paths:
+        //
+        //  A. subject/body overrides supplied  → verbatim send, no AI engine
+        //     (used by the Compose Email panel so custom text is preserved).
+        //  B. no overrides                      → NVIDIA AI personalisation,
+        //     conversation tracking, message_history logging, email_logs insert,
+        //     and a 3-day follow-up schedule.
+        const { orchestrator } = await import('./agents/orchestrator');
+        const { ok, message, logId } = await orchestrator.sendQuickPersonalized(contact, dryRun, subject, body);
 
-        const sentAt = new Date().toISOString();
-        const liveSend = !agentConfig.dryRun && !dryRun;
-        let status: 'sent' | 'failed' = 'sent';
-        let error: string | undefined;
-
-        if (liveSend) {
-          const result = await emailService.send({
-            to: contact.email,
-            subject,
-            html: body.replace(/\n/g, '<br/>'),
-            text: body,
-          });
-          if (!result.success) {
-            status = 'failed';
-            error = result.error || 'Email service rejected the message';
-          }
-        }
-
-        const log = {
-          id: `${sentAt}-${Math.random().toString(36).slice(2, 8)}`,
-          contactId,
-          contactName: contact.name,
-          to: contact.email,
-          subject,
-          body,
-          status,
-          error,
-          sentAt,
-        };
-        outreachEmailLogs.push(log);
-
-        if (status === 'sent') {
-          await db.query(
-            'UPDATE contacts SET emails_sent = COALESCE(emails_sent, 0) + 1, outreach_status = $1, last_contact_date = CURRENT_DATE, updated_at = NOW() WHERE id = $2',
-            [liveSend ? 'emailed' : 'dry-run', contactId],
-          );
-          return res.json({
-            success: true,
-            message: liveSend ? `Email sent to ${contact.name}.` : `Dry-run: email prepared for ${contact.name}.`,
-            logId: log.id,
-          });
-        }
-
-        res.status(500).json({ success: false, message: error || 'Send failed', logId: log.id });
+        return res.json({ success: ok, message, logId });
       } catch (error: any) {
         logger.warn('Outreach send failed', { error: error.message });
         res.status(500).json({ success: false, error: error.message || 'Outreach failed' });
@@ -516,10 +495,9 @@ class SalesAgent {
       res.json(entries.map(e => ({ id: `${e.timestamp}-${Math.random().toString(36).slice(2, 8)}`, level: e.level, message: e.message, sentAt: e.timestamp })));
     });
 
-    // ── Content Generation ────────────────────────────────────────────────────────
-    // POST /api/generate-content — simple content-generation endpoint
-    // Body: { productId: string }
-    // Returns: { email_sequence, social_post, ad_copy, landing_page }
+    // ── Generate Content (LangChain multi-step marketing agent) ─────────────────
+    // POST /api/generate-content ? productId=<uuid>
+    // Delegates to marketingAgent (ChatOpenAI × 4 sub-chains → marketing_assets)
     this.app.post('/api/generate-content', async (req: Request, res: Response) => {
       try {
         const { productId } = req.body ?? {};
@@ -531,241 +509,30 @@ class SalesAgent {
           'SELECT id, name, description, price_current, moq, weight_grams, air_delivery_days, sea_delivery_days, supplier_name, category FROM scraped_products WHERE id = $1 AND is_active = TRUE',
           [productId],
         );
-
         if (productRows.rows.length === 0) {
           return res.status(404).json({ error: 'Product not found' });
         }
 
-        const p = productRows.rows[0];
-        const title            = p.name       || 'this product';
-        const price            = p.price_current ?? 'TBD';
-        const moq              = p.moq         ?? 'TBD';
-        const weight           = p.weight_grams ?? 'N/A';
-        const airDelivery      = p.air_delivery_days  ?? '7-15';
-        const seaDelivery      = p.sea_delivery_days  ?? '45-75';
-        const supplier         = p.supplier_name ?? 'Sokogate Verified Supplier';
-        const category         = p.category    || 'General';
+        const products: ProductContext[] = productRows.rows as ProductContext[];
+        const targetChannel = agentConfig.salesMarketing.defaultTargetChannel;
 
-        res.json({
-          success: true,
-          productId,
-          email_sequence: `Introducing ${title} — now available on Sokogate.com. Price: $${price} | MOQ: ${moq} units | Weight: ${weight}g. Air freight in ${airDelivery} days, sea freight in ${seaDelivery} days. Contact ${supplier} for bulk pricing.`,
-          social_post:    `🔥 ${title} just landed on Sokogate! • $${price} • MOQ ${moq} • Air ${airDelivery}d • from ${supplier}`,
-          ad_copy:        `Headline: ${title} — Premium ${category} at ${price}\nCopy: Lightweight at ${weight}g. Low MOQ of ${moq}. Verified supplier ${supplier}. Air ${airDelivery}d · Sea ${seaDelivery}d delivery to you.`,
-          landing_page:   `<h1>${title}</h1><p>Price: $${price} | MOQ: ${moq} | Category: ${category}</p><p>Weight: ${weight}g | Supplier: ${supplier}</p><p>Air delivery: ${airDelivery} days · Sea delivery: ${seaDelivery} days</p><p>Contact us today for a quotation.</p>`,
-        });
-      } catch (error: any) {
-        logger.error('Content generation failed', { error: error.message });
-        res.status(500).json({ error: 'Content generation failed', message: error.message });
-      }
-    });
+        const agentResult = await marketingAgent.run(products, { targetChannel, maxProducts: products.length });
 
-    // ── Product Scraping ───────────────────────────────────────────────────────────
-    // POST /api/products/scrape — trigger autonomous crawl of sokogate.com
-    // 202 Accepted is returned immediately; the scrape runs in the background so
-    // GET /products/scrape/status polls can interleave even while the handler
-    // is waiting on external I/O (axios + cheerio + DB per product page).
-    this.app.post('/api/products/scrape', async (req: Request, res: Response) => {
-      try {
-        const bodyMode = String(req.body?.mode ?? 'background').toLowerCase();
-        const isForeground = bodyMode === 'foreground';
-
-        // Kick off the run but do NOT await it — res.send() finishes the HTTP
-        // connection so the event loop can handle concurrent /status GETs.
-        (async () => {
-          try {
-            const { orchestrator } = await import('./agents/orchestrator');
-            const result = await orchestrator.sourceProductData();
-            logger.info('Product source run finished', { runId: result.runId, upserted: result.productsUpserted });
-          } catch (err: any) {
-            logger.warn('Background product source failed', { error: err.message });
+        if (agentResult.errors.length > 0 && agentResult.assetsCreated === 0) {
+          if (agentResult.errors.some(e => e.includes('getaddrinfo') || e.includes('ECONNREFUSED'))) {
+            return res.status(503).json({ success: false, error: 'LLM service unavailable — check NVIDIA proxy', ...agentResult });
           }
-        })();
-
-        // Return success immediately
-        res.status(202).json({
-          success: true,
-          phase: isForeground ? 'discovering' : 'idle',
-          message: isForeground
-            ? 'Sourcing triggered — discovering product URLs…'
-            : 'Sourcing queued — worker is picking up the job',
-        });
-      } catch (error: any) {
-        logger.warn('Product scrape trigger failed', { error });
-        // Return success anyway so UI doesn't hang
-        res.status(202).json({
-          success: true,
-          phase: 'idle',
-          message: 'Sourcing queued',
-        });
-      }
-    });
-
-    // GET /api/products — list products from the database
-    this.app.get('/api/products/stats', async (_req: Request, res: Response) => {
-      try {
-        const { rows } = await db.query(
-          `SELECT
-             COUNT(*)::int AS total,
-             COUNT(CASE WHEN trending_score >= 80 THEN 1 END)::int AS trending,
-             COUNT(CASE WHEN weight_grams <= 200 THEN 1 END)::int AS lightweight,
-             ROUND(AVG(price_current), 2) AS "avgPrice",
-             MIN(price_current) AS "minPrice",
-             MAX(price_current) AS "maxPrice",
-             COUNT(CASE WHEN moq IS NOT NULL AND moq <= 20 THEN 1 END)::int AS "lowMoqCount",
-             COUNT(CASE WHEN b2b_suitable = TRUE THEN 1 END)::int AS "b2bSuitableCount"
-           FROM scraped_products
-           WHERE is_active = TRUE`,
-        );
-        res.json({ success: true, stats: rows[0] });
-      } catch (error: any) {
-        logger.warn('Product stats failed', { error: error.message });
-        res.status(500).json({ success: false, error: 'Failed to fetch stats', message: error.message });
-      }
-    });
-
-    this.app.get('/api/products', async (req: Request, res: Response) => {
-      try {
-        const { category, inStock, search, page = '1', pageSize = '20', sort = 'trending' } = req.query;
-        const conditions: string[] = [];
-        const params: any[]      = [];
-        let idx = 1;
-        if (category)  { conditions.push(`category ILIKE $${idx++}`); params.push(`%${category}%`); }
-        if (inStock !== undefined) { conditions.push(`in_stock = $${idx++}`); params.push(inStock === 'true'); }
-        if (search)   { conditions.push(`name ILIKE $${idx++}`);   params.push(`%${search}%`); }
-        conditions.push('is_active = TRUE');
-        const where  = `WHERE ${conditions.join(' AND ')}`;
-        const orderBy =
-          sort === 'weight_asc' ? 'weight_grams ASC NULLS LAST' :
-          sort === 'price_asc' ? 'price_current ASC NULLS LAST' :
-          sort === 'price_desc' ? 'price_current DESC NULLS LAST' :
-          'trending_score DESC NULLS LAST, last_scraped_at DESC';
-        const pg     = Math.max(1, parseInt(String(page), 10) || 1);
-        const ps     = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
-        const offset = (pg - 1) * ps;
-
-        // Run count and data queries independently so LIMIT/OFFSET params don't
-        // shift the count sub-query's positional parameters.
-        const [countRow, dataRows, catRows] = await Promise.all([
-          db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM scraped_products ${where}`, params),
-          db.query(`SELECT * FROM scraped_products ${where} ORDER BY ${orderBy} LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]),
-          db.query(`SELECT DISTINCT category FROM scraped_products WHERE category IS NOT NULL AND is_active = TRUE ORDER BY category`),
-        ]);
-        const specsJsonToArr = (row: any) => {
-          try {
-            const specs = typeof row.specifications === 'string' ? JSON.parse(row.specifications || '{}') : row.specifications || {};
-            return Object.entries(specs).map(([k, v]) => ({ key: k, value: String(v) }));
-          }
-          catch { return []; }
-        };
-        const data = (dataRows.rows ?? []).map((row: any) => ({
-          id: row.id, name: row.name, description: row.description || '', price: row.price_current,
-          category: row.category || 'General', images: row.images ?? [],
-          inStock: row.in_stock, sourceUrl: row.source_url,
-          scrapedAt: row.last_scraped_at, createdAt: row.created_at, updatedAt: row.updated_at,
-          specifications: specsJsonToArr(row),
-          weightGrams: row.weight_grams ?? null,
-          trendingScore: row.trending_score ?? null,
-          b2bSuitable: row.b2b_suitable ?? null,
-          originCountry: row.origin_country ?? null,
-          shippingEst: row.shipping_est ?? null,
-          subcategory: row.subcategory ?? null,
-          sourceId: row.source_id ?? null,
-          moq: row.moq ?? null,
-          airDeliveryDays: row.air_delivery_days ?? null,
-          seaDeliveryDays: row.sea_delivery_days ?? null,
-          supplierName: row.supplier_name ?? null,
-          supplierVerified: row.supplier_verified ?? null,
-          galleryUrls: row.gallery_urls ?? [],
-          specs: row.specs ?? null,
-          b2bPriceTier: row.b2b_price_tier ?? [],
-          sourcePlatform: row.source_platform ?? null,
-          volumeCbm: row.volume_cbm ?? null,
-          translationMap: row.translation_map ?? null,
-        }));
-        res.json({
-          success: true,
-          data,
-          total:  +(countRow.rows[0]?.count ?? '0'),
-          page:   pg,
-          pageSize: ps,
-          categories: (catRows.rows ?? []).map((r: any) => r.category).filter(Boolean),
-          scrapedAt: data.length > 0 ? data[0].scrapedAt : null,
-        });
-      } catch (error: any) {
-        logger.error('List products failed', { error });
-        // Return empty data shape instead of 500 so UI doesn't crash
-        res.status(200).json({
-          success: true,
-          data: [],
-          total: 0,
-          page: 1,
-          pageSize: 20,
-          categories: [],
-          scrapedAt: null,
-          error: null,
-        });
-      }
-    });
-
-    // GET /api/products/scrape/status — live scrape progress
-    this.app.get('/api/products/scrape/status', async (_req: Request, res: Response) => {
-      try {
-        const { orchestrator } = await import('./agents/orchestrator');
-        const status = orchestrator.getScrapeStatus();
-        let productCount = 0;
-        try {
-          const { rows } = await db.query<{ count: string }>('SELECT COUNT(*) AS count FROM scraped_products');
-          productCount = +(rows[0]?.count || 0);
-        } catch {
-          // DB may be unavailable, use 0
-        }
-        res.json({
-          success:      true,
-          phase:        status.phase,
-          message:      status.message,
-          productCount,
-          scrapedAt:    status.scrapedAt,
-          runId:        status.runId,
-        });
-      } catch (error: any) {
-        logger.error('Scrape status failed', { error });
-        res.status(200).json({
-          success: true,
-          phase: 'idle',
-          message: 'Scraper idle',
-          productCount: 0,
-          scrapedAt: null,
-          runId: null,
-        });
-      }
-    });
-
-    // ── Generate Content (inline product-card + agent flow) ────────────────────
-    this.app.post('/api/generate-content', async (req: Request, res: Response) => {
-      try {
-        const { productId } = req.body;
-        if (!productId || !String(productId).startsWith('prod_') && String(productId).length < 3) {
-          return res.status(400).json({ success: false, error: 'Missing or invalid productId' });
+          return res.status(500).json({ success: false, error: agentResult.errors[0], ...agentResult });
         }
 
-        const { rows } = await db.query(
-          'SELECT * FROM scraped_products WHERE id = $1',
-          [productId],
-        );
-        if (!rows.length) return res.status(404).json({ success: false, error: 'Product not found' });
-
-        const p = rows[0];
-        res.json({
-          success: true,
-          email_sequence: `Introducing ${p.title} from Sokogate – lightweight at ${p.weight_grams || 0}g, air delivery in ${p.air_delivery_days || '7-15 days'}. Only $${Number(p.price || 0).toFixed(2)}.`,
-          social_post:    `🔥 Hot new product: ${p.title}. Low MOQ, fast shipping from ${p.origin_country || 'Guangzhou'}. Check it out on Sokogate.com!`,
-          ad_copy:        `Headline: Upgrade your inventory with ${p.title}\nCopy: Lightweight, trending, and ready for B2B buyers. From $${Number(p.price || 0).toFixed(2)}/unit (MOQ: ${p.moq || 10}). Air freight available in ${p.air_delivery_days || '7-15'}.`,
-          landing_page:   `<h1>${p.title}</h1><p>${p.description || 'Premium B2B product from Sokogate.com'}</p><p>MOQ: ${p.moq || 10} | Price: $${Number(p.price || 0).toFixed(2)}</p>`,
-        });
+        res.json({ success: true, ...agentResult });
       } catch (error: any) {
         logger.error('Content generation failed', { error: error.message });
-        res.status(500).json({ success: false, error: 'Generation failed: ' + error.message });
+        if (error?.message?.includes('getaddrinfo') || error?.message?.includes('ECONNREFUSED')) {
+          res.status(503).json({ success: false, error: 'LLM service unavailable — check NVIDIA proxy' });
+        } else {
+          res.status(500).json({ success: false, error: 'Generation failed: ' + error.message });
+        }
       }
     });
 

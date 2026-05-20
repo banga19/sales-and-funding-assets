@@ -33,18 +33,32 @@ export const agentConfig = {
   
    // Feature Flags
    features: {
-     email:               process.env.ENABLE_EMAIL === 'true',
-     autoFollowup:        process.env.ENABLE_AUTO_FOLLOWUP === 'true',
-     autoScheduling:      process.env.ENABLE_AUTO_SCHEDULING === 'true',
-     sentimentAnalysis:   process.env.ENABLE_SENTIMENT_ANALYSIS === 'true',
-     objectionHandling:   process.env.ENABLE_OBJECTION_HANDLING === 'true',
-     salesOutreach:       process.env.ENABLE_SALES_OUTREACH === 'true',
-     investorOutreach:    process.env.ENABLE_INVESTOR_OUTREACH === 'true',
-     fundingOutreach:     process.env.ENABLE_FUNDING_OUTREACH === 'true',
-     partnershipOutreach: process.env.ENABLE_PARTNERSHIP_OUTREACH === 'true',
-     productSourcing:     process.env.ENABLE_PRODUCT_SOURCING === 'true',
-     fundingDigest:       process.env.ENABLE_FUNDING_DIGEST === 'true',
-     agentsEnabled:       process.env.ENABLE_AGENT_PANEL === 'true',
+      email:               process.env.ENABLE_EMAIL === 'true',
+      autoFollowup:        process.env.ENABLE_AUTO_FOLLOWUP === 'true',
+      autoScheduling:      process.env.ENABLE_AUTO_SCHEDULING === 'true',
+      sentimentAnalysis:   process.env.ENABLE_SENTIMENT_ANALYSIS === 'true',
+      objectionHandling:   process.env.ENABLE_OBJECTION_HANDLING === 'true',
+      salesOutreach:       process.env.ENABLE_SALES_OUTREACH === 'true',
+      investorOutreach:    process.env.ENABLE_INVESTOR_OUTREACH === 'true',
+      fundingOutreach:     process.env.ENABLE_FUNDING_OUTREACH === 'true',
+      partnershipOutreach: process.env.ENABLE_PARTNERSHIP_OUTREACH === 'true',
+      productSourcing:     process.env.ENABLE_PRODUCT_SOURCING === 'true',
+      fundingDigest:       process.env.ENABLE_FUNDING_DIGEST === 'true',
+      agentsEnabled:       process.env.ENABLE_AGENT_PANEL === 'true',
+
+      // ── LangChain integration flags ──────────────────────────────────────────
+      semanticSearch:   process.env.ENABLE_SEMANTIC_SEARCH === 'true',
+      memorySummaries:  process.env.ENABLE_MEMORY_SUMMARIES === 'true',
+      bulkSourcing:     process.env.ENABLE_SOURCING_AGENT === 'true',
+      marketingAgent:   process.env.ENABLE_MARKETING_AGENT === 'true',
+      contentAgent:     process.env.ENABLE_CONTENT_AGENT === 'true',
+      fundingPitch:     process.env.ENABLE_FUNDING_PITCH_AGENT === 'true',
+      searchTool:       !!(process.env.SEARCH_API_KEY && process.env.SEARCH_API_KEY.length > 0),
+   },
+
+   // ── Master Switch Configuration ─────────────────────────────────────────────
+   masterSwitch: {
+      sequential:        process.env.MASTER_SWITCH_SEQUENTIAL === 'true',
    },
 
    // ── Agent System: Bulk Sourcing, Sales & Marketing, Content, Funding ──────────

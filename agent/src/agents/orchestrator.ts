@@ -12,6 +12,7 @@ import type {
   Intent, MessageContext, GeneratedMessage, IncomingMessage,
 } from '../types/message.types';
 import { sourceProductData, getLiveStatus, subscribe as subscribeScrape } from '../services/product-source.service';
+import { semanticSearchContacts, buildFilterFromSemanticQuery } from '../services/contact-memory.service';
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * SCOUT RESEARCH ENGINE (NVIDIA-powered personal data enrichment)
@@ -513,7 +514,11 @@ class AgentOrchestrator {
 
   // ─── Scheduling Helpers ──────────────────────────────────────────────────────
 
-  private async scheduleFollowUp(contactId: string, daysFromNow: number): Promise<void> {
+  /**
+   * Schedule a follow-up action for a contact.
+   * Public so QuickSendService and followup.workflow.ts can both call it.
+   */
+  public async scheduleFollowUp(contactId: string, daysFromNow: number): Promise<void> {
     const scheduledFor = new Date();
     scheduledFor.setDate(scheduledFor.getDate() + daysFromNow);
     await this.scheduleAction(contactId, 'follow_up', daysFromNow);
@@ -686,7 +691,11 @@ private async createOrUpdateConversation(
     }
   }
 
-  private getDefaultSubject(contactType: ContactType): string {
+  /**
+   * Return a type-appropriate default subject line.
+   * Public so QuickSendService can call it without duplicating the mapping.
+   */
+  public getDefaultSubject(contactType: ContactType): string {
     const subjects: Record<ContactType, string> = {
       prospect: 'Transforming Construction Procurement in Kenya',
       investor: 'Series A — Sokogate / Ultimo Trading Company Limited',
@@ -709,7 +718,18 @@ private async createOrUpdateConversation(
    * Stage is read from conversations.current_stage — 'not_started' = never touched,
    * 'delivered' = initial email went out but no reply yet, 'responded' = they replied.
    */
-  private getFilteredContacts(
+  /**
+   * getFilteredContacts — fetch contacts for an outreach batch.
+   *
+   * Two paths:
+   *  A. SQL path (default) — hard-coded type/status/tier filters via SQL WHERE.
+   *  B. Semantic path — when agentConfig.features.semanticSearch is true and a
+   *     usable embedding column exists, run a pgvector cosine-similarity search
+   *     against contacts.embedding and apply status/tier filters on the result set.
+   *
+   * SQL path is always the fallback if the embedding is unavailable.
+   */
+  private async getFilteredContacts(
     typeLabel: string,
     statusFilter: string[],      // allowed contact statuses
     stageFilter: string[],       // allowed conversation.current_stage values
@@ -727,9 +747,41 @@ private async createOrUpdateConversation(
           AND (conv.current_stage = ANY($4) OR conv.current_stage IS NULL)
           AND c.do_not_contact = false
      ORDER BY c.engagement_score DESC, c.created_at ASC
-     LIMIT $5`,
+        LIMIT $5`,
       [typeLabel, statusFilter, tierFilter, stageFilter, Math.min(limit, 100)],
     ).then(r => r.rows);
+  }
+
+  /**
+   * getContactsBySemanticQuery — optional semantic retrieval path.
+   * Uses LangChain's pgvector-backed cosine similarity to return contacts that
+   * match a natural-language intent description, then applies the same
+   * statusFilter + tierFilter on the returned set.
+   *
+   * Falls back to getFilteredContacts on any embedding failure.
+   */
+  private async getContactsBySemanticQuery(
+    intentQuery: string,
+    statusFilter: string[],
+    stageFilter: string[],
+    tierFilter:   string[]  = ['T1', 'T2', 'T3'],
+    limit:        number  = 20,
+  ): Promise<any[]> {
+    try {
+      const matches = await semanticSearchContacts(intentQuery, 0.72, limit * 3);
+      // Apply remaining SQL filters in-memory (filters on short lists are cheap)
+      return matches
+        .filter((c: any) =>
+          statusFilter.includes(c.status) &&
+          tierFilter.includes(c.tier),
+        )
+        .slice(0, limit);
+    } catch (err: any) {
+      logger.warn('[orchestrator] semantic search failed — falling back to SQL', {
+        error: err.message,
+      });
+      return this.getFilteredContacts('prospect', statusFilter, stageFilter, tierFilter, limit);
+    }
   }
 
   public async runSalesOutreach(limit: number = 20): Promise<{
@@ -913,6 +965,43 @@ private async createOrUpdateConversation(
       });
       return { runId: 'unknown', productsFound: 0, productsUpserted: 0, durationMs: Date.now() - startTime };
     }
+  }
+
+  /**
+   * Send a single quick-send (one-click) AI-personalised email via the
+   * contacts table path.  Delegates to QuickSendService so the endpoint
+   * handler stays thin; the orchestrator owns conversation lifecycle so it
+   * stays the single source of truth for follow-up scheduling.
+   *
+   * Two sends paths inside QuickSendService:
+   *  A. subject/body overrides supplied → verbatim send, no AI engine
+   *     (Compose Email panel provides these so custom text is never overwritten).
+   *  B. no overrides                  → NVIDIA AI personalisation + all DB writes.
+   *
+   * ── Side-effects ──────────────────────────────────────────────────────────────
+   *  · Upserts conversations row
+   *  · Inserts message_history
+   *  · Inserts email_logs
+   *  · Bumps contacts.emails_sent / outreach_status
+   *  · Schedules a 3-day follow-up action (path B only)
+   */
+  public async sendQuickPersonalized(
+    contact: Contact,
+    dryRun:   boolean        = false,
+    subject?: string,   // path A override — Compose Email panel
+    body?:    string,   // path A override — Compose Email panel
+  ): Promise<{ ok: boolean; message: string; logId?: string }> {
+    const { sendContactEmail } = await import('../outreach/quick-send.service');
+    const result = await sendContactEmail(contact, { dryRun, overrideSubject: subject, overrideBody: body });
+
+    const ok  = result.ok;
+    const msg = ok
+      ? result.status === 'dry-run'
+        ? `[DRY RUN] Email prepared for ${result.contactName}`
+        : `Email sent to ${result.contactName} (score: ${result.personalizationScore ?? 'n/a'})`
+      : `Failed to send to ${result.contactName}: ${result.error}`;
+
+    return { ok, message: msg, logId: `${result.contactId}-${result.sentAt}` };
   }
 
   public getScrapeStatus(): ReturnType<typeof getLiveStatus> {

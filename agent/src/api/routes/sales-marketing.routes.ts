@@ -1,28 +1,28 @@
 /**
- * Sales & Marketing Agent — POST /api/agents/sales-marketing
+ * Sales & Marketing Agent — LangChain multi-step content chain
  *
- * Generates a complete marketing campaign for a given product or category.
- * Uses NVIDIA API to produce email sequences, social posts, ad copy, and
- * landing page drafts. Each asset is persisted as a `marketing_assets` record.
+ * Generates a complete marketing campaign (email sequences, social posts,
+ * ad copy, landing page) for one or more products. Delegates to the
+ * MarketingAgent multi-step chain; each asset is persisted as a
+ * `marketing_assets` record. No raw aiCompletion() calls remain here.
  */
 
 import { Router, Request, Response } from 'express';
+import { marketingAgent, type ProductContext } from '../../services/marketing.agent';
 import { db } from '../../database/db.client';
-import { aiCompletion } from '../../lib/nvidia';
-import { agentConfig } from '../../config/agent.config';
 import { logger } from '../../utils/logger';
+import { agentConfig } from '../../config/agent.config';
 
 const router = Router();
 
 /**
- * POST /api/agents/sales-marketing
- * Body: { productIds: string[], targetChannel?: string }
+ * POST /generate
+ * Body: { productIds: string[], targetChannel?: 'email' | 'social' | 'ads' | 'all' }
  */
-router.post('/sales-marketing', async (req: Request, res: Response) => {
+router.post('/generate', async (req: Request, res: Response) => {
   try {
-    // Validate request body
     let productIds: string[] = [];
-    let targetChannel: string = agentConfig.salesMarketing.defaultTargetChannel;
+    let targetChannel = agentConfig.salesMarketing.defaultTargetChannel;
 
     try {
       productIds = req.body?.productIds ?? [];
@@ -32,106 +32,53 @@ router.post('/sales-marketing', async (req: Request, res: Response) => {
     }
 
     if (!Array.isArray(productIds) || productIds.length === 0) {
-      return res.status(400).json({ success: false, error: 'Please select at least one product.' });
+      return res.status(400).json({ success: false, error: 'productIds required' });
     }
 
     const maxProducts = Math.min(productIds.length, agentConfig.salesMarketing.maxProducts);
     const ids = productIds.slice(0, maxProducts);
 
-    let products: any[] = [];
+    let products: ProductContext[] = [];
     try {
       const result = await db.query(
-        'SELECT id, name, description FROM scraped_products WHERE id = ANY($1::uuid[])',
+        'SELECT id, name, description, category, price_current FROM scraped_products WHERE id = ANY($1::uuid[])',
         [ids],
       );
-      products = result.rows;
+      products = result.rows as ProductContext[];
     } catch (err: any) {
-      logger.warn('Sales & Marketing: could not fetch products, using fallback', { error: err.message });
+      logger.warn('Marketing Agent: could not fetch products', { error: err.message });
     }
+
+    const agentResult = await marketingAgent.run(products, {
+      targetChannel,
+      maxProducts: maxProducts,
+    });
 
     const generatedAssets: { product: string; type: string; content: string }[] = [];
-
     for (const product of products) {
-      const prompt = `You are the head of marketing at Sokogate / Ultimo Trading Company Limited — an AI-powered B2B e-commerce platform for construction materials and industrial goods in East and West Africa.
-
-Product: "${product.name}"
-${product.description ? `Description: ${product.description}` : ''}
-Target channel: ${targetChannel}
-
-IMPORTANT: Respond ONLY with raw valid JSON. No markdown, no code fences, no commentary before or after.
-
-Generate a full marketing campaign in this exact JSON shape (every key is required):
-{
-  "emailSubject": "short, curiosity-grabbing subject line under 60 chars",
-  "emailBody": "full HTML email body — welcome / intro, 3 value bullets, call to action, closing",
-  "socialPost": "LinkedIn/Twitter-style post — 1–2 paragraphs, relevant hashtags at end",
-  "adHeadline": "Facebook/Google Ads — headline under 40 chars",
-  "adCopy": "Facebook/Google Ads ad body — 90–125 characters, includes value prop",
-  "landingPageCopy": "hero headline + 3 benefit bullets + CTA button text"
-}`;
-
-      let campaign: Record<string, string> = {};
-      try {
-        const aiResponse = await aiCompletion(prompt);
-        try {
-          campaign = JSON.parse(aiResponse);
-        } catch {
-          logger.warn('Sales-marketing: malformed JSON returned, using fallback', { preview: aiResponse?.slice(0, 120) });
-          campaign = {
-            emailSubject: product.name || 'Sokogate',
-            emailBody: aiResponse,
-            socialPost: '',
-            adHeadline: '',
-            adCopy: '',
-            landingPageCopy: '',
-          };
-        }
-      } catch (err: any) {
-        logger.warn('NVIDIA AI request failed for sales-marketing', { error: err.message });
-      }
-
-      const types: Array<'email_sequence' | 'social_post' | 'ad_copy' | 'landing_page'> = [
-        'email_sequence',
-        'social_post',
-        'ad_copy',
-        'landing_page',
-      ];
-
-      for (const type of types) {
-        let content = '';
-        switch (type) {
-          case 'email_sequence':
-            content = `Subject: ${campaign.emailSubject ?? ''}\n\n${campaign.emailBody ?? ''}`;
-            break;
-          case 'social_post':
-            content = campaign.socialPost ?? '';
-            break;
-          case 'ad_copy':
-            content = `Headline: ${campaign.adHeadline ?? ''}\nCopy: ${campaign.adCopy ?? ''}`;
-            break;
-          case 'landing_page':
-            content = campaign.landingPageCopy ?? '';
-            break;
-        }
-
-        try {
-          await db.query(
-            'INSERT INTO marketing_assets (id, product_id, type, content, created_at) VALUES (gen_random_uuid()::text, $1::uuid, $2, $3, NOW())',
-            [product.id, type, content],
-          );
-        } catch (err: any) {
-          logger.warn('Could not persist marketing asset', { error: err.message });
-        }
-        generatedAssets.push({ product: product.name, type, content });
+      const assetRows = await db.query(
+        'SELECT type as type_col, content FROM marketing_assets WHERE product_id = $1 ORDER BY created_at DESC LIMIT 4',
+        [product.id],
+      );
+      for (const a of assetRows.rows) {
+        generatedAssets.push({ product: product.name, type: a.type_col, content: a.content });
       }
     }
 
-    logger.info('Sales & Marketing campaign generated', { products: generatedAssets.length });
+    logger.info('Marketing campaign generated', {
+      productsProcessed: agentResult.productsProcessed,
+      assetsCreated:     agentResult.assetsCreated,
+      errors:            agentResult.errors.length,
+    });
+
     res.json({ success: true, assets: generatedAssets });
   } catch (error: any) {
-    logger.warn('Sales & Marketing agent failed', { error: error.message });
-    // Return success with empty assets so UI doesn't crash
-    res.status(200).json({ success: true, assets: [] });
+    logger.warn('Marketing agent failed', { error: error.message });
+    if (error?.message?.includes('getaddrinfo') || error?.message?.includes('ECONNREFUSED')) {
+      res.status(503).json({ success: false, error: 'LLM service unavailable — check NVIDIA proxy' });
+    } else {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 
