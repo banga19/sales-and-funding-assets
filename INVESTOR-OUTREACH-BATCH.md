@@ -41,9 +41,9 @@ Your 6–8 week decision timeline and East Africa logistics focus make you a top
 Would you be open to a 20-minute intro call this week? I can share our 1-page executive summary in advance.
 
 Best regards,
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
- [Phone] | [LinkedIn]
+ [+254758947124] | [LinkedIn]
 
 ---
 
@@ -76,7 +76,7 @@ Sokogate tackles the single most expensive inefficiency in African trade: constr
 
 Open to a call this week to talk through the opportunity?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -108,7 +108,7 @@ Sokogate is creating formal supply chains for 50M+ informal African retailers �
 
 We would value the chance to present our impact thesis and track record in further detail. Would 20 minutes work for you this week?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -144,7 +144,7 @@ Your investment thesis — B2B solutions, financial inclusion, and trade enablem
 I would welcome an intro call this week to demonstrate the platform and walk through our 3-country expansion plan for your reference.
 
 Thanks and regards,
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -180,7 +180,7 @@ Currently running 3 active warehouse hubs in East/West Africa. USD 1.5M ask at U
 
 Open to exploring fit?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -212,7 +212,7 @@ Sokogate is in the exact stage AfricaGrow targets: a company with proven product
 
 USD 1.5M Series A at USD 15M post-money. Open to a call this week?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -242,7 +242,7 @@ We're building exactly the type of market-building, sustainable infrastructure V
 
 Your 12-week evaluation timeline is clean. Can we schedule a 20-minute initial conversation?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -273,9 +273,9 @@ We're reaching out to introduce Sokogate — a B2B bulk sourcing platform formal
 
 We would welcome the opportunity to present a detailed impact framework and financial model. Can you spare 30 minutes of introductory time this quarter?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
- [Phone] | [Registered Office: Ultimo Trading Company Limited]
+ [+254758947124] | [Registered Office: Ultimo Trading Company Limited]
 
 ---
 
@@ -310,7 +310,7 @@ Technology-enabled, efficiency-focused, Africa-first — this is your thesis in 
 
 Would a 20-minute call work for you this week to walk through the model?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -345,7 +345,7 @@ Harith's East & West Africa mandate makes Sokogate uniquely relevant — one veh
 
 Available for a 20-minute call this week?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -383,4 +383,4 @@ Day 19           → Follow-up #3 (new data point — pilot result, new country 
 ---
 
 *Created: May 20, 2026 | Source: TRACKER-INVESTORS.csv + 02-SERIES-A-INVESTORS-EAST-AFRICA.md*
-*All emails: personalise [Founder Name], [Phone], [LinkedIn] before sending. Do not send with placeholders.*
+*All emails: personalise [Bangali Fofana], [+254758947124], [www.linkedin.com/in/bangali-fofana] before sending. Do not send with placeholders.*

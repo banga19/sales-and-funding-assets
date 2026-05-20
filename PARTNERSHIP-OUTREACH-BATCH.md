@@ -41,9 +41,9 @@ Your existing FMCG distribution network with 50+ retailer relationships makes th
 
 Are you open to a call this week? I can share a 1-page proposal specific to your capabilities.
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
- [Phone] | [LinkedIn]
+ [+254758947124] | [www.linkedin.com/in/bangali-fofana]
 
 ---
 
@@ -76,7 +76,7 @@ We're expanding Sokogate into Ghana and your underutilised logistics infrastruct
 
 Could we schedule 20 minutes this week to explore fit?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -115,7 +115,7 @@ Sokogate is positioning to become the B2B fulfilment infrastructure for SMEs acr
 
 Can you spare 30 minutes to explore this? We're particularly interested in your customs clearance capabilities for Kenya→Ghana routes.
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -152,7 +152,7 @@ GNPC Downstream has one of the most impressive retail networks in Ghana — 200+
 
 Open to a 15-minute chat this week?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -190,7 +190,7 @@ Sokogate is entering West Africa and Dakar is our Day 1 priority. Traders' Wareh
 
 Can you make 30 minutes available this week to discuss the pilot structure in detail?
 
-[Founder Name]
+[Bangali Fofana]
  Sokogate / Ultimo Trading Company Limited
 
 ---
@@ -221,4 +221,4 @@ Can you make 30 minutes available this week to discuss the pilot structure in de
 ---
 
 *Created: May 20, 2026 | Source: TRACKER-PARTNERSHIPS.csv + 04-WEST-AFRICA-DISTRIBUTION-PARTNERS.md*
-*All emails: fill [Founder Name], [Phone], [LinkedIn] before sending.*
+*All emails: fill [Bangali Fofana], [+254758947124], [www.linkedin.com/in/bangali-fofana] before sending.*
