@@ -12,6 +12,7 @@ import type {
 } from '../types/message.types';
 import { sourceProductData, getLiveStatus, subscribe as subscribeScrape } from '../services/product-source.service';
 import { semanticSearchContacts, buildFilterFromSemanticQuery } from '../services/contact-memory.service';
+import { langchainService } from '../services/langchain.service';
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * SCOUT RESEARCH ENGINE (NVIDIA-powered personal data enrichment)
@@ -95,14 +96,14 @@ Required JSON schema (all fields mandatory; use empty string / empty array for u
   };
 
   try {
-    const resp = await personalizationService as any;
-    const r = await (resp as any).openai.chat.completions.create({
-      model:      agentConfig.ai.model,
-      max_tokens: 600,
-      messages: [{ role: 'user', content: researchPrompt }],
-      temperature: 0.3,
-    });
-    const parsed = JSON.parse(r.choices[0]?.message?.content || '{}');
+    const llm = langchainService.getLLM(0.3, 600);
+    const r = await langchainService.withRetry(() => llm.invoke([
+      ['system', 'You are an expert B2B researcher. Output ONLY the JSON object. Do NOT show any thinking, reasoning, or planning process.'],
+      ['human', researchPrompt],
+    ]));
+    const text = (r as any).content?.toString().trim() || '{}';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
     research = { ...research, ...parsed };
   } catch (err: any) {
     logger.warn('[research] NVIDIA enrichment failed, using defaults', { error: err.message, company });
