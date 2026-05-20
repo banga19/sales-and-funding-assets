@@ -1,26 +1,37 @@
-WEEK,DATE,METRIC,TARGET,ACTUAL,STATUS,NOTES
-1,May 11,Sales Emails Sent,0,0,,
-1,May 12,Sales Emails Sent,5,0,,
-1,May 13,Sales Emails Sent,10,0,,
-1,May 14,Investor Emails Sent,5,0,,
-1,May 15,LinkedIn Connections,5,0,,
-1,May 15,Partnership Emails Sent,2,0,,
-1,May 17,Email Responses Received,3,0,,
-1,May 17,Calls Scheduled,3,0,,
-2,May 18,Discovery Calls Completed,3,0,,
-2,May 19,Discovery Calls Completed,5,0,,
-2,May 20,Investor Meetings Conducted,1,0,,
-2,May 22,Pilots Verbally Agreed,2,0,,
-2,May 22,Pilots Signed,1,0,,
-3,May 25,Pilots Signed Total,3,0,,
-3,May 25,Retailers Acquired,50,0,,
-3,May 27,Investor Meetings Conducted,4,0,,
-3,May 29,Partnership Proposals Sent,1,0,,
-4,June 1,Retailers Across Pilots,300,0,,
-4,June 2,Pilot Revenue MRR,12000,0,,
-4,June 5,Investors Interested,2,0,,
-4,June 5,Partnership Signed,1,0,,
-4,June 5,Term Sheet Signed,1,0,,
-5,June 11,Total Funding Raised,1500000,0,,
-5,June 11,Total Retailers,300,0,,
-5,June 11,Total Partnerships,1,0,,
+WEEK_NUMBER,WEEK_DATE_RANGE,METRIC_NAME,TARGET_VALUE,ACTUAL_VALUE,STATUS,NOTES
+1,May 12-17,Sales emails sent,10,"",Pending,"Tier 1 & 2 prospects from TRACKER-PROSPECTS.csv"
+1,May 12-17,Partnership intro emails sent,5,"",Pending,"Tier 1 partners: Meridian, Jospong, DHL, GNPC, Traders' Warehouse"
+1,May 12-17,Investor cold emails sent,10,"",Pending,"Tier 1-2 from INVESTOR-OUTREACH-BATCH.md"
+1,May 12-17,LinkedIn connections sent,5,"",Pending,"Procurement Directors / Heads of Commercial"
+1,May 12-17,Email responses received,3,"",Pending,"Target: ≥30% response rate across all outreach"
+1,May 12-17,Discovery calls scheduled,3,"",Pending,"Sales calls via Calendly — 15-min slots"
+1,May 12-17,CRM dashboard updated daily,Yes,"",Pending,"Prospects/Investors/Partners tabs checked every morning"
+1,May 12-17,Pitch deck Google Slides started,Yes,"",Pending,"15 slides from 06-PITCH-DECK-FIRST-DRAFT.md"
+2,May 18-24,Sales discovery calls completed,6,"",Pending,"Target: 5-7 calls this week"
+2,May 18-24,Pilots verbally agreed,2,"",Pending,"Tier 1 construction companies (Britam, Tropical Heat, ACON)"
+2,May 18-24,Investor meetings scheduled,1,"",Pending,"Targeting Catalyst Fund first (fast-track 6-8 wks)"
+2,May 18-24,Investor meetings conducted,3,"",Pending,"Warm intros + cold email follow-ups"
+2,May 18-24,Partnership discovery calls,2,"",Pending,"Meridian Trust + Traders' Warehouse"
+2,May 18-24,Follow-up emails sent,10,"",Pending,"Day 5 follow-ups + warm intro requests"
+2,May 18-24,Pitch deck visual design complete,Yes,"",Pending,"Sokogate branding (Navy #1E3A8A, Red #EF4444)"
+3,May 25-31,Sales pilots signed,3,"",Pending,"Britam, Tropical Heat, ACON — with signed agreements"
+3,May 25-31,Active retailers (all pilots),50,"",Pending,"Pilot #1: 100 retailers; Pilot #2: 50; Pilot #3: 50"
+3,May 25-31,First orders fulfilled,5,"",Pending,"First paid/captured orders — photographed + logged"
+3,May 25-31,Investor meetings conducted,4,"",Pending,"Meet at least 1 investor with live pilot data"
+3,May 25-31,Investors interested (moving to DD),2,"",Pending,"Catalyst Fund or Mulistar primary targets"
+3,May 25-31,Partnership proposal sent,1,"",Pending,"Meridian Trust — customized Hybrid model"
+3,May 25-31,Customer testimonials captured,3,"",Pending,"After 2+ weeks of pilot operations"
+3,May 25-31,Pitch deck complete & practised,Yes,"",Pending,"5+ full run-throughs, advisor feedback received"
+4,Jun 1-7,Total active retailers,300,"",Pending,"Scale: Pilot #1 100+, Pilot #2 100+, Pilot #3 100+"
+4,Jun 1-7,Pilot revenue MRR,20000,"",Pending,"Target: USD 10K+ from pilot orders confirmed paid"
+4,Jun 1-7,Term sheet received,1,"",Pending,"Target: Catalyst Fund or Mulistar"
+4,Jun 1-7,Partnership signed,1,"",Pending,"Target: Meridian Trust agreement signed"
+4,Jun 1-7,Case study created,1,"",Pending,"1-page PDF with pilot results + NPS + testimonials"
+4,Jun 1-7,Due diligence package sent,2,"",Pending,"Cap table, financials, LOIs to interested investors"
+4,Jun 1-7,Investor meetings (cumulative),4,"",Pending,"Weeks 2-4: pitch to at least 4 unique investors"
+4,Jun 1-7,LinkedIn followers total,100,"",Pending,"Personal account + 1 company page"
+5,Jun 8-14,Funding closed (USD 1.5M),1500000,"",Pending,"Stretch target — Series A fully funded"
+5,Jun 8-14,Pilots active (all),5,"",Pending,"Include upgraded pilots from Tier 2 prospects"
+5,Jun 8-14,Partnerships signed,2,"",Pending,"Meridian Trust + Traders' Warehouse or Jospong"
+5,Jun 8-14,Total retailers across all pilots,500,"",Pending,"Sustaining expansion momentum"
+5,Jun 8-14,Country expansion (pilot),1,"",Pending,"Ghana pilot launched via Meridian Trust"
