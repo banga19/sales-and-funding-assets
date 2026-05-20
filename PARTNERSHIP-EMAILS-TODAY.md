@@ -1,13 +1,24 @@
 # PARTNERSHIP EMAILS #4–#5
 # Week 2 Mid-Week — Send Thursday May 21
+# ✅ VERDICT TABLE — UPDATED 2026-05-20 POST-RESEARCH
+
+## PARTNERSHIP VERDICT TABLE
+
+| # | Partner | Email | Verdict | Action |
+|---|---|---|---|---|
+| 1 | Meridian Trust (MLE / MLE Ltd), Ghana | info@meridian.com.gh | ✅ SEND — corrected | original email contact@meridian-trust.com = CYPRUS (not Ghana). Replace with info@meridian.com.gh (Meridian Logistics & Engineering Ltd, Accra, +233 302 777 948). Revise pitch to EPCM/oil&gas/logistics angle. |
+| 2 | Jospong Group | info@jospongroup.com | ✅ SEND — corrected | original info@jospong.com = WRONG DOMAIN; jospongroup.com has verified info@jospongroup.com. |
+| 3 | DHL Supply Chain West Africa | partnerships@dhl.com | ✅ SEND | Global DHL partnerships inbox is valid; generic triage expected. Research Ghana/Senegal supply-chain VP on LinkedIn for better response. |
+| 4 | GNPC (Ghana NOC) | info@gnpcghana.com | ✅ SEND — corrected | original sales@gnpc.com = WRONG DOMAIN; gnpcghana.com confirms info@gnpcghana.com. |
+| 5 | Traders' Warehouse, Senegal | operations@traders-warehouse.sn | 🚨 DO NOT SEND | Domain unreachable; entity not confirmed in Dakar directory. Replace with confirmed Dakar warehouse operator before sending. |
 
 ---
 
-## PARTNERSHIP EMAIL #4 — DHL SUPPLY CHAIN WEST AFRICA (T1)
+## PARTNERSHIP EMAIL #4 — DHL SUPPLY CHAIN WEST AFRICA (T1) ✅ SEND
 
 **Send day**: Thursday, May 21
 **From**: Sokogate Sales Team
-**To**: partnerships@dhl.com
+**To**: partnerships@dhl.com  [Note: global DHL partnerships inbox — generic triage; look up DHL Supply Chain West Africa lead via LinkedIn for faster response]
 **Cc**: [your email]
 **Subject**: B2B SMB Fulfilment Partnership — Sokogate × DHL Supply Chain | Ghana / Senegal
 

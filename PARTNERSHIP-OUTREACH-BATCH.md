@@ -9,10 +9,11 @@
 
 ## EMAIL #1 — MERIDIAN TRUST LIMITED, GHANA (T1 · Priority #1)
 
-**Email**: contact@meridian-trust.com
+**Email**: info@meridian.com.gh ✅
 **Country**: Ghana | **Tier**: T1
 **Revenue potential**: USD 7,500/month (15% revenue share on fulfillment + storage)
-**Capability**: Warehouse + Distribution, 50+ retailer network, 5 distribution centres
+**Capability**: EPCM + Logistics + Industrial Procurement (100% indigenous Ghanaian contractor; Oil & Gas sector; warehouse-adjacent)
+**Phone**: +233 (0) 302 777 948 | **Address**: 43 George Bush Highway, Accra Ghana
 
 **Subject**: Strategic Partnership — Sokogate × Meridian Trust | Ghana Distribution
 
@@ -47,10 +48,11 @@ Are you open to a call this week? I can share a 1-page proposal specific to your
 
 ---
 
-## EMAIL #2 — JOSPGONG GROUP, GHANA (T1)
+## EMAIL #2 — JOSPGONG GROUP OF COMPANIES, GHANA (T1)
 
-**Email**: info@jospong.com
+**Email**: info@jospongroup.com ✅
 **Country**: Ghana | **Tier**: T1
+**Phone**: +233 (0) 544 326 770 | **Address**: Nmai Djorn Near Zoomlion Head Office, Accra"
 **Revenue potential**: USD 5,000/month (12% revenue share + fleet utilisation)
 **Capability**: Logistics fleet + warehousing (20+ operating centres)
 
@@ -120,12 +122,13 @@ Can you spare 30 minutes to explore this? We're particularly interested in your 
 
 ---
 
-## EMAIL #4 — GNPC DOWNSTREAM (LUBRICANTS), GHANA (T1)
+## EMAIL #4 — GNPC (GHANA NATIONAL PETROLEUM CORPORATION), GHANA (T1)
 
-**Email**: sales@gnpc.com
+**Email**: info@gnpcghana.com ✅
 **Country**: Ghana | **Tier**: T1
 **Revenue potential**: USD 3,000/month (co-marketing + referral fees)
-**Capability**: 200+ retail fuel points, established last-mile network, warehousing at fuel depots
+**Capability**: National fuel distribution (200+ retail fuel points), established last-mile network, warehousing at fuel depots; state-owned NOC
+**Phone**: +233 303 206 020 | **Address**: Petroleum House, Tema, Ghana | **Website**: gnpcghana.com
 
 **Subject**: Partnership — Monetaise Your Retail Network | Sokogate × GNPC Downstream
 
@@ -157,10 +160,20 @@ Open to a 15-minute chat this week?
 
 ---
 
-## EMAIL #5 — TRADERS' WAREHOUSE LIMITED, SENEGAL (T1 · Senegal Entry Hub)
+## EMAIL #5 — TRADERS' WAREHOUSE LIMITED, SENEGAL 🚨 DO NOT SEND
 
-**Email**: operations@traders-warehouse.sn
+**Email**: operations@traders-warehouse.sn ❌
 **Country**: Senegal | **Tier**: T1
+
+⚠️ **DO NOT SEND** — `traders-warehouse.sn` did not resolve during research; no matching entity found in Dakar warehouse business directories or on goafricaonline.com/sn. This address cannot be verified and sending risks bounce or misdelivery.
+
+**Recommended replacement candidates (Dakar warehouse operators — confirmed exist):**
+- **CADIOR Trading Solutions** — Dakar (+221 77 711 92 48) | import/export + customs + logistics | goafricaonline.com/sn
+- **Sentrak Logistics S.A.** — Immeuble Lahad MBACKE, 1C Avenue Abdoulaye Fadiga, Dakar | +221 33 842 8414
+- **Africa Global Logistics (AGL) Senegal** — Km 4–5 Rte Rufisque, Dakar | aglsenegal.com
+- **2HL GROUP West Africa** — km2,5 BCCD Dakar Zone Industrielle | freight forwarding + warehousing
+
+Act: Verify one of the above, get their partnerships inbox, and write a West-Africa entry email.
 **Revenue potential**: USD 8,000/month (service fees + inventory holding)
 **Capability**: Import/export, warehousing, customs expertise, cross-border connections to Sierra Leone/Guinea/Mali
 
