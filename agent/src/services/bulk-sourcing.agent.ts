@@ -22,6 +22,7 @@ import { logger } from '../utils/logger';
 import type { Product } from '../types/product.types';
 import { langchainService, parseJsonFromLLM, EnrichmentSchema } from './langchain.service';
 import { sourceProductData } from './product-source.service';
+import { getCached, setCached } from './response-cache.service';
 
 // ── Run succinct struct ────────────────────────────────────────────────────────
 
@@ -128,10 +129,12 @@ export class BulkSourcingAgent {
 
   /**
    * runEnrichmentChain — fetch the most-recently-upserted products,
-   * invoke the enrichment LLM chain on each one, and persist the result.
+   * invoke the enrichment LLM chain on each one in parallel (concurrency-limited),
+   * and persist the result.
    */
   private async runEnrichmentChain(limit: number): Promise<number> {
     let count = 0;
+    const CONCURRENCY = 5;
 
     try {
       const { rows: products } = await db.query(
@@ -142,36 +145,38 @@ export class BulkSourcingAgent {
 
       logger.debug('[bulk-sourcing] enrichment candidates', { candidates: products.length });
 
-      for (const product of products) {
-        try {
-          this.emit({ phase: 'enriching', currentProduct: count + 1, totalProducts: products.length });
-          const enriched = await this.enrichProduct(product as Product);
-          if (enriched) {
-            await db.query(
-              `UPDATE scraped_products
-                  SET enriched_data          = $1,
-                      enrichment_keywords     = $2,
-                      enrichment_tagline      = $3,
-                      enrichment_selling_points = $4,
-                      updated_at              = NOW()
-                WHERE id = $5`,
-              [
-                JSON.stringify(enriched.data),
-                enriched.keywords,
-                enriched.tagline,
-                enriched.sellingPoints,
-                product.id,
-              ],
-            );
-            count++;
-          }
-        } catch (err: any) {
-          logger.warn('[bulk-sourcing] enrichment item failed', {
-            productId: product.id,
-            name:      product.name,
-            error:     err.message,
-          });
-        }
+      // Process in batches of CONCURRENCY
+      for (let i = 0; i < products.length; i += CONCURRENCY) {
+        const batch = products.slice(i, i + CONCURRENCY);
+        this.emit({ phase: 'enriching', currentProduct: i + 1, totalProducts: products.length });
+
+        const results = await Promise.allSettled(
+          batch.map(async (product) => {
+            const enriched = await this.enrichProduct(product as Product);
+            if (enriched) {
+              await db.query(
+                `UPDATE scraped_products
+                    SET enriched_data          = $1,
+                        enrichment_keywords     = $2,
+                        enrichment_tagline      = $3,
+                        enrichment_selling_points = $4,
+                        updated_at              = NOW()
+                  WHERE id = $5`,
+                [
+                  JSON.stringify(enriched.data),
+                  enriched.keywords,
+                  enriched.tagline,
+                  enriched.sellingPoints,
+                  product.id,
+                ],
+              );
+              return true;
+            }
+            return false;
+          }),
+        );
+
+        count += results.filter((r) => r.status === 'fulfilled' && r.value).length;
       }
     } catch (err: any) {
       logger.error('[bulk-sourcing] enrichment chain DB error', { error: err.message });
@@ -190,6 +195,24 @@ export class BulkSourcingAgent {
     sellingPoints:   string[];
     data:            Record<string, any>;
   } | null> {
+    // Check cache first
+    type EnrichmentResult = {
+      keywords: string[];
+      tagline: string;
+      sellingPoints: string[];
+      data: Record<string, any>;
+    };
+
+    const cached = await getCached<EnrichmentResult>('enrichment', {
+      name: product.name,
+      category: product.category,
+      description: (product.description || '').slice(0, 200),
+    });
+    if (cached) {
+      logger.debug('[bulk-sourcing] enrichment cache hit', { productId: product.id });
+      return cached;
+    }
+
     const prompt = ENRICH_PROMPT
       .replace('{name}',        (product.name || '').replace(/"/g, "'"))
       .replace('{category}',    (product.category || 'General').replace(/"/g, "'"))
@@ -206,12 +229,21 @@ export class BulkSourcingAgent {
         });
         return null;
       }
-      return {
+      const result = {
         keywords:       parsed.enrichment_keywords,
         tagline:        parsed.enrichment_tagline,
         sellingPoints:  parsed.enrichment_selling_points,
         data:           parsed,
       };
+
+      // Cache for 24h
+      await setCached('enrichment', {
+        name: product.name,
+        category: product.category,
+        description: (product.description || '').slice(0, 200),
+      }, result, 86400);
+
+      return result;
     } catch (err: any) {
       logger.warn('[bulk-sourcing] enrichment call failed', {
         productId: product.id, error: err.message,

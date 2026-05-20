@@ -3,12 +3,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { createServer } from 'http';
 import { agentConfig, validateConfig } from './config/agent.config';
-import { logger } from './utils/logger';
+import { logger, correlationMiddleware } from './utils/logger';
 import { db } from './database/db.client';
 import { emailService } from './channels/email.service';
 import { personalizationService } from './agents/personalization';
 import { langchainService } from './services/langchain.service';
 import agentRoutes from './api/routes/agent.routes';
+import agentConfigRoutes from './api/routes/agent-config.routes';
 import bulkSourcingRoutes from './api/routes/bulk-sourcing.routes';
 import salesMarketingRoutes from './api/routes/sales-marketing.routes';
 import { marketingAgent } from './services/marketing.agent';
@@ -16,6 +17,8 @@ import contentCreationRoutes from './api/routes/content-creation.routes';
 import fundingRoutes from './api/routes/funding.routes';
 import agentQueueRoutes from './api/routes/agent-queue.routes';
 import { startAgentWorker } from './jobs/agent-run-queue';
+import { getHealthStatus } from './services/health-check.service';
+import { setupSwagger } from './api/swagger';
 import { startWSServer } from './wsServer';
 import { initializeDailyOutreachJob } from './jobs/daily-outreach.job';
 import { initializeFollowUpCheckJob } from './jobs/followup-check.job';
@@ -49,8 +52,11 @@ class SalesAgent {
       origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID'],
     }));
+
+    // Correlation ID tracking
+    this.app.use(correlationMiddleware);
 
     // Body parsing
     this.app.use(express.json());
@@ -74,67 +80,9 @@ class SalesAgent {
   private setupRoutes(): void {
     const HEALTH_TIMEOUT_MS = 2_000;
     this.app.get('/api/health', async (_req: Request, res: Response) => {
-      let dbHealth:   { healthy: boolean; error?: string } = { healthy: false };
-      let emailHealth: boolean  = false;
-      let nvidiaHealth: boolean = false;
-      let langchainHealth: boolean = false;
-
-      async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-        let timer: ReturnType<typeof setTimeout>;
-        try {
-          return await Promise.race<T>([
-            promise,
-            new Promise<null>((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms); }),
-          ]);
-        } catch { return null; }
-        finally { clearTimeout(timer); }
-      }
-
-      try {
-        const results = await Promise.allSettled([
-          withTimeout(db.healthCheck(),                          HEALTH_TIMEOUT_MS),
-          withTimeout(emailService.healthCheck(),                HEALTH_TIMEOUT_MS),
-          withTimeout(personalizationService.healthCheck(),      HEALTH_TIMEOUT_MS),
-          withTimeout(langchainService.healthCheck(),            HEALTH_TIMEOUT_MS),
-        ]);
-
-        if (results[0].status === 'fulfilled' && results[0].value != null) {
-          dbHealth = results[0].value as { healthy: boolean; error?: string };
-        }
-        if (results[1].status === 'fulfilled' && results[1].value != null) {
-          emailHealth = results[1].value as boolean;
-        } else {
-          emailHealth = false;
-        }
-        if (results[2].status === 'fulfilled' && results[2].value != null) {
-          nvidiaHealth = results[2].value as boolean;
-        }
-        if (results[3].status === 'fulfilled' && results[3].value != null) {
-          langchainHealth = results[3].value as boolean;
-        }
-      } catch {
-        dbHealth = { healthy: false };
-        emailHealth = false;
-        nvidiaHealth = false;
-        langchainHealth = false;
-      }
-
-      const checks = {
-        database:  dbHealth,
-        email:     emailHealth,
-        nvidia:    nvidiaHealth,
-        langchain: langchainHealth,
-      } as const;
-
-      const databaseHealthy  = dbHealth.healthy === true;
-      const emailBool         = emailHealth === true;
-      const nvidiaBool        = nvidiaHealth === true;
-      const langchainBool     = langchainHealth === true;
-      const healthyComponents = [databaseHealthy, emailBool, nvidiaBool, langchainBool].filter(Boolean).length;
-      const needsAllFourToBeHealthy = [databaseHealthy, emailBool, nvidiaBool, langchainBool].every(Boolean);
-      const status: 'healthy' | 'degraded' = needsAllFourToBeHealthy ? 'healthy' : 'degraded';
-
-      res.json({ status, timestamp: new Date().toISOString(), checks });
+      const health = await getHealthStatus();
+      const statusCode = health.status === 'unhealthy' ? 503 : health.status === 'degraded' ? 200 : 200;
+      res.status(statusCode).json(health);
     });
 
     // Get agent status — returns features, rateLimits, and health for the dashboard
@@ -195,6 +143,7 @@ class SalesAgent {
 
     // Mount agent routes
     this.app.use('/api/agent', agentRoutes);
+    this.app.use('/api/agent', agentConfigRoutes);
     this.app.use('/api', productsRoutes);
 
     // ── Agent System: Bulk Sourcing, Sales & Marketing, Content, Funding ───────
@@ -848,6 +797,9 @@ class SalesAgent {
 
       // Create shared HTTP server (Express + WS on the same port 3002)
       const httpServer = createServer(this.app);
+
+      // Setup Swagger API documentation
+      try { setupSwagger(this.app); } catch { /* swagger deps may be missing */ }
 
       // Start HTTP server — health checks work even before DB connects
       httpServer.listen(this.port, () => {

@@ -17,6 +17,9 @@ import { bulkSourcingAgent } from '../../services/bulk-sourcing.agent';
 import { sendSSE } from '../middleware/sse.middleware';
 import { broadcastAgentEvent } from '../../wsServer';
 import { wrapAgentResponse, wrapAgentError } from '../../types/agent-response.types';
+import { validate } from '../middleware/validate.middleware';
+import { BulkSourcingSchema } from '../schemas/agent.schemas';
+import { limits } from '../middleware/rate-limit.middleware';
 
 const router = Router();
 
@@ -34,7 +37,7 @@ async function getCatalogueCount(): Promise<number> {
  * Body: { pages?: number, enrichWithAI?: boolean }
  * Headers: Accept: text/event-stream (optional, for streaming)
  */
-router.post('/bulk-sourcing', async (req: Request, res: Response) => {
+router.post('/bulk-sourcing', limits.scrape, validate(BulkSourcingSchema), async (req: Request, res: Response) => {
   const startedAt = new Date();
   try {
     const {

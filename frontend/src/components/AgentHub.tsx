@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Zap, BarChart3, PenTool, Briefcase } from 'lucide-react';
 import BulkSourcingModal from './agents/BulkSourcingModal';
 import MarketingModal from './agents/MarketingModal';
@@ -20,6 +20,12 @@ interface AgentRun {
   result: any;
 }
 
+interface StreamingState {
+  phase: string;
+  progress: number;
+  message: string;
+}
+
 interface Props {
   onProductsUpdated?: () => void;
 }
@@ -29,6 +35,8 @@ export default function AgentHub({ onProductsUpdated }: Props) {
   const [modalOpen, setModalOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<AgentRun | null>(null);
+  const [streaming, setStreaming] = useState<StreamingState | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const handleRun = useCallback(
     async (key: string, payload: any) => {
@@ -36,26 +44,79 @@ export default function AgentHub({ onProductsUpdated }: Props) {
       setModalOpen(null);
       setLoading(key);
       setLastRun(null);
+      setStreaming({ phase: 'starting', progress: 0, message: 'Initializing...' });
+
       try {
+        // Try SSE streaming first
         const endpoint = `/api/agents/${key}`;
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+        const es = new EventSource(`${endpoint}?_format=sse`);
+        eventSourceRef.current = es;
+
+        es.addEventListener('progress', (e) => {
+          const data = JSON.parse(e.data);
+          setStreaming({
+            phase: data.phase || 'running',
+            progress: data.currentProduct ? (data.currentProduct / (data.totalProducts || 1)) * 100 : 0,
+            message: `${data.phase || 'Running'}...`,
+          });
         });
-        const data = await res.json();
-        setLastRun({ key, result: data });
-        if (key === 'bulk-sourcing' && data.success && onProductsUpdated) {
-          onProductsUpdated();
-        }
+
+        es.addEventListener('complete', (e) => {
+          const data = JSON.parse(e.data);
+          setLastRun({ key, result: data });
+          setStreaming(null);
+          setLoading(null);
+          es.close();
+          if (key === 'bulk-sourcing' && data.success && onProductsUpdated) {
+            onProductsUpdated();
+          }
+        });
+
+        es.addEventListener('error', (e) => {
+          setStreaming(null);
+          setLoading(null);
+          es.close();
+          // Fallback to regular fetch if SSE fails
+          fallbackFetch(key, payload);
+        });
+
+        // Timeout fallback — if no response in 10s, try regular fetch
+        setTimeout(() => {
+          if (loading === key) {
+            es.close();
+            fallbackFetch(key, payload);
+          }
+        }, 10000);
       } catch (e: any) {
-        setLastRun({ key, result: { error: e.message } });
-      } finally {
+        setStreaming(null);
         setLoading(null);
+        setLastRun({ key, result: { error: e.message } });
       }
     },
-    [agentsEnabled, onProductsUpdated]
+    [agentsEnabled, onProductsUpdated, loading]
   );
+
+  const fallbackFetch = async (key: string, payload: any) => {
+    try {
+      const endpoint = `/api/agents/${key}`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setLastRun({ key, result: data });
+      setStreaming(null);
+      if (key === 'bulk-sourcing' && data.success && onProductsUpdated) {
+        onProductsUpdated();
+      }
+    } catch (e: any) {
+      setLastRun({ key, result: { error: e.message } });
+    } finally {
+      setLoading(null);
+      setStreaming(null);
+    }
+  };
 
   const openModal = (key: string) => {
     if (agentsEnabled) setModalOpen(key);
@@ -87,7 +148,19 @@ export default function AgentHub({ onProductsUpdated }: Props) {
             <p className="font-medium text-sm text-gray-700">{agent.label}</p>
             {loading === agent.key && (
               <div className="mt-2 flex items-center gap-1 text-xs text-indigo-500">
-                <span className="animate-pulse">Running...</span>
+                {streaming ? (
+                  <span>{streaming.message} ({Math.round(streaming.progress)}%)</span>
+                ) : (
+                  <span className="animate-pulse">Running...</span>
+                )}
+              </div>
+            )}
+            {loading === agent.key && streaming && (
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
+                <div
+                  className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(streaming.progress, 100)}%` }}
+                />
               </div>
             )}
           </button>
