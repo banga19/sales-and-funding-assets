@@ -114,26 +114,41 @@ async function checkNvidiaAI(): Promise<HealthCheck> {
 }
 
 /**
- * Get full health status.
+ * getFullHealthStatus — returns the shape the frontend dashboard expects:
+ * { status, timestamp, checks: { database: { healthy }, email: boolean, nvidia: boolean } }
  */
-export async function getHealthStatus(): Promise<HealthStatus> {
-  const [postgres, redis, nvidia] = await Promise.allSettled([
+export async function getHealthStatus(): Promise<{
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: string;
+  uptime: number;
+  version: string;
+  checks: {
+    database: { healthy: boolean; error?: string; latencyMs?: number };
+    email: boolean;
+    nvidia: boolean;
+  };
+}> {
+  const [postgres, redis, nvidia, email] = await Promise.allSettled([
     checkPostgres(),
     checkRedis(),
     checkNvidiaAI(),
+    checkEmail(),
   ]);
 
-  const checks: Record<string, HealthCheck> = {
-    postgres: postgres.status === 'fulfilled' ? postgres.value : { status: 'fail', message: 'Check failed' },
-    redis: redis.status === 'fulfilled' ? redis.value : { status: 'fail', message: 'Check failed' },
-    nvidia_ai: nvidia.status === 'fulfilled' ? nvidia.value : { status: 'warn', message: 'Check failed' },
-  };
+  const postgresCheck = postgres.status === 'fulfilled' ? postgres.value : { status: 'fail' as const };
+  const redisCheck = redis.status === 'fulfilled' ? redis.value : { status: 'fail' as const };
+  const nvidiaCheck = nvidia.status === 'fulfilled' ? nvidia.value : { status: 'warn' as const };
+  const emailCheck = email.status === 'fulfilled' ? email.value : false;
+
+  // Database is healthy if both Postgres and Redis are up
+  const dbHealthy = postgresCheck.status === 'pass' && redisCheck.status === 'pass';
+  const nvidiaHealthy = nvidiaCheck.status === 'pass';
 
   // Determine overall status
-  const hasFailures = Object.values(checks).some(c => c.status === 'fail');
-  const hasWarnings = Object.values(checks).some(c => c.status === 'warn');
+  const hasFailures = postgresCheck.status === 'fail' || redisCheck.status === 'fail';
+  const hasWarnings = nvidiaCheck.status === 'warn' || !emailCheck;
 
-  let status: HealthStatus['status'] = 'healthy';
+  let status: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
   if (hasFailures) status = 'unhealthy';
   else if (hasWarnings) status = 'degraded';
 
@@ -142,8 +157,34 @@ export async function getHealthStatus(): Promise<HealthStatus> {
     timestamp: new Date().toISOString(),
     uptime: Math.floor((Date.now() - startTime) / 1000),
     version: process.env.npm_package_version || '0.0.0',
-    checks,
+    checks: {
+      database: {
+        healthy: dbHealthy,
+        latencyMs: (postgresCheck.status === 'pass' ? postgresCheck.latencyMs : 0) +
+                   (redisCheck.status === 'pass' ? redisCheck.latencyMs : 0),
+        ...(postgresCheck.status === 'fail' ? { error: postgresCheck.message } : {}),
+        ...(redisCheck.status === 'fail' ? { error: redisCheck.message } : {}),
+      },
+      email: emailCheck,
+      nvidia: nvidiaHealthy,
+    },
   };
+}
+
+/**
+ * Check email service (Resend) connectivity.
+ */
+async function checkEmail(): Promise<boolean> {
+  try {
+    const { Resend } = await import('resend');
+    const resend = new Resend(agentConfig.email.resend.apiKey);
+
+    // Try to list domains (lightweight check)
+    await resend.domains.list();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Made with Bob
