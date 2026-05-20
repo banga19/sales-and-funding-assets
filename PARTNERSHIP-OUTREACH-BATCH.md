@@ -1,3 +1,7 @@
+# PARTNERSHIP-OUTREACH-BATCH.md — Full Resolved Version
+# All conflicts resolved in favour of HEAD (researched/corrected data)
+# Base commit: 97950dfe → HEAD overwrite with corrected partner entries
+
 # Partnership Outreach Batch — Week 1 Intro Emails
 # 5 Tier 1 West Africa Partners | Ready to Send
 
@@ -192,7 +196,7 @@ Sokogate is entering West Africa and Dakar is our Day 1 priority. Traders' Wareh
 - **Year 1 potential**: USD 6,000–12,000/month as we scale to 500 retailers in Senegal
 - **No inventory risk**: We own all stock until it's picked; you handle the fulfilment mechanics
 
-**Proposed structure**: 90-day pilot starting Week 2 of our Door 1 Senegal launch (targeting ~100 retailers in Dakar). USD 4K/month for you during pilot. Scale to USD 7K+/month if KPIs are hit.
+**Proposed structure**: 90-day pilot starting Week 2 of our Door 1 Senegal launch (targeting ~100 retailers in Dakar). USD 4K/month for you during pilot. Scale to USD 7K+/month if KPIs are met.
 
 Can you make 30 minutes available this week to discuss the pilot structure in detail?
 
@@ -204,7 +208,7 @@ Can you make 30 minutes available this week to discuss the pilot structure in de
 ## PARTNERSHIP OUTREACH SUMMARY TABLE
 
 | # | Partner | Country | Tier | Email | Commercial | Pilot Revenue (Mo) | Year 1 Potential |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|
 | 1 | Meridian Trust | Ghana | T1 | info@meridian.com.gh | USD 3K base + 15% rev share | USD 4,000 | USD 15,000 |
 | 2 | Jospong Group | Ghana | T1 | info@jospong.com ⚠️ | USD 3K base + 12% commission | USD 4,000 | USD 12,000 |
 | 3 | DHL West Africa | Ghana/Senegal | T1 | partnerships@dhl.com | Contract logistics (fixed+var) | USD 6,000 | USD 96,000+ |

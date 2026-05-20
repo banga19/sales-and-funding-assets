@@ -1,4 +1,5 @@
 # Investor Cold Emails — Wednesday May 21 Send Checklist
+
 # Today's target: Catalyst Fund ONLY
 # Impact Ventures team@impactventures.or.ke: ❌ NOT FOUND — domain DNS error, no verifiable Nairobi VC confirmed. DO NOT SEND today. Replace with verified target first.
 
@@ -100,7 +101,6 @@ Catalyst Fund — Day 12:
 - Optional: attach link to live Sokogate AI dashboard showing 88 contacts
 - Subject: Sokogate 1-page exec summary + Series A update
 
----
 ⚠️ Impact Ventures — SKIPPED — email unverified (DNS error on impactventures.or.ke).
 Replace with a verified T1 target (BII, Novastar, or direct via EAVCA) before next attempt.
 ```
