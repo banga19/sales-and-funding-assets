@@ -109,3 +109,7 @@ frontend/dist/
 frontend/build/
 agent/dist/
 backend/dist/
+
+# BLOCKED: 248MB zip exceeds per-file GitHub 100MB limitt
+sales-and-funding-assets.zip
+

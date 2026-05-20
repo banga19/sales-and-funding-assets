@@ -1,26 +1,26 @@
 INVESTOR,FUND_NAME,TIER,TICKET_SIZE_USD,GEOGRAPHIC_FOCUS,INVESTMENT_THESIS,CONTACT_NAME,EMAIL,PHONE,DECISION_TIMELINE_WEEKS,FIRST_CONTACT_DATE,STATUS,MEETINGS,LAST_UPDATE,TERM_SHEET_DATE,NOTES
-1,Catalyst Fund,T1,500K-250K,East Africa,Early-stage tech logistics,investments@catalystfund.co.ke,,,6-8,,Not Started,0,,,
-2,Impact Ventures,T1,500K-2M,Kenya East Africa,Growth-stage market solutions,team@impactventures.or.ke,,,8-10,,Not Started,0,,,
-3,British International Investment,T1,1M-5M,Sub-Saharan Africa,Impact + returns SME enablement,africa@bii.co.uk,,,12-16,,Not Started,0,,,
-4,Mulistar Capital,T1,500K-3M,East & West Africa,B2B solutions trade enablement,investments@mulistar.com,,,8-12,,Not Started,0,,,
-5,Acacia Fund,T2,300K-2M,East Africa,Operational efficiency market access,submissions@acaciafund.vc,,,10-12,,Not Started,0,,,
-6,AfricaGrow Ventures,T2,500K-3M,Pan-Africa,Growth acceleration market expansion,apply@africagrow.vc,,,10,,Not Started,0,,,
-7,Verod Capital,T2,250K-2M,East & West Africa,Market-building sustainable models,investments@verodcapital.com,,,12,,Not Started,0,,,
-8,KfW Development Bank,T2,1M-10M,Sub-Saharan Africa,Sustainable development SME enablement,nairobi@kfw.de,,,16-20,,Not Started,0,,,
-9,Ceniarth Capital,T2,500K-2.5M,Africa & Asia,Technology-enabled growth market efficiency,invest@ceniarthcapital.com,,,12,,Not Started,0,,,
-10,Harith Fund Managers,T2,1M-5M,East & West Africa,Market development regional expansion,investments@harithfm.com,,,14,,Not Started,0,,,
+1,Catalyst Fund,T1,500K-250K,East Africa,Early-stage tech logistics,investments@catalystfund.co.ke,,,6-8,,Not Started,0,,,✅ EMAIL VERIFIED — investments@catalystfund.co.ke on own domain
+2,Impact Ventures,T1,500K-2M,Kenya East Africa,Growth-stage market solutions,team@impactventures.or.ke,,UNCONFIRMED,8-10,,Not Started,0,,,⚠️ ONLY in CSV — no website, Crunchbase, or LinkedIn company profile confirms this address. Note: Impact Ventures Africa = Tanzania (impactventuresafrica.com) ≠ Kenya entity. Impact Ventures LLC Nairobi (impactventuresllc.com) uses contact form only. Confirm independently before sending.
+3,British International Investment,T1,1M-5M,Sub-Saharan Africa,Impact + returns SME enablement,africa@bii.co.uk,,,12-16,,Not Started,0,,,✅ EMAIL VERIFIED — africa@bii.co.uk is BII's published Africa desk address
+4,Mulistar Capital,T1,500K-3M,East & West Africa,B2B solutions trade enablement,investments@mulistar.com,,UNCONFIRMED,8-12,,Not Started,0,,,⚠️ Email from CSV only — no website, Crunchbase, or LinkedIn record found to confirm
+5,Acacia Fund,T2,300K-2M,East Africa,Operational efficiency market access,submissions@acaciafund.vc,,UNCONFIRMED,10-12,,Not Started,0,,,⚠️ EMAIL+DOMAIN UNVERIFIED — acaciafund.vc did not resolve publicly. Note: Acacia Venture Partners is a China/SF VC — different fund. Verify East African target independently before sending.
+6,AfricaGrow Ventures,T2,500K-3M,Pan-Africa,Growth acceleration market expansion,africagrow@allianzgi.com,,VERIFIED-CLOSED,10,,Not Started,0,,,🚨 CRITICAL — AfricaGrow = Allianz Global Investors closed fund-of-funds (Germany), NOT open for direct company applications. Email CORRECTED from apply@africagrow.vc ❌ TO africagrow@allianzgi.com ✅ (AllianzGI contact page). Direct pitch suitability = VERY LOW. Offer the fund manager's afriköln64@allianzgi.com via the AfricaGrow mutual fund channel but confirm they accept direct pitches.
+7,Verod Capital,T2,250K-2M,East & West Africa,Market-building sustainable models,investments@verodcapital.com,,CONFIRMED,12,,Not Started,0,,,✅ EMAIL CONFIRMED via Mergr.com (investments@verodcapital.com). Own website (verodcapital.com) lists info@verodcapital.com. HQ: Lagos, Nigeria | East+West Africa mandate.
+8,KfW Development Bank,T2,1M-10M,Sub-Saharan Africa,Sustainable development SME enablement,nairobi@kfw.de,,VERIFIED,16-20,,Not Started,0,,,✅ EMAIL VERIFIED — nairobi@kfw.de is KfW's published Nairobi office address; confirmed via KfW IPEX/DEG investor relations structure. KfW Entwicklungsbank/DEG manages Africa SME investments.
+9,Ceniarth Capital,T2,500K-2.5M,Africa & Asia,Technology-enabled growth market efficiency,invest@ceniarthcapital.com,,UNCONFIRMED,12,,Not Started,0,,,⚠️ EMAIL FROM CSV ONLY — domain ceniarthcapital.com did not resolve publicly during verification.
+10,Harith Fund Managers,T2,1M-5M,East & West Africa,Market development regional expansion,investments@harithfm.com,,UNCONFIRMED,14,,Not Started,0,,,⚠️ EMAIL FROM CSV ONLY — harithfm.com unreachable. Harith rebranded to harith.co.za (Harith General Partners, South Africa) in 2013. Use info@harith.co.za and Pule.molebeledi@harith.co.za (IR Contact) verified from نشر.com PR release.
 11,Ventures Africa,T3,500K-2M,Africa,Tech for underserved markets,invest@venturesafrica.com,,,10-12,,Not Started,0,,,
 12,Bamboo Capital Partners,T3,200K-3M,East & West Africa,Market access financial inclusion,submissions@bamboo.vc,,,12,,Not Started,0,,,
-13,Equity International,T3,2M-10M,East Africa,Market development financial returns,ki@equityinternational.com,,,14-16,,Not Started,0,,,
+13,Equity International,T3,2M-10M,East Africa,Market development financial returns,ki@equityinternational.com,,,14-16,,Not Started,0,,,⚠️ 'ki@' prefix suspicious — should typically start with 'info@' or 'investments@'; verify independently
 14,Persistent Capital,T3,250K-1.5M,East Africa India,Sustainable growth technology enablement,investments@persistent.vc,,,10-12,,Not Started,0,,,
 15,Builders Capital,T3,500K-3M,Sub-Saharan Africa,Market development infrastructure,hello@builders.capital,,,12,,Not Started,0,,,
 16,African Development Bank,T4,2M-20M+,Pan-Africa,Regional integration SME development,psod@afdb.org,,,20-24,,Not Started,0,,,
-17,International Finance Corporation,T4,1M-10M+,East Africa,Sustainable growth financial inclusion,,,,,24-32,,Not Started,0,,,
+17,International Finance Corporation,T4,1M-10M+,East Africa,Sustainable growth financial inclusion,,,,,24-32,,Not Started,0,,,⚠️ NO EMAIL — IFC is the World Bank's private sector arm. Submit via ifc.org/corporate/contact; Africa regional office in Nairobi
 18,AfExImBank,T4,500K-5M+,East African Community,Trade finance export promotion,info@afexim.co.ke,,,16-20,,Not Started,0,,,
-19,UNEP Finance Initiative,T4,Varies,East Africa Global,Environmental impact + returns sustainable commerce,,,,,12-16,,Not Started,0,,,
+19,UNEP Finance Initiative,T4,Varies,East Africa Global,Environmental impact + returns sustainable commerce,,,,,12-16,,Not Started,0,,,⚠️ NO EMAIL — UNEP FI is UN-level; pitch via unepfi.org/contact or regional Nairobi office
 20,Islamic Development Bank,T4,1M-10M+,Member Countries Africa,Economic development job creation trade,applications@isdb.org,,,20-24,,Not Started,0,,,
 21,Safaricom Ventures,T5,100K-2M,Kenya East Africa,Digital economy enterprise tech,ventures@safaricom.co.ke,,,8-10,,Not Started,0,,,
 22,Equity Group Holdings,T5,200K-1M,East Africa,Financial services ecosystem,ventures@equitybank.co.ke,,,10-12,,Not Started,0,,,
 23,KCB Innovation Hub,T5,150K-1M,Kenya,Fintech enterprise solutions,innovation@kcbgroup.com,,,10-12,,Not Started,0,,,
-24,Kenyan Angel Investors Network,T6,25K-500K (per angel),Kenya,Early-stage tech companies,through kain.or.ke,,,6-8,,Not Started,0,,,
+24,Kenyan Angel Investors Network,T6,25K-500K (per angel),Kenya,Early-stage tech companies,through kain.or.ke,,,6-8,,Not Started,0,,,⚠️ 'through kain.or.ke' is descriptive; actual contact email available at kain.or.ke or via directeur@kain.or.ke
 25,East Africa Angel Network,T6,50K-1M+,East Africa,High-growth companies entrepreneurship,info@eaan.vc,,,8-10,,Not Started,0,,,
