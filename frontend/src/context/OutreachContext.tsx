@@ -11,6 +11,7 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, type ReactNode } from 'react';
 import type { EmailLogEntry } from '../services/outreachApi';
 import { fetchOutreachContacts, fetchEmailLogs, sendContactOutreach } from '../services/outreachApi';
+import { apiClient } from '../api/client';
 
 // ─── State ─────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,33 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
     logsFetched.current = true;
     setState(prev => ({ ...prev, logsLoading: true }));
     await fetchEmailLogs((update) => setState(prev => ({ ...prev, ...update })));
+
+    // Also hydrate from DB-backed agent email-logs endpoint
+    try {
+      const resp = await (apiClient as any).get('/agents/email-logs?limit=200');
+      const dbLogs: any[] = Array.isArray(resp?.data) ? resp.data : [];
+      if (dbLogs.length > 0) {
+        setState(prev => ({
+          ...prev,
+          emailLogs: [
+            ...prev.emailLogs,
+            ...dbLogs.map((l: any): EmailLogEntry => ({
+              id:          l.id,
+              contactId:   l.contact_id,
+              contactName: '',
+              to:          l.to_email,
+              subject:     l.subject,
+              body:        l.body_preview || '',
+              status:      l.status === 'sent' || l.status === 'dry-run' ? l.status : 'failed',
+              error:       l.error_message,
+              sentAt:      l.sent_at,
+            })),
+          ],
+        }));
+      }
+    } catch {
+      // DB email-logs endpoint may not exist yet — silently ignore
+    }
   }, []);
 
   const sendOutreach = useCallback(async (contactId: string, dryRun = false) => {

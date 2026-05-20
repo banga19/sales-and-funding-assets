@@ -13,6 +13,7 @@
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "migrate": "ts-node src/database/migrations/run-migrations.ts",
+    "seed:contacts": "ts-node src/database/seed/seed-contacts.ts",
     "report:weekly": "ts-node src/utils/generate-report.ts"
   },
   "keywords": [

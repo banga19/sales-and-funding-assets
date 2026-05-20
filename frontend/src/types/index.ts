@@ -40,7 +40,7 @@ export interface AgentStatus {
 }
 
 // Contact Types
-export type ContactType = 'prospect' | 'investor' | 'partner';
+export type ContactType = 'prospect' | 'investor' | 'partner' | 'funding';
 export type ContactStage = 'new' | 'contacted' | 'engaged' | 'qualified' | 'converted' | 'lost';
 
 export interface Contact {

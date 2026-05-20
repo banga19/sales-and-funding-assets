@@ -16,6 +16,7 @@ import { startWSServer } from './wsServer';
 import { initializeDailyOutreachJob } from './jobs/daily-outreach.job';
 import { initializeFollowUpCheckJob } from './jobs/followup-check.job';
 import { initializeMetricsSyncJob } from './jobs/metrics-sync.job';
+import outreachBatchRoutes from './api/routes/outreach-batch.routes';
 
 class SalesAgent {
   private app: Express;
@@ -172,6 +173,7 @@ class SalesAgent {
     this.app.use('/api/agents', salesMarketingRoutes);
     this.app.use('/api/agents', contentCreationRoutes);
     this.app.use('/api/agents', fundingRoutes);
+    this.app.use('/api/agents', outreachBatchRoutes);
 
     // ── Contact Management ───────────────────────────────────────────────────────
     const mapContact = (r: any) => ({

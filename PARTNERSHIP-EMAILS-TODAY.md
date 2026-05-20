@@ -48,15 +48,17 @@ Would next week work?
 
 ---
 
-*[ ] Sent: _________________  [ ] CRM: DHL West Africa → Status = "Contacted"*
+*[ ] Sent: _________________  [ ] CRM: DHL West Africa → Status = "Contacted" ✅ EMAIL CONFIRMED (partnerships@dhl.com = DHL published global partnerships inbox; DHL Supply Chain BRE West Africa leadership profiles confirmed)*
 
 ---
 
 ## PARTNERSHIP EMAIL #5 — TRADERS' WAREHOUSE LIMITED, SENEGAL (T1)
 
-**Send day**: Thursday, May 21 (same day, send #4 then #5)
+❌ NHOD — DO NOT SEND — 2026-05-20 RESEARCH: traders-warehouse.sn domain unresolved (2024–2026). No confirmed company under this name in Senegal. Traders' Warehouse Cape Town SA (traderswarehouse.co.za / info@twh.bz) = different entity. Do NOT use placeholder until entity confirmed via Dakar Chamber of Commerce.
+
+**Send day**: Thursday, May 21 — ⚠️ SKIP THIS EMAIL; replace with confirmed Dakar warehouse contact
 **From**: Sokogate Sales Team
-**To**: operations@traders-warehouse.sn
+**To**: ❌ operations@traders-warehouse.sn — DO NOT SEND — domain unresolved
 **Cc**: [your email]
 **Subject**: Strategic Distribution Hub — Sokogate × Traders' Warehouse | West Africa Entry
 

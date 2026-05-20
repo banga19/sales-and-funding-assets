@@ -17,7 +17,7 @@ export interface EmailLogEntry {
   to:          string;
   subject:     string;
   body:        string;
-  status:      'sent' | 'failed';
+  status:      'sent' | 'failed' | 'dry-run';
   error?:      string;
   sentAt:      string;
 }

@@ -9,7 +9,9 @@
 
 ## EMAIL #1 — MERIDIAN TRUST LIMITED, GHANA (T1 · Priority #1)
 
-**Email**: contact@meridian-trust.com
+✅ **EMAIL CORRECTED — from contact@meridian-trust.com → info@meridian.com.gh — 2026-05-20 RESEARCH:** contact@meridian-trust.com = Meridian Trust Cyprus offshore corporate services (WRONG entity). info@meridian.com.gh = Meridian Logistics and Engineering Ltd, Accra Ghana (143 George Bush Highway, Accra GA-158-9505) confirmed from company website. TEL: +233 (0) 302 777 948. NOTE: cc contact@meridian-trust.com only to clarify whether Cyprus entity has a Ghana subsidiary — do NOT rely on it as the primary send destination.
+
+**Email**: info@meridian.com.gh (was contact@meridian-trust.com — Cyprus, do not use as primary)
 **Country**: Ghana | **Tier**: T1
 **Revenue potential**: USD 7,500/month (15% revenue share on fulfillment + storage)
 **Capability**: Warehouse + Distribution, 50+ retailer network, 5 distribution centres
@@ -49,7 +51,9 @@ Are you open to a call this week? I can share a 1-page proposal specific to your
 
 ## EMAIL #2 — JOSPGONG GROUP, GHANA (T1)
 
-**Email**: info@jospong.com
+⚠️ **NHOD — UNCONFIRMED — 2026-05-20 RESEARCH:** info@jospong.com listed in CSV only. jospong.com was unreachable. No Ghana Chamber of Commerce or LinkedIn entry confirming this email was found. NOTE: search results showed "Jospong Group" may relate to a non-Ghana entity. Find the correct Head of Partnerships email via LinkedIn "Jospong Group Ghana" or Ghana Chamber of Commerce directory before sending. Do NOT use placeholder until confirmed.
+
+**Email**: info@jospong.com ⚠️ UNCONFIRMED — find via LinkedIn or Ghana Chamber of Commerce before sending
 **Country**: Ghana | **Tier**: T1
 **Revenue potential**: USD 5,000/month (12% revenue share + fleet utilisation)
 **Capability**: Logistics fleet + warehousing (20+ operating centres)
@@ -122,12 +126,14 @@ Can you spare 30 minutes to explore this? We're particularly interested in your 
 
 ## EMAIL #4 — GNPC DOWNSTREAM (LUBRICANTS), GHANA (T1)
 
-**Email**: sales@gnpc.com
+✅ **EMAIL CORRECTED — 2026-05-20 RESEARCH:** sales@gnpc.com was speculative — gnpc.com & gnpc.com.gh were unreachable during verification. CORRECTED EMAIL = info@gnpcghana.com (confirmed as GNPC's published address from gnpcghana.com Contact Us page, 2026). Address: Petroleum House Tema Ghana. TEL: +233-303-206020 / +233-303-204654. For GNPC Explorco (upstream partnerships): info@gnpcexplorcogh.com 5th Floor Twin Office Tower Shiashie South Legon Accra. Use info@gnpcghana.com as primary send for this partnership outreach (Downstream/Marketing); fallback to Explorco info@gnpcexplorcogh.com if no response.
+
+**Email**: info@gnpcghana.com (corrected from speculative sales@gnpc.com)
 **Country**: Ghana | **Tier**: T1
 **Revenue potential**: USD 3,000/month (co-marketing + referral fees)
 **Capability**: 200+ retail fuel points, established last-mile network, warehousing at fuel depots
 
-**Subject**: Partnership — Monetaise Your Retail Network | Sokogate × GNPC Downstream
+**Subject**: Partnership — Monetize Your Retail Network | Sokogate × GNPC Downstream
 
 ---
 
@@ -159,7 +165,7 @@ Open to a 15-minute chat this week?
 
 ## EMAIL #5 — TRADERS' WAREHOUSE LIMITED, SENEGAL (T1 · Senegal Entry Hub)
 
-**Email**: operations@traders-warehouse.sn
+**Email**: ~~operations@traders-warehouse.sn~~  ❌ DO NOT SEND — domain unresolved (2024–2026); entity unconfirmed. FIND alternative via Dakar Chamber of Commerce or goafricaonline.com/sn warehouse directory before proceeding.
 **Country**: Senegal | **Tier**: T1
 **Revenue potential**: USD 8,000/month (service fees + inventory holding)
 **Capability**: Import/export, warehousing, customs expertise, cross-border connections to Sierra Leone/Guinea/Mali
@@ -199,11 +205,11 @@ Can you make 30 minutes available this week to discuss the pilot structure in de
 
 | # | Partner | Country | Tier | Email | Commercial | Pilot Revenue (Mo) | Year 1 Potential |
 |---|---|---|---|---|---|---|
-| 1 | Meridian Trust | Ghana | T1 | contact@meridian-trust.com | USD 3K base + 15% rev share | USD 4,000 | USD 15,000 |
-| 2 | Jospong Group | Ghana | T1 | info@jospong.com | USD 3K base + 12% commission | USD 4,000 | USD 12,000 |
+| 1 | Meridian Trust | Ghana | T1 | info@meridian.com.gh | USD 3K base + 15% rev share | USD 4,000 | USD 15,000 |
+| 2 | Jospong Group | Ghana | T1 | info@jospong.com ⚠️ | USD 3K base + 12% commission | USD 4,000 | USD 12,000 |
 | 3 | DHL West Africa | Ghana/Senegal | T1 | partnerships@dhl.com | Contract logistics (fixed+var) | USD 6,000 | USD 96,000+ |
-| 4 | GNPC Downstream | Ghana | T1 | sales@gnpc.com | Referral + co-marketing | USD 1,500 | USD 3,000 |
-| 5 | Traders' Warehouse | Senegal | T1 | operations@traders-warehouse.sn | USD 3K guarantee + 15% rev share | USD 4,000 | USD 84,000 |
+| 4 | GNPC Downstream | Ghana | T1 | info@gnpcghana.com | Referral + co-marketing | USD 1,500 | USD 3,000 |
+| 5 | Traders' Warehouse | Senegal | T1 | ❌ operations@traders-warehouse.sn DO NOT SEND | USD 3K guarantee + 15% rev share | USD 4,000 | USD 84,000 |
 
 **Total Year 1 partnership revenue at full scale**: ~USD 210,000–300,000 across 5 partners
 

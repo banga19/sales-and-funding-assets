@@ -49,7 +49,9 @@ Best regards,
 
 ## EMAIL #2 — IMPACT VENTURES (T1 · Nairobi-Based)
 
-**Email**: team@impactventures.or.ke
+🚨 **NHOD — DO NOT SEND UNTIL EMAIL VERIFIED — 2026-05-20 RESEARCH RESULT:** impactventures.or.ke = DNS error. Impact Ventures LLC Nairobi (impactventuresllc.com, Rainbow Tower Westlands) is a real Nairobi company but no published email found — website shows address only. Impact Ventures Africa = Tanzania (different fund). Impact Ventures fund (.fund) = Australia climate tech. Replace this send target BEFORE sending. Suggested replacement: Novastar Ventures (novastarventures.com) or direct outreach via EAVCA member list.
+
+**Email**: ~~team@impactventures.or.ke~~ DO NOT SEND — no verifiable email confirmed
 **Tier**: T1 | **Ticket**: USD 500K–2M | **Timeline**: 8–10 weeks | **Thesis**: Growth-stage market-creating solutions
 
 **Subject**: Series A — Sokogate: B2B Supply Chain Platform for 50M+ African SMEs
@@ -115,7 +117,9 @@ We would value the chance to present our impact thesis and track record in furth
 
 ## EMAIL #4 — MULISTAR CAPITAL (T1 · East & West Africa)
 
-**Email**: investments@mulistar.com
+🚨 **NHOD — DO NOT SEND — WRONG ENTITY — 2026-05-20 RESEARCH RESULT:** mulistar.com = DNS/transport error. mulacapital.co.ke confirmed as Mula Capital Ltd (microfinance lender, Nairobi) — NOT a VC fund. No verifiable East African VC named "Mulistar Capital" found online. Replace this send target BEFORE sending. Suggested replacement: Novastar Ventures (novastarventures.com, Nairobi/Lagos/London, B2B + logistics thesis).
+
+**Email**: ~~investments@mulistar.com~~ DO NOT SEND — wrong entity, no VC at this domain
 **Tier**: T1 | **Ticket**: USD 500K–3M | **Timeline**: 8–12 weeks | **Thesis**: B2B solutions, financial inclusion, trade enablement
 
 **Subject**: B2B Bulk Sourcing for 50M+ African SMEs — Sokogate Series A
@@ -151,7 +155,9 @@ Thanks and regards,
 
 ## EMAIL #5 — ACACIA FUND (T2)
 
-**Email**: submissions@acaciafund.vc
+⚠️ **NHOD — EMAIL UNVERIFIED — ACACIA FUND CONFIRMED (Nairobi, Kenya) — 2026-05-20 RESEARCH:** The Acacia Fund confirmed at Norfolk Towers Kijabe Street Nairobi Kenya (phone 254-2-228870, buyout/IPO thesis, via CB Insights). BUT submissions@acaciafund.vc = domain did not resolve. Website = kcpafrica.com (CB Insights confirms). Submit via kcpafrica.com contact page or discover proper email via Companies Registry KE before sending. Do NOT send to submissions@acaciafund.vc.
+
+**Email**: submissions@acaciafund.vc ⚠️ UNCONFIRMED — fund confirmed but email unverified
 **Tier**: T2 | **Ticket**: USD 300K–2M | **Timeline**: 10–12 weeks | **Thesis**: Operational efficiency, market access
 
 **Subject**: Sokogate: Operational Efficiency for Africa's Supply Chains | Series A
@@ -187,7 +193,11 @@ Open to exploring fit?
 
 ## EMAIL #6 — AFRICAGROW VENTURES (T2 · Pan-Africa)
 
-**Email**: apply@africagrow.vc
+🚨 **CRITICAL — CLOSED FUND — EMAIL CORRECTED — 2026-05-20 RESEARCH VALIDATION:** AfricaGrow = Allianz Global Investors closed fund-of-funds (Germany), NOT open for direct company applications. apply@africagrow.vc leads to dead page. CORRECTED EMAIL = africagrow@allianzgi.com (via AllianzGI public contact page, confirmed in TRACKER). This email is for AllianzGI's Africa investment team, NOT for fund applications. Direct pitch suitability = VERY LOW (AllianzGI fund-of-funds allocates through GP vehicle, not direct deals).
+
+**Consider alternatives**: Launch Africa Ventures (launchafrica.vc, Pan-Africa early-stage), TLcom Capital (tlcom.vc, Kenya-focused) are open and relevant.
+
+**Email**: africagrow@allianzgi.com (corrected from original apply@africagrow.vc — still NOT RECOMMENDED FOR DIRECT PITCH)
 **Tier**: T2 | **Ticket**: USD 500K–3M | **Timeline**: 10 weeks | **Thesis**: Growth acceleration, market expansion
 
 **Subject**: Sokogate Series A — Pan-Africa B2B Supply Chain Platform
@@ -281,7 +291,9 @@ We would welcome the opportunity to present a detailed impact framework and fina
 
 ## EMAIL #9 — CENIARTH CAPITAL (T2)
 
-**Email**: invest@ceniarthcapital.com
+⚠️ **NHOD — EMAIL CORRECTED, THESIS FIT UNCONFIRMED — 2026-05-20 RESEARCH:** ceniarthcapital.com = WRONG DOMAIN. Correct domain = ceniarthllc.com (London/San Francisco/New York, single-family office, ~12 staff). Verified email: info@ceniarthllc.com. CAUTION: Ceniarth focuses on developed-market affordable housing, community finance, and renewables — not African supply chain tech. 34% of their web traffic is from Kenya (per Exa), so worth testing; but do NOT promise fit without confirming. Send a soft intro first.
+
+**Email**: info@ceniarthllc.com ✅ EMAIL CORRECTED (was invest@ceniarthcapital.com — wrong domain)
 **Tier**: T2 | **Ticket**: USD 500K–2.5M | **Timeline**: 12 weeks | **Thesis**: Technology-enabled growth, market efficiency
 
 **Subject**: Sokogate — Technology-Enabled Supply Chain Efficiency for African SMEs | Series A
@@ -317,7 +329,7 @@ Would a 20-minute call work for you this week to walk through the model?
 
 ## EMAIL #10 — HARITH FUND MANAGERS (T2)
 
-**Email**: investments@harithfm.com
+**Email**: info@harith.co.za
 **Tier**: T2 | **Ticket**: USD 1M–5M | **Timeline**: 14 weeks | **Thesis**: Market development, regional expansion
 
 **Subject**: Sokogate Series A — Regional B2B Supply Chain Infrastructure | East & West Africa
@@ -384,3 +396,20 @@ Day 19           → Follow-up #3 (new data point — pilot result, new country 
 
 *Created: May 20, 2026 | Source: TRACKER-INVESTORS.csv + 02-SERIES-A-INVESTORS-EAST-AFRICA.md*
 *All emails: personalise [Bangali Fofana], [+254758947124], [www.linkedin.com/in/bangali-fofana] before sending. Do not send with placeholders.*
+
+---
+
+## NHOD — SEND VETTING SUMMARY (Updated 2026-05-20)
+
+| # | Investor | Email Status | Verdict | Action |
+|---|---|---|---|---|
+| 1 | Catalyst Fund | `investments@catalystfund.co.ke` | ✅ VERIFIED | Send |
+| 2 | Impact Ventures | `team@impactventures.or.ke` | ❌ NOT FOUND — domain unreachable, no verifiable Nairobi VC found | **DO NOT SEND** — replace before Mon send |
+| 3 | BII | `africa@bii.co.uk` | ✅ VERIFIED | Send |
+| 4 | Mulistar Capital | `investments@mulistar.com` | ❌ WRONG ENTITY — mulacapital.co.ke = microfinance lender, not VC | **DO NOT SEND** — replace before Tue send |
+| 5 | Acacia Fund | `submissions@acaciafund.vc` | ⚠️ FUND CONFIRMED (Nairobi, CB Insights) / EMAIL UNVERIFIED | Find email via kcpafrica.com before Wed send |
+| 6 | AfricaGrow | `africagrow@allianzgi.com` | 🚨 CLOSED FUND — email corrected, direct pitch = VERY LOW | Flag; consider replacing with Launch Africa Ventures |
+| 7 | Verod | `investments@verodcapital.com` | ✅ CONFIRMED | Send |
+| 8 | KfW | `nairobi@kfw.de` | ✅ VERIFIED | Send |
+| 9 | Ceniarth | `info@ceniarthllc.com` | ✅ EMAIL CORRECTED / ⚠️ thesis fit TBC | Send soft intro; confirm Africa angle first |
+| 10 | Harith | `info@harith.co.za` | ✅ EMAIL UPDATED + REBRANDED to .co.za | Send |

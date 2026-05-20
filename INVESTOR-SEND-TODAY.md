@@ -1,5 +1,6 @@
 # Investor Cold Emails — Wednesday May 21 Send Checklist
-# Today's target: Catalyst Fund + Impact Ventures
+# Today's target: Catalyst Fund ONLY
+# Impact Ventures team@impactventures.or.ke: ❌ NOT FOUND — domain DNS error, no verifiable Nairobi VC confirmed. DO NOT SEND today. Replace with verified target first.
 
 Go file by file. Complete all 6 checklist blocks before closing your browser.
 
@@ -53,41 +54,26 @@ Go file by file. Complete all 6 checklist blocks before closing your browser.
 
 ## EMAIL 2 OF 2 — IMPACT VENTURES
 
-**To**: team@impactventures.or.ke
-**From**: [your email address]
-**Subject**: Series A — Sokogate: B2B Supply Chain Platform for 50M+ African SMEs
+🚨 NHOD — DO NOT SEND — impactventures.or.ke = DNS error, no verifiable Nairobi VC. Replace with verified BII (africa@bii.co.uk) for today's second slot.
+
+**To**: ~~team@impactventures.or.ke~~ **DO NOT SEND — Impact Ventures email unverified**
+**Verification**: domain unreachable; Impact Ventures LLC (Nairobi address known) has no published email in public records
 
 ### Pre-Send Checklist
-- [ ] Open INVESTOR-OUTREACH-BATCH.md → Scroll to `EMAIL #2 — IMPACT VENTURES`
-- [ ] Replace [Founder Name]
-- [ ] Replace [Phone]
-- [ ] No placeholders remaining?
-- [ ] Address verified: team@impactventures.or.ke ✓
-- [ ] Copy → Gmail compose → paste
-- [ ] Calendly in signature
+- [ ] Verify impactventures.or.ke reachable independently before sending — until then: SKIP
+- [ ] NHOD flag raised: Impact Ventures email is NOT FOUND (DNS error on domain; no verified Nairobi VC at listed address)
 
 ### Send
-- [ ] Click **SEND**
-- [ ] Screenshot confirmation
+- [ ] ⚠️ SKIP — Impact Ventures email is unverified. Do NOT send today.
 
 ### Post-Send — CRM Update
-1. **Investors** tab → search "Impact Ventures"
-2. Edit:
-   - **Status**: `Contacted`
-   - **notes**: `Cold email sent May 21 — Series A, growth-stage market solutions. 8–10wk timeline.`
-   - **last_contact_date**: May 21, 2026
-3. Save
+- [ ] ⚠️ SKIP — Impact Ventures marked DO NOT SEND. Track in INVESTOR-OUTREACH-BATCH.md NHOD entry. Find verified email before next attempt.
 
 ### Post-Send — TRACKER-INVESTORS.csv
-- [ ] Find row: `2,Impact Ventures,T1`
-- [ ] Update: `FIRST_CONTACT_DATE` → `2026-05-21`
-- [ ] Update: `STATUS` → `Contacted`
-- [ ] Save
+- [ ] ⚠️ SKIP — Impact Ventures marked NOT FOUND. Do NOT change STATUS to "Contacted." Note in NOT FOUND row of tracker remains.
 
 ### Post-Send — Follow-Up Calendar
-- [ ] Mon May 26 — "Impact Ventures Day 5 follow-up"
-- [ ] Thu Jun 1 — "Impact Ventures Day 12 + exec summary"
-- [ ] Mon Jun 8 — "Impact Ventures Day 19"
+- [ ] ⚠️ SKIP — Impact Ventures NHOD override. When a verified email is found, add Day 5/12/19 reminders.
 
 ---
 
@@ -104,8 +90,6 @@ Go file by file. Complete all 6 checklist blocks before closing your browser.
 >
 > Open to a 20-minute call whenever you scan this.
 
-**For Impact Ventures** (same template, swap name):
-
 ---
 
 ## MONDAY MAY 26 DAY-12 QUICK-REF (Write these into your task list now)
@@ -116,7 +100,7 @@ Catalyst Fund — Day 12:
 - Optional: attach link to live Sokogate AI dashboard showing 88 contacts
 - Subject: Sokogate 1-page exec summary + Series A update
 
-Impact Ventures — Day 12:
-- Same attachment set
-- Add one sentence: "We've had [X] pilot discussions with construction companies in Nairobi this month — happy to share LOIs under NDA."
+---
+⚠️ Impact Ventures — SKIPPED — email unverified (DNS error on impactventures.or.ke).
+Replace with a verified T1 target (BII, Novastar, or direct via EAVCA) before next attempt.
 ```

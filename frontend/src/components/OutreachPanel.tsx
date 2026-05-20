@@ -7,12 +7,22 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X } from 'lucide-react';
+import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X, Tag } from 'lucide-react';
 import { SOK } from '@/design-tokens';
 import { useOutreach } from '@/context/OutreachContext';
 import { useEmailPanel } from '@/context/EmailPanelContext';
 
 type Tab = 'contacts' | 'logs';
+
+type ContactType = 'prospect' | 'investor' | 'partner' | 'funding';
+
+/** Category badge colours */
+const TYPE_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  prospect:  { bg: '#DBEAFE', text: '#1D4ED8',  label: 'Prospect'  },
+  investor:  { bg: '#FEF3C7', text: '#92400E',  label: 'Investor'  },
+  partner:   { bg: '#D1FAE5', text: '#065F46',  label: 'Partner'   },
+  funding:   { bg: '#EDE9FE', text: '#4C1D95',  label: 'Funding'   },
+};
 
 /** Horizontal pill tab */
 function TabButton({ active, onClick, icon, label, badge }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; badge?: React.ReactNode }) {
@@ -30,14 +40,23 @@ function TabButton({ active, onClick, icon, label, badge }: { active: boolean; o
 }
 
 function ContactRow({ contact, sending, onSend }: { contact: any; sending: boolean; onSend: (contact: any) => void }) {
+  const ct = (contact.type || contact.stage || 'prospect') as ContactType;
+  const ts = TYPE_STYLE[ct] || TYPE_STYLE.prospect;
+
   return (
     <div className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 transition-colors">
       <div>
         <p className="font-medium text-sm text-gray-800">{contact.name}</p>
         <p className="text-xs text-gray-400">{contact.email}{contact.company ? ` · ${contact.company}` : ''}</p>
       </div>
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full capitalize">{contact.type || contact.stage}</span>
+      <div className="flex items-center gap-2">
+        <span
+          className="text-xs font-medium px-2 py-0.5 rounded-full capitalize flex items-center gap-1"
+          style={{ background: ts.bg, color: ts.text }}
+          title={ts.label}
+        >
+          <Tag className="w-3 h-3" />{ts.label}
+        </span>
         <button
           onClick={() => { void onSend(contact); }}
           disabled={sending}
@@ -55,6 +74,7 @@ function ContactRow({ contact, sending, onSend }: { contact: any; sending: boole
 export default function OutreachPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('contacts');
   const [emailsFetched, setEmailsFetched] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const contactsContactsLoaded = useRef(false);
 
   const ctx = useOutreach();
@@ -94,7 +114,9 @@ export default function OutreachPanel() {
     void openEmailPanel({ recipients: contact.email ? [contact.email] : undefined });
   }, [openEmailPanel]);
 
-  const contactList = contacts;
+  const contactList = contacts.filter((c: any) =>
+    typeFilter === 'all' ? true : (c.type || 'prospect') === typeFilter,
+  );
   const logList      = logs;
 
   return (
@@ -102,7 +124,7 @@ export default function OutreachPanel() {
       <h2 className="text-lg font-semibold text-gray-800 mb-4">Automated Outreach</h2>
 
       {/* Tab bar */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg mb-4 w-fit">
         <TabButton
           active={activeTab === 'contacts'}
           onClick={() => { setActiveTab('contacts'); void loadContacts(); }}
@@ -116,6 +138,37 @@ export default function OutreachPanel() {
           label="Email Logs"
         />
       </div>
+
+      {/* Type filter — only on Contacts tab */}
+      {activeTab === 'contacts' && (
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <span className="text-xs text-gray-400 mr-1">Filter:</span>
+          {(['all','prospect','investor','partner','funding'] as const).map((t) => {
+            const counts = contacts.reduce((acc: Record<string, number>, c: any) => {
+              const key = c.type || 'prospect';
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+            }, {});
+            const n = t === 'all' ? contacts.length : (counts[t] || 0);
+            return (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className="text-xs font-medium px-2.5 py-1 rounded-full transition-all"
+                style={{
+                  background: typeFilter === t ? SOK.primary : '#F3F4F6',
+                  color:      typeFilter === t ? '#fff'     : '#6B7280',
+                  cursor: n === 0 && t !== 'all' ? 'not-allowed' : 'pointer',
+                  opacity: n === 0 && t !== 'all' ? 0.4 : 1,
+                }}
+              >
+                {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)}
+                <span className="ml-1 opacity-70">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Contacts tab */}
       {activeTab === 'contacts' && (

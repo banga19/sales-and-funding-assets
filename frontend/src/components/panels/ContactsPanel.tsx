@@ -13,12 +13,15 @@ import {
   AlertCircle,
   CheckCircle2,
   RefreshCw,
+  Tag,
 } from 'lucide-react';
-import { useEmailPanel } from '@/context/EmailPanelContext';
 import { toast } from 'react-hot-toast';
+import { useEmailPanel } from '@/context/EmailPanelContext';
+import type { ContactType } from '../../types';
 
 interface Contact {
   id: string;
+  type: ContactType;
   name?: string;
   email?: string;
   phone?: string;
@@ -37,6 +40,7 @@ function normalise(raw: any): Contact {
   const c = raw.contact ?? raw; // unwrap { contact: … } if present
   return {
     id:               c.id,
+    type:             c.type ?? c.contact_type ?? 'prospect',
     name:             c.name ?? c.contact_name ?? '',
     email:            c.email ?? '',
     phone:            c.phone ?? '',
@@ -336,7 +340,18 @@ export default function ContactsPanel() {
                   )}
                 </div>
                 {/* Outreach status */}
-                <div className="mt-1 flex items-center gap-3 text-xs">
+                <div className="mt-1 flex items-center gap-3 text-xs flex-wrap">
+                  {/* Contact type badge */}
+                  <span className="flex items-center gap-1">
+                    <Tag className="w-3 h-3 text-gray-400" />
+                    <span className={`font-medium capitalize ${
+                      contact.tier === 'T1' ? 'text-blue-600' :
+                      contact.tier === 'T2' ? 'text-purple-600' :
+                      'text-gray-500'
+                    }`}>
+                      {contact.tier || 'T3'} · {(contact.type || 'prospect').charAt(0).toUpperCase() + (contact.type || 'prospect').slice(1)}
+                    </span>
+                  </span>
                   <span className="flex items-center gap-1">
                     <Send className="w-3 h-3 text-gray-400" />
                     {contact.emails_sent || 0}
@@ -347,13 +362,13 @@ export default function ContactsPanel() {
                       {new Date(contact.last_contacted).toLocaleDateString()}
                     </span>
                   )}
-                  <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${
                     contact.outreach_status === 'replied' ? 'bg-green-100 text-green-700' :
                     contact.outreach_status === 'emailed' ? 'bg-blue-100 text-blue-700' :
                     contact.outreach_status === 'bounced' ? 'bg-red-100 text-red-700' :
                     'bg-gray-100 text-gray-600'
                   }`}>
-                    {contact.outreach_status === 'none' ? 'None' : contact.outreach_status}
+                    {contact.outreach_status === 'none' ? 'Not started' : contact.outreach_status}
                   </span>
                 </div>
               </div>
