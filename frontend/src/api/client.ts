@@ -47,7 +47,7 @@ import type { ProductListResponse, ScrapeStatusResponse } from '../types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const API_BASE_URL: string = (import.meta.env as any).VITE_API_BASE_URL ?? '/api';
-const API_TIMEOUT: number = parseInt((import.meta.env as any).VITE_API_TIMEOUT ?? '10000', 10);
+const API_TIMEOUT: number = parseInt((import.meta.env as any).VITE_API_TIMEOUT ?? '30000', 10);
 const DEBUG: boolean = (import.meta.env as any).VITE_DEBUG === '1' || (import.meta.env as any).DEV === true;
 
 class ApiClient {

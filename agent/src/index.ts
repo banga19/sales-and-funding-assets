@@ -373,23 +373,46 @@ class SalesAgent {
         if (!rows.length) return res.status(404).json({ success: false, error: 'Contact not found' });
         const contact = mapContact(rows[0]);
 
-        // ── Route through the orchestrator's quick-send pipeline ───────────────────
-        // The orchestrator exposes sendQuickPersonalized which delegates to
-        // QuickSendService.  That service has two paths:
-        //
-        //  A. subject/body overrides supplied  → verbatim send, no AI engine
-        //     (used by the Compose Email panel so custom text is preserved).
-        //  B. no overrides                      → NVIDIA AI personalisation,
-        //     conversation tracking, message_history logging, email_logs insert,
-        //     and a 3-day follow-up schedule.
-        const { orchestrator } = await import('./agents/orchestrator');
-        const { ok, message, logId } = await orchestrator.sendQuickPersonalized(contact, dryRun, subject, body);
+        // Queue the send for async execution (non-blocking)
+        const { queueAgentRun, getJobStatus } = await import('./jobs/agent-run-queue');
+        const jobId = await queueAgentRun({
+          agentName: 'bulk-sourcing', // reuse queue infrastructure
+          params: { contactId, dryRun, subject, body, _type: 'quick-send' },
+          triggeredBy: 'outreach-panel',
+        });
 
-        return res.json({ success: ok, message, logId });
+        // Process immediately in background (don't wait for response)
+        (async () => {
+          try {
+            const { orchestrator } = await import('./agents/orchestrator');
+            const { ok, message, logId } = await orchestrator.sendQuickPersonalized(contact, dryRun, subject, body);
+            // Store result for polling
+            (globalThis as any).__quickSendResults = (globalThis as any).__quickSendResults || {};
+            (globalThis as any).__quickSendResults[jobId] = { ok, message, logId, status: ok ? 'sent' : 'failed', completedAt: new Date().toISOString() };
+          } catch (error: any) {
+            (globalThis as any).__quickSendResults = (globalThis as any).__quickSendResults || {};
+            (globalThis as any).__quickSendResults[jobId] = { ok: false, message: error.message, status: 'failed', completedAt: new Date().toISOString() };
+          }
+        })();
+
+        return res.json({ success: true, jobId, status: 'queued', message: 'Email queued for sending' });
       } catch (error: any) {
         logger.warn('Outreach send failed', { error: error.message });
         res.status(500).json({ success: false, error: error.message || 'Outreach failed' });
       }
+    });
+
+    // GET /api/outreach/send/:jobId — poll for quick-send result
+    this.app.get('/api/outreach/send/:jobId', async (req: Request, res: Response) => {
+      const { jobId } = req.params;
+      const results = (globalThis as any).__quickSendResults || {};
+      const result = results[jobId];
+
+      if (!result) {
+        return res.json({ success: false, status: 'pending', message: 'Email is being processed' });
+      }
+
+      res.json({ success: result.ok, ...result });
     });
 
     this.app.post('/api/test-email', async (req: Request, res: Response) => {

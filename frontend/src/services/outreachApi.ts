@@ -25,14 +25,18 @@ export type EmailLogEntry = {
 
 // ─── API calls ──────────────────────────────────────────────────────────────────
 
-/** POST /api/outreach/send — trigger a single-contact outreach */
+/** POST /api/outreach/send — queue a single-contact outreach (async, returns jobId) */
 export async function sendContactOutreach(
   contactId: string,
   dryRun = false,
   onStateUpdate?: (update: Partial<OutreachState>) => void,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: string; jobId?: string }> {
   try {
     const resp: any = await apiClient.post('/outreach/send', { contactId, dryRun });
+    if (resp?.jobId) {
+      // Poll for result
+      return pollSendResult(resp.jobId);
+    }
     return { ok: Boolean(resp?.success), message: resp?.message ?? 'Done.' };
   } catch (err: any) {
     return {
@@ -40,6 +44,22 @@ export async function sendContactOutreach(
       message: err?.response?.data?.error ?? err?.message ?? 'Request failed.',
     };
   }
+}
+
+/** Poll /api/outreach/send/:jobId until complete or timeout */
+async function pollSendResult(jobId: string, maxAttempts = 30, intervalMs = 1000): Promise<{ ok: boolean; message: string; jobId?: string }> {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, intervalMs));
+    try {
+      const resp: any = await apiClient.get(`/outreach/send/${jobId}`);
+      if (resp?.status === 'sent' || resp?.status === 'failed') {
+        return { ok: resp.success ?? resp.ok, message: resp.message ?? 'Done.', jobId };
+      }
+    } catch {
+      // Continue polling
+    }
+  }
+  return { ok: false, message: 'Email send timed out — check logs for status.', jobId };
 }
 
 /** GET /api/contacts — list all contacts (unwrap Axios response) */
