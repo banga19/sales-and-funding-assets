@@ -32,6 +32,19 @@ export interface BulkSourcingResult {
   durationMs:       number;
 }
 
+export interface BulkSourcingStatus {
+  phase: 'scraping' | 'enriching' | 'complete' | 'error';
+  pagesCrawled?: number;
+  productsFound?: number;
+  productsUpserted?: number;
+  enrichedCount?: number;
+  currentProduct?: number;
+  totalProducts?: number;
+  error?: string;
+}
+
+type StatusCallback = (status: BulkSourcingStatus) => void;
+
 // ─── Enrichment prompt ─────────────────────────────────────────────────────────
 
 const ENRICH_PROMPT = `You are a B2B product cataloguer for a Kenyan construction-materials e-commerce platform.
@@ -52,6 +65,19 @@ Return ONLY a valid JSON object with no markdown fences:
 
 export class BulkSourcingAgent {
   private get enrichmentLLM() { return langchainService.getLLM(0.2, 300); }
+  private listeners: Set<StatusCallback> = new Set();
+
+  /** Subscribe to progress events. Returns an unsubscribe function. */
+  subscribe(cb: StatusCallback): () => void {
+    this.listeners.add(cb);
+    return () => { this.listeners.delete(cb); };
+  }
+
+  private emit(status: BulkSourcingStatus): void {
+    for (const cb of this.listeners) {
+      try { cb(status); } catch { /* ignore listener errors */ }
+    }
+  }
 
   /**
    * run — execute the full sourcing chain.
@@ -65,8 +91,12 @@ export class BulkSourcingAgent {
 
     // ── Step 1: Web scraping / product extraction ──────────────────────────
     logger.info('[bulk-sourcing] Step 1: scrape', { pages });
+    this.emit({ phase: 'scraping', pagesCrawled: 0 });
+
     const scrapeResult = await sourceProductData();
     const productsUpserted = scrapeResult.productsUpserted;
+
+    this.emit({ phase: 'scraping', productsFound: scrapeResult.productsFound ?? 0, productsUpserted });
 
     // ── Step 2: AI enrichment chain ─────────────────────────────────────────
     let enrichedCount = 0;
@@ -74,10 +104,13 @@ export class BulkSourcingAgent {
       logger.info('[bulk-sourcing] Step 2: AI enrichment chain', {
         toEnrich: productsUpserted,
       });
+      this.emit({ phase: 'enriching', totalProducts: productsUpserted });
       enrichedCount = await this.runEnrichmentChain(productsUpserted);
     }
 
     const durationMs = Date.now() - start;
+    this.emit({ phase: 'complete', productsFound: scrapeResult.productsFound ?? productsUpserted, productsUpserted, enrichedCount });
+
     logger.info('[bulk-sourcing] complete', {
       productsFound:    scrapeResult.productsFound ?? 0,
       productsUpserted,
@@ -111,6 +144,7 @@ export class BulkSourcingAgent {
 
       for (const product of products) {
         try {
+          this.emit({ phase: 'enriching', currentProduct: count + 1, totalProducts: products.length });
           const enriched = await this.enrichProduct(product as Product);
           if (enriched) {
             await db.query(

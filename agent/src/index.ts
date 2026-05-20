@@ -14,6 +14,8 @@ import salesMarketingRoutes from './api/routes/sales-marketing.routes';
 import { marketingAgent } from './services/marketing.agent';
 import contentCreationRoutes from './api/routes/content-creation.routes';
 import fundingRoutes from './api/routes/funding.routes';
+import agentQueueRoutes from './api/routes/agent-queue.routes';
+import { startAgentWorker } from './jobs/agent-run-queue';
 import { startWSServer } from './wsServer';
 import { initializeDailyOutreachJob } from './jobs/daily-outreach.job';
 import { initializeFollowUpCheckJob } from './jobs/followup-check.job';
@@ -202,6 +204,7 @@ class SalesAgent {
     this.app.use('/api/agents', fundingRoutes);
     this.app.use('/api/agents', outreachBatchRoutes);
     this.app.use('/api/agents', batchSendRoutes);
+    this.app.use('/api/agents', agentQueueRoutes);
 
     // ── Master Switch — autonomous sub-agent panel ────────────────────────────
     this.app.use('/api/agent/agents', masterSwitchRoutes);
@@ -889,6 +892,11 @@ class SalesAgent {
       // Daily metrics sync at midnight EAT
       try { initializeMetricsSyncJob(); } catch (err: any) {
         logger.warn('Metrics-sync worker failed to initialize', { error: err.message });
+      }
+
+      // Agent run queue worker (background job processing)
+      try { startAgentWorker(); } catch (err: any) {
+        logger.warn('Agent-run queue worker failed to initialize', { error: err.message });
       }
 
       // Handle graceful shutdown

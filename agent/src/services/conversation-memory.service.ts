@@ -29,6 +29,7 @@ import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
 import type { MessageContext } from '../types/message.types';
+import { langchainService } from './langchain.service';
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -157,16 +158,9 @@ async function summarizeHistory(contactId: string, tail: RecentTurn[]): Promise<
     .join('\n');
 
   try {
-    const llm = new ChatOpenAI({
-      apiKey:         agentConfig.ai.apiKey,
-      model:          agentConfig.ai.model,
-      configuration:  { baseURL: agentConfig.ai.baseUrl },
-      temperature:    0.2,
-      maxTokens:      200,
-    });
-
+    const llm = langchainService.getLLM(0.2, 200);
     const chain = SUMMARY_PROMPT.pipe(llm);
-    const res   = await chain.invoke({ window: tail.length.toString(), history: historyText });
+    const res   = await langchainService.withRetry(() => chain.invoke({ window: tail.length.toString(), history: historyText }));
     const raw   = (res as any)?.content?.toString().trim() || '';
     return raw.replace(/^(Summary:\s*)?/i, '');
   } catch (err: any) {

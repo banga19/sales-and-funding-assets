@@ -161,6 +161,63 @@ class LangChainService {
     throw lastError!;
   }
 
+  /**
+   * streamTokens — yields LLM tokens one-by-one via an async generator.
+   * Use with `for await (const token of langchainService.streamTokens(prompt))`.
+   */
+  async *streamTokens(
+    prompt: string,
+    temperature = 0.3,
+    maxTokens?: number,
+  ): AsyncGenerator<string, string, unknown> {
+    const llm = this.getLLM(temperature, maxTokens);
+    const streamingLlm = new ChatOpenAI({
+      model: agentConfig.ai.model,
+      temperature,
+      maxTokens,
+      apiKey: agentConfig.ai.apiKey,
+      streaming: true,
+      configuration: { baseURL: agentConfig.ai.baseUrl },
+    });
+
+    let fullContent = '';
+    const chain = ChatPromptTemplate.fromMessages([['human', prompt]]).pipe(streamingLlm);
+
+    try {
+      const stream = await chain.stream({});
+      for await (const chunk of stream) {
+        const token = typeof chunk.content === 'string' ? chunk.content : '';
+        if (token) {
+          fullContent += token;
+          yield token;
+        }
+      }
+    } catch (err: any) {
+      logger.error('[langchain] streamTokens failed', { error: err.message });
+      yield `[error: ${err.message}]`;
+    }
+
+    return fullContent;
+  }
+
+  /**
+   * streamChain — streams a chain's output tokens to a callback.
+   * Returns the full accumulated text.
+   */
+  async streamChain(
+    prompt: string,
+    onToken: (token: string) => void,
+    temperature = 0.3,
+    maxTokens?: number,
+  ): Promise<string> {
+    let fullContent = '';
+    for await (const token of this.streamTokens(prompt, temperature, maxTokens)) {
+      fullContent += token;
+      onToken(token);
+    }
+    return fullContent;
+  }
+
   /* ════════════════════════════════════════════════════════════════════════
    * CORE CHAIN: generatePersonalizedMessage
    * Replaces personalization.ts raw openai.chat.completions.create() call.
