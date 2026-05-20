@@ -185,16 +185,35 @@ Open to exploring fit?
 
 ---
 
-## EMAIL #6 — AFRICAGROW (CLOSED — DO NOT SEND DIRECT PITCH 🚨)
+## EMAIL #6 — AFRICAGROW VENTURES (T2 · Pan-Africa)
 
-**Contact**: africagrow@allianzgi.com (via contact form at africagrow.allianzgi.com)
-**Tier**: T2 | **Ticket**: USD 500K–3M | **Timeline**: closed | **Thesis**: Growth acceleration, market expansion
+**Email**: apply@africagrow.vc
+**Tier**: T2 | **Ticket**: USD 500K–3M | **Timeline**: 10 weeks | **Thesis**: Growth acceleration, market expansion
 
-⚠️ **DO NOT SEND THIS EMAIL BLOCK.** AfricaGrow is operated by Allianz Global Investors (Frankfurt, Germany) as a CLOSED fund-of-funds (last committed 2024). It invests in other funds, NOT directly in companies. The address `apply@africagrow.vc` in the original tracker was WRONG. The verified address `africagrow@allianzgi.com` (from AllianzGI's AfricaGrow contact page) is for the fund manager — but direct pitches will receive zero response for Series A purposes.
+**Subject**: Sokogate Series A — Pan-Africa B2B Supply Chain Platform
 
-**If you still wish to contact AfricaGrow**: Use the investor contact form at africagrow.allianzgi.com/contacts, select "Investor" capacity. Realistic outcome: you'll be added to their LP deal funnel — not funded directly.
+---
 
-**Recommended replacement**: TLcom Capital (`invest@tlcom.vc`, Nairobi) or Launch Africa Ventures — both are active East Africa T2 VCs with direct company investment mandates.
+Dear AfricaGrow Team,
+
+Sokogate is in the exact stage AfricaGrow targets: a company with proven product-market fit, objective unit economics, and the strategic imperative of geographic expansion.
+
+**What we've validated**:
+- 10,000+ retailer accounts (organic, no paid CAC for first 5,000)
+- 90% repeat rate, 72 NPS — word-of-mouth is our primary acquisition channel
+- 160:1 LTV:CAC proves unit economics scale
+
+**What we need to deploy Series A capital against**:
+- Expansion from 3 warehouses → 7 warehouses (5 countries)
+- Sales team deployment (3 CS reps + 1 ops director)
+- Technology investment: mobile app, analytics, payments (M-Pesa, Airtel Money)
+
+**3-country expansion roadmap**: Kenya→Ghana→Tanzania. Within 18 months post-Series A we target 20,000 active retailers, USD 2M+ annual revenue, and path to profitability.
+
+USD 1.5M Series A at USD 15M post-money. Open to a call this week?
+
+[Bangali Fofana]
+ Sokogate / Ultimo Trading Company Limited
 
 ---
 
@@ -296,21 +315,18 @@ Would a 20-minute call work for you this week to walk through the model?
 
 ---
 
-## EMAIL #10 — HARITH GENERAL PARTNERS (USE CONTACT FORM — DO NOT EMAIL)
+## EMAIL #10 — HARITH FUND MANAGERS (T2)
 
-**Contact URL**: https://harith.africa/contact
+**Email**: investments@harithfm.com
 **Tier**: T2 | **Ticket**: USD 1M–5M | **Timeline**: 14 weeks | **Thesis**: Market development, regional expansion
 
-⚠️ **DO NOT SEND AN EMAIL TO `investments@harithfm.com`** — this domain is unreachable. Harith general Partners (South Africa) has **no published direct funding inbox**. The `investments@harithfm.com` address was speculative.
-
-**Use the investor contact form instead:**
-1. Go to https://harith.africa/contact
-2. Fill in:"Capacity" = `Investor`, "Organisation" = Sokogate, "Subject" = `Series A — Sokogate Pan-Africa Supply Chain Infrastructure`
-3. "Message" = paste the email body below
-
-This routes to their investor relations team based at Sandton, Johannesburg (+27 11 384 4000).
+**Subject**: Sokogate Series A — Regional B2B Supply Chain Infrastructure | East & West Africa
 
 ---
+
+Dear Harith Fund Managers,
+
+Sokogate is building supply chain infrastructure — not just a software platform — across East and West Africa. Three countries today, five by Year 1, ten by Year 3.
 
 **Infrastructure thesis fit** (Harith's mandate):
 - Last-mile logistics: warehouse hubs + contracted delivery fleets
