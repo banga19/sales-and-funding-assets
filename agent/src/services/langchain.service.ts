@@ -255,6 +255,7 @@ class LangChainService {
   }): Promise<{ subject: string; body: string; templateUsed: string }> {
     const prompt = this.buildPersonalizationPrompt(params);
     const promptTemplate = ChatPromptTemplate.fromMessages([
+      ['system', 'You are a professional email writer. You must output ONLY the final email text. Do NOT show any thinking, reasoning, planning, or internal monologue. Start directly with the email subject line.'],
       ['human', prompt],
     ]);
     const chain = promptTemplate.pipe(this.llm);
@@ -304,6 +305,7 @@ SUBJECT: <polished subject line>
 <polished body text>`;
 
     const promptTemplate = ChatPromptTemplate.fromMessages([
+      ['system', 'You are a professional email editor. You must output ONLY the final email text. Do NOT show any thinking, reasoning, or planning.'],
       ['human', BATCH_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
@@ -343,6 +345,7 @@ Return EXACTLY this JSON shape:
 }`;
 
     const promptTemplate = ChatPromptTemplate.fromMessages([
+      ['system', 'You are an intent classifier. You must output ONLY the JSON object. Do NOT show any thinking or reasoning.'],
       ['human', INTENT_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
@@ -401,6 +404,7 @@ Write a short, natural reply that:
 Only respond with the email body text. Do not add a subject line.`;
 
     const promptTemplate = ChatPromptTemplate.fromMessages([
+      ['system', 'You are a professional sales rep. You must output ONLY the email body text. Do NOT show any thinking, reasoning, or planning.'],
       ['human', REPLY_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
@@ -449,6 +453,7 @@ Output EXACTLY this JSON — nothing else:
 {"verdict":"<send|soft-quarantine|nhod|no-email>","reason":"<≤120-char reason>","confidence":0.0}`;
 
     const promptTemplate = ChatPromptTemplate.fromMessages([
+      ['system', 'You are a sendability classifier. You must output ONLY the JSON object. Do NOT show any thinking or reasoning.'],
       ['human', CLASSIFY_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
@@ -522,6 +527,7 @@ Output EXACTLY this JSON — nothing else:
       '───────────────────────────────────────────────────────',
       'STRICT RULES — READ FIRST',
       '───────────────────────────────────────────────────────',
+      '0. DO NOT show your thinking, reasoning, or planning process. Output ONLY the final email.',
       '1. YOU MUST use the contact\'s actual name on the first line and again within the opening paragraph.',
       '2. YOU MUST name the company at least twice.',
       '3. Output the subject line on the first line only, then a blank line, then the body.',
