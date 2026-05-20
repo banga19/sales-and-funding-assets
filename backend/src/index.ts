@@ -103,12 +103,40 @@ app.get('/health/scraper', async (_req: express.Request, res: express.Response) 
 });
 
 // ── Root health ────────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => {
-  res.json({
-    status: 'healthy',
+app.get('/health', async (_req: express.Request, res: express.Response) => {
+  const HEALTH_TIMEOUT_MS = 2_000;
+
+  async function withTimeout(promise: Promise<any>, ms: number): Promise<any> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms); }),
+      ]);
+    } catch { return null; }
+    finally { clearTimeout(timer); }
+  }
+
+  const results = await Promise.allSettled([
+    withTimeout((async () => {
+      try { const { dbHealthCheck } = await import('./database/db.js'); return await dbHealthCheck(); }
+      catch { return { healthy: false }; }
+    })(), HEALTH_TIMEOUT_MS),
+    withTimeout((async () => {
+      try { const { default: redisClient } = await import('ioredis'); const r = new redisClient(process.env.REDIS_URL || 'redis://localhost:6379'); await r.ping(); await r.quit(); return true; }
+      catch { return false; }
+    })(), HEALTH_TIMEOUT_MS),
+  ]);
+
+  const dbOk = results[0].status === 'fulfilled' && results[0].value?.healthy === true;
+  const redisOk = results[1].status === 'fulfilled' && results[1].value === true;
+
+  res.status(dbOk && redisOk ? 200 : 503).json({
+    status: dbOk && redisOk ? 'healthy' : 'degraded',
     service: 'sokogate-backend',
     environment: config.NODE_ENV,
     uptime: Math.round(process.uptime()),
+    checks: { database: dbOk, redis: redisOk },
     timestamp: new Date().toISOString(),
     features: config.features,
   });

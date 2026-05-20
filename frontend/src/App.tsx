@@ -38,13 +38,25 @@ const MOCK_PRODUCTS: any[] = [];
 /* ── POLLING HOOKS ────────────────────────────────────────────────────────── */
 
 /**
- * useStatusPolling  — polls GET /api/status every 30 s.
- * Uses AbortController so a lingering tick from the previous 30-s does not
- * overwrite state set by a fresher request.
+ * useStatusPolling  — polls GET /api/status with exponential backoff.
+ * Starts at 5 s, doubles up to 60 s on failure; resets to 30 s on success.
+ * Uses AbortController so stale ticks never race the UI.
  */
 function useStatusPolling() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [isDemo, setIsDemo] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryMsRef  = useRef(5_000);
+  const ctrlRef     = useRef<AbortController>(new AbortController());
+
+  const scheduleNext = useCallback(() => {
+    if (intervalRef.current) clearTimeout(intervalRef.current);
+    intervalRef.current = setTimeout(() => {
+      ctrlRef.current.abort();
+      ctrlRef.current = new AbortController();
+      void fetchStatus(ctrlRef.current.signal);
+    }, retryMsRef.current);
+  }, []);
 
   const fetchStatus = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -52,53 +64,68 @@ function useStatusPolling() {
       if (r != null && typeof r === 'object' && 'features' in r) {
         setStatus(r as AgentStatus);
         setIsDemo(false);
+        retryMsRef.current = 30_000;
       }
-    } catch (_e: any) { if (DEMO_MODE) setIsDemo(true); }
-  }, []);
+    } catch (_e: any) {
+      if (!signal?.aborted) {
+        if (DEMO_MODE) setIsDemo(true);
+        retryMsRef.current = Math.min(retryMsRef.current * 2, 60_000);
+      }
+    } finally {
+      if (!signal?.aborted) scheduleNext();
+    }
+  }, [scheduleNext]);
 
   useEffect(() => {
-    let ctrl = new AbortController();
-    const tick = () => {
-      ctrl.abort();
-      ctrl = new AbortController();
-      void fetchStatus(ctrl.signal);
-    };
-    tick();
-    const timer = setInterval(tick, 30_000);
-    return () => { ctrl.abort(); clearInterval(timer); };
+    void fetchStatus(ctrlRef.current.signal);
+    return () => { ctrlRef.current.abort(); if (intervalRef.current) clearTimeout(intervalRef.current); };
   }, [fetchStatus]);
 
   return { status, isDemo };
 }
 
 /**
- * useHealthPolling  — polls GET /api/health every 60 s.
+ * useHealthPolling  — polls GET /api/health with exponential backoff.
+ * Starts at 5 s, doubles up to 60 s on failure; resets to 30 s on success.
  * Separate from status so health checks don't block status fetches.
  */
 function useHealthPolling() {
   const [health, setHealth] = useState<HealthCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryMsRef  = useRef(5_000);
+  const ctrlRef     = useRef<AbortController>(new AbortController());
+
+  const scheduleNext = useCallback(() => {
+    if (intervalRef.current) clearTimeout(intervalRef.current);
+    intervalRef.current = setTimeout(() => {
+      ctrlRef.current.abort();
+      ctrlRef.current = new AbortController();
+      void fetchHealth(ctrlRef.current.signal);
+    }, retryMsRef.current);
+  }, []);
 
   const fetchHealth = useCallback(async (signal?: AbortSignal) => {
     try {
       const r: any = await (apiClient.get as any)('/health', { signal });
-      if (r?.checks) setHealth(r as HealthCheck);
+      if (r?.checks) {
+        setHealth(r as HealthCheck);
+        setError(null);
+        retryMsRef.current = 30_000;
+      }
     } catch (e: any) {
-      console.warn('[App] /health fetch failed:', e?.message);
-      setError(e?.message ?? 'Health check failed');
+      if (!signal?.aborted) {
+        setError(e?.message ?? 'Health check failed');
+        retryMsRef.current = Math.min(retryMsRef.current * 2, 60_000);
+      }
+    } finally {
+      if (!signal?.aborted) scheduleNext();
     }
-  }, []);
+  }, [scheduleNext]);
 
   useEffect(() => {
-    let ctrl = new AbortController();
-    const tick = () => {
-      ctrl.abort();
-      ctrl = new AbortController();
-      void fetchHealth(ctrl.signal);
-    };
-    tick();
-    const timer = setInterval(tick, 60_000);
-    return () => { ctrl.abort(); clearInterval(timer); };
+    void fetchHealth(ctrlRef.current.signal);
+    return () => { ctrlRef.current.abort(); if (intervalRef.current) clearTimeout(intervalRef.current); };
   }, [fetchHealth]);
 
   return { health, error };

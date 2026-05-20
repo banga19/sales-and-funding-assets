@@ -1,92 +1,73 @@
-/**
- * Funding Generation Agent — LangChain Research → Pitch Synthesis chain
- *
- * Researches potential investors (optional search tool),
- * generates a tailored pitch summary, and persists investor
- * prospect records in `investor_prospects`. No raw aiCompletion()
- * calls remain here.
- */
-
-import { Router, Request, Response } from 'express';
-import { fundingPitchAgent, type FundingPitchResult } from '../../services/funding.agent';
-import { db } from '../../database/db.client';
+// agent/src/api/routes/funding.routes.ts
+import { Router } from 'express';
+import { fundingPitchAgent } from '../../services/funding.agent';
 import { logger } from '../../utils/logger';
-import { agentConfig } from '../../config/agent.config';
+import { db } from '../../database/db.client';
 
 const router = Router();
 
-const VALID_PROFILES = new Set<string>(['angel', 'vc', 'bank', 'government']);
-
 /**
- * POST /pitch
- * Body: { investorProfile: "angel"|"vc"|"bank"|"government", companyDetails?: object }
+ * POST /api/agents/funding
+ * Body: { investorProfile: 'angel'|'vc'|'bank'|'government', companyDetails?: object }
+ * Returns { success, pitchSummary, prospectsCreated, prospects, investorProfile }
  */
-router.post('/pitch', async (req: Request, res: Response) => {
-  let investorProfile: 'angel' | 'vc' | 'bank' | 'government' = 'angel';
-  let companyDetails: Record<string, any> = { name: 'Ultimo Trading Company Limited' };
-
+router.post('/funding', async (req, res) => {
   try {
-    const rawProfile = req.body?.investorProfile;
-    investorProfile = (rawProfile === 'angel' || rawProfile === 'vc' || rawProfile === 'bank' || rawProfile === 'government')
-      ? rawProfile
-      : 'angel';
+    const { investorProfile, companyDetails } = req.body ?? {};
+    if (!investorProfile) {
+      return res.status(400).json({ success: false, error: 'investorProfile required' });
+    }
 
-    companyDetails = typeof req.body?.companyDetails === 'object' && req.body?.companyDetails !== null
-      ? req.body.companyDetails
-      : { name: 'Ultimo Trading Company Limited' };
+    const result = await fundingPitchAgent.run(investorProfile, companyDetails || {});
 
-    logger.info('Funding pitch generation triggered', { investorProfile });
+    // ── Fetch the latest investor_prospects rows so the UI can display them
+    let prospects: any[] = [];
+    try {
+      const { rows } = await db.query(
+        `SELECT id, investor_profile, status, pitch_summary, created_at
+           FROM investor_prospects
+          ORDER BY created_at DESC
+          LIMIT 20`,
+      );
+      // Map to the shape the UI expects: contact.name, name, investorProfile, status
+      prospects = rows.map((r: any) => ({
+        id:                        r.id,
+        contact:                   { name: r.name || 'Unnamed Contact' },
+        name:                      r.name,
+        investorProfile:           r.investor_profile,
+        status:                    r.status || 'proposed',
+      }));
+    } catch (err: any) {
+      logger.warn('[funding] could not fetch prospect rows', { error: err.message });
+    }
 
-    // ── Delegate to FundingPitchAgent ─────────────────────────────────────────
-    // Step 1: Research (optional — if SEARCH_API_KEY is set)
-    // Step 2: Synthesis — pitch summary + suggested contacts via ChatOpenAI
-    // Step 3: Persist investor_prospects rows in DB
-    const result: FundingPitchResult = await fundingPitchAgent.run({
-      investorProfile,
-      companyDetails,
-    });
-
-    // ── Fetch the persisted prospect rows ──────────────────────────────────────
-    const { rows: prospectRows } = await db.query(
-      'SELECT id, investor_profile, pitch_summary, status, created_at FROM investor_prospects ORDER BY created_at DESC LIMIT 20',
-    );
-
-    logger.info('Funding pitch complete', {
-      profile: investorProfile,
-      created: result.prospectsCreated,
-      errors:  result.messages.length,
-    });
-
-    res.json({
+    return res.json({
       success:         true,
       investorProfile,
       pitchSummary:    result.pitchSummary,
-      contactsLinked:  result.prospectsCreated,
-      prospects:       prospectRows.slice(0, 5),
+      prospectsCreated: result.prospectsCreated,
+      prospects,
     });
   } catch (error: any) {
-    logger.warn('Funding pitch agent failed', { error: error.message });
+    logger.warn('Funding agent failed', { error: error.message });
     if (error?.message?.includes('getaddrinfo') || error?.message?.includes('ECONNREFUSED')) {
-      res.status(200).json({
+      return res.status(200).json({
         success:         true,
-        investorProfile: investorProfile ?? 'angel',
+        investorProfile: 'vc',
         pitchSummary:    'LLM service temporarily unavailable — check NVIDIA proxy.',
-        contactsLinked:  0,
+        prospectsCreated: 0,
         prospects:       [],
         _unavailable:    true,
       });
-    } else {
-      res.status(200).json({
-        success:         true,
-        investorProfile: investorProfile ?? 'angel',
-        pitchSummary:    `Pitch generation error: ${error.message}`,
-        contactsLinked:  0,
-        prospects:       [],
-      });
     }
+    return res.status(200).json({
+      success:         true,
+      investorProfile: 'vc',
+      pitchSummary:    `Pitch generation error: ${error.message}`,
+      prospectsCreated: 0,
+      prospects:       [],
+    });
   }
 });
 
 export default router;
-
-// Made with Bob

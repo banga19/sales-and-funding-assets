@@ -32,7 +32,7 @@ import { db } from '../database/db.client';
 import { agentConfig } from '../config/agent.config';
 import { orchestrator } from './orchestrator';
 import { bulkSourcingAgent }                    from '../services/bulk-sourcing.agent';
-import { marketingAgent, type ProductContext } from '../services/marketing.agent';
+import { marketingAgent } from '../services/marketing.agent';
 import { contentAgent }                         from '../services/content.agent';
 import { fundingPitchAgent }                    from '../services/funding.agent';
 
@@ -123,12 +123,12 @@ class MasterSwitch {
         if (rows.length === 0) {
           return { success: false, message: 'No active products in catalog', durationMs: 0 };
         }
-        const products = rows as ProductContext[];
-        logger.info('[master-switch/sales-marketing] run()', { products: products.map(p => p.id) });
-        const result = await marketingAgent.run(products, {
-          targetChannel: agentConfig.salesMarketing.defaultTargetChannel,
-          maxProducts:   agentConfig.salesMarketing.maxProducts,
-        });
+        const productIds = rows.map((r: any) => r.id);
+        logger.info('[master-switch/sales-marketing] run()', { products: productIds });
+        const result = await marketingAgent.run(
+          productIds,
+          agentConfig.salesMarketing.defaultTargetChannel,
+        );
         return {
           success:    result.errors.length === 0,
           message:    `${result.assetsCreated} assets created / ${result.errors.length} errors`,
@@ -169,10 +169,7 @@ class MasterSwitch {
           markets: 'Kenya, Nigeria, Ghana, Senegal',
         };
         logger.info('[master-switch/funding-pitch] run()', { investorProfile: 'vc' });
-        const result = await fundingPitchAgent.run({
-          investorProfile:  'vc',
-          companyDetails:   companyDetails,
-        });
+        const result = await fundingPitchAgent.run('vc', companyDetails);
         return {
           success:    result.prospectsCreated > 0,
           message:    `${result.prospectsCreated} prospects created`,

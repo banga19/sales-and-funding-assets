@@ -31,6 +31,9 @@ import { logger } from '../utils/logger';
 
 class LangChainService {
   private llm: ChatOpenAI;
+  private lastHealthCheck: boolean = false;
+  private lastHealthCheckTime: number = 0;
+  private isCheckingHealth: boolean = false;
   private static instance: LangChainService;
 
   private constructor() {
@@ -449,11 +452,27 @@ Output EXACTLY this JSON — nothing else:
    * ════════════════════════════════════════════════════════════════════════ */
 
   async healthCheck(): Promise<boolean> {
+    const CACHE_TTL_MS = 60_000; // 1 minute cache
+    const now = Date.now();
+
+    // If check is already running or last check is fresh, return cached value
+    if (this.isCheckingHealth || (now - this.lastHealthCheckTime < CACHE_TTL_MS)) {
+      return this.lastHealthCheck;
+    }
+
+    this.isCheckingHealth = true;
     try {
       const response = await this.llm.invoke([['human', 'Say "ok"']]);
-      return Boolean((response as AIMessage).content);
+      this.lastHealthCheck = Boolean((response as AIMessage).content);
+      this.lastHealthCheckTime = now;
+      return this.lastHealthCheck;
     } catch {
+      this.lastHealthCheck = false;
+      // Cache the failure state too to avoid spamming the failing API
+      this.lastHealthCheckTime = now;
       return false;
+    } finally {
+      this.isCheckingHealth = false;
     }
   }
 }

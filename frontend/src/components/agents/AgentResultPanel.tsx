@@ -111,8 +111,12 @@ function MarketingResult({ data }: { data: any }) {
 }
 
 function ContentResult({ data }: { data: any }) {
-  const piece = data.piece || data;
-  if (!piece) return <p className="text-sm text-gray-600">No content generated.</p>;
+  const piece: { title?: string; body?: string; type?: string; createdAt?: string } = {
+    title: data.title || '',
+    body:  data.body  || '',
+    type:  data.type  || '',
+  };
+  if (!piece.title) return <p className="text-sm text-gray-600">No content generated.</p>;
   return (
     <div className="space-y-1">
       <h4 className="font-medium text-gray-700 text-sm">{piece.title}</h4>

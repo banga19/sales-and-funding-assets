@@ -1,87 +1,64 @@
-/**
- * Sales & Marketing Agent — LangChain multi-step content chain
- *
- * Generates a complete marketing campaign (email sequences, social posts,
- * ad copy, landing page) for one or more products. Delegates to the
- * MarketingAgent multi-step chain; each asset is persisted as a
- * `marketing_assets` record. No raw aiCompletion() calls remain here.
- */
-
-import { Router, Request, Response } from 'express';
-import { marketingAgent, type ProductContext } from '../../services/marketing.agent';
-import { db } from '../../database/db.client';
+// agent/src/api/routes/sales-marketing.routes.ts
+import { Router } from 'express';
+import { marketingAgent } from '../../services/marketing.agent';
 import { logger } from '../../utils/logger';
-import { agentConfig } from '../../config/agent.config';
+import { db } from '../../database/db.client';
 
 const router = Router();
 
 /**
- * POST /generate
+ * POST /api/agents/sales-marketing
  * Body: { productIds: string[], targetChannel?: 'email' | 'social' | 'ads' | 'all' }
+ * Returns { success, assetsCreated, errors, assets: [{ product, type, content }] }
  */
-router.post('/generate', async (req: Request, res: Response) => {
+router.post('/sales-marketing', async (req, res) => {
   try {
-    let productIds: string[] = [];
-    let targetChannel = agentConfig.salesMarketing.defaultTargetChannel;
-
-    try {
-      productIds = req.body?.productIds ?? [];
-      targetChannel = req.body?.targetChannel ?? agentConfig.salesMarketing.defaultTargetChannel;
-    } catch {
-      return res.status(400).json({ success: false, error: 'Invalid request body' });
-    }
-
+    const { productIds, targetChannel } = req.body ?? {};
     if (!Array.isArray(productIds) || productIds.length === 0) {
       return res.status(400).json({ success: false, error: 'productIds required' });
     }
 
-    const maxProducts = Math.min(productIds.length, agentConfig.salesMarketing.maxProducts);
-    const ids = productIds.slice(0, maxProducts);
+    const result = await marketingAgent.run(productIds, targetChannel || 'all');
 
-    let products: ProductContext[] = [];
-    try {
-      const result = await db.query(
-        'SELECT id, name, description, category, price_current FROM scraped_products WHERE id = ANY($1::uuid[])',
-        [ids],
-      );
-      products = result.rows as ProductContext[];
-    } catch (err: any) {
-      logger.warn('Marketing Agent: could not fetch products', { error: err.message });
-    }
-
-    const agentResult = await marketingAgent.run(products, {
-      targetChannel,
-      maxProducts: maxProducts,
-    });
-
-    const generatedAssets: { product: string; type: string; content: string }[] = [];
-    for (const product of products) {
-      const assetRows = await db.query(
-        'SELECT type as type_col, content FROM marketing_assets WHERE product_id = $1 ORDER BY created_at DESC LIMIT 4',
-        [product.id],
-      );
-      for (const a of assetRows.rows) {
-        generatedAssets.push({ product: product.name, type: a.type_col, content: a.content });
+    // ── Fetch the persisted asset rows so the response has the right shape
+    // ── for the UI panel (assets[{ product, type, content }])
+    const assets: Array<{ product: string; type: string; content: string }> = [];
+    if (result.assetsCreated > 0) {
+      try {
+        const { rows } = await db.query(
+          `SELECT a.product_id   AS product_id,
+                   p.name          AS product_name,
+                   a.type          AS asset_type,
+                   a.content
+              FROM marketing_assets a
+              JOIN scraped_products p ON p.id = a.product_id
+             WHERE a.product_id = ANY($1::uuid[])
+             ORDER BY a.created_at DESC`,
+          [productIds],
+        );
+        for (const row of rows) {
+          assets.push({ product: row.product_name || '', type: row.asset_type, content: row.content });
+        }
+      } catch (err: any) {
+        logger.warn('[sales-marketing] could not fetch asset rows', { error: err.message });
       }
     }
 
-    logger.info('Marketing campaign generated', {
-      productsProcessed: agentResult.productsProcessed,
-      assetsCreated:     agentResult.assetsCreated,
-      errors:            agentResult.errors.length,
+    return res.json({
+      success:     result.errors.length === 0,
+      assets,
+      assetsCreated: result.assetsCreated,
+      errors:     result.errors,
+      durationMs: result.durationMs,
+      productsProcessed: result.productsProcessed,
     });
-
-    res.json({ success: true, assets: generatedAssets });
   } catch (error: any) {
-    logger.warn('Marketing agent failed', { error: error.message });
+    logger.warn('Sales-marketing agent failed', { error: error.message });
     if (error?.message?.includes('getaddrinfo') || error?.message?.includes('ECONNREFUSED')) {
-      res.status(503).json({ success: false, error: 'LLM service unavailable — check NVIDIA proxy' });
-    } else {
-      res.status(500).json({ success: false, error: error.message });
+      return res.status(503).json({ success: false, error: 'LLM service unavailable — check NVIDIA proxy' });
     }
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
 export default router;
-
-// Made with Bob

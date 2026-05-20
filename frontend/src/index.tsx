@@ -4,6 +4,64 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OutreachProvider } from './context/OutreachContext';
 import './index.css';
 import App from './App';
+
+// Console noise filtering for extension-related noise (e.g., Grammarly)
+const filterConsoleMessages = () => {
+  const originalError = console.error;
+  const originalWarn = console.warn;
+
+  const noiseKeywords = [
+    'grammarly',
+    'chrome-extension://',
+    'react-devtools',
+    'Extension',
+    'extension',
+    '__grammarly',
+    'inject',
+    'crx',
+  ];
+
+  const shouldFilter = (args: any[]) => {
+    return args.some(arg => {
+      if (typeof arg === 'string') {
+        const lowerArg = arg.toLowerCase();
+        return noiseKeywords.some(keyword => lowerArg.includes(keyword.toLowerCase()));
+      }
+      if (arg instanceof Error) {
+        const stack = arg.stack || '';
+        const message = arg.message || '';
+        return noiseKeywords.some(keyword => 
+          message.toLowerCase().includes(keyword.toLowerCase()) || 
+          stack.toLowerCase().includes(keyword.toLowerCase())
+        );
+      }
+      return false;
+    });
+  };
+
+  console.error = (...args: any[]) => {
+    if (shouldFilter(args)) return;
+    originalError.apply(console, args);
+  };
+
+  console.warn = (...args: any[]) => {
+    if (shouldFilter(args)) return;
+    originalWarn.apply(console, args);
+  };
+};
+
+filterConsoleMessages();
+
+// Suppress cross-origin MessageEvent noise from Chrome extensions
+const filterMessageEvents = () => {
+  const ORIGIN = window.location.origin;
+  window.addEventListener('message', (event: MessageEvent) => {
+    if (event.origin !== ORIGIN) return; // ignore extensions
+    // allow known app messages through
+  }, true);
+};
+filterMessageEvents();
+
 import reportWebVitals from './reportWebVitals';
 
 const queryClient = new QueryClient({

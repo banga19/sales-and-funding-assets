@@ -45,10 +45,10 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { ProductListResponse, ScrapeStatusResponse } from '../types';
 
-// RUNTIME_ENV is injected by vite.config.ts via the `define` block above.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const API_BASE_URL: string = (import.meta.env as any).VITE_API_BASE_URL ?? '/api';
 const API_TIMEOUT: number = parseInt((import.meta.env as any).VITE_API_TIMEOUT ?? '10000', 10);
+const DEBUG: boolean = (import.meta.env as any).VITE_DEBUG === '1' || (import.meta.env as any).DEV === true;
 
 class ApiClient {
   private client: AxiosInstance;
@@ -72,11 +72,11 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
-        console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+        if (DEBUG) console.debug(`[API] ${config.method?.toUpperCase()} ${config.url}`);
         return config;
       },
       (error: AxiosError) => {
-        console.error('[API] Request error:', error);
+        if (DEBUG) console.debug('[API] Request error:', error);
         return Promise.reject(error);
       }
     );
@@ -84,11 +84,11 @@ class ApiClient {
     // Response interceptor — handle auth errors + refresh tokens
     this.client.interceptors.response.use(
       (response) => {
-        console.log(`[API] Response ${response.status}:`, response.data);
+        if (DEBUG) console.debug(`[API] Response ${response.status}`);
         return response;
       },
       async (error: AxiosError) => {
-        console.error('[API] Response error:', error.response?.data || error.message);
+        if (DEBUG) console.debug('[API] Response error:', error.response?.data || error.message);
         if (error.response?.status === 401 && !(error.config as any)?._retry) {
           (error.config as any)._retry = true;
           try {

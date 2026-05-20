@@ -4,9 +4,9 @@ import {
   Factory, ShoppingCart, ChevronDown,
   MapPin, Clock, BadgeCheck, Send,
 } from 'lucide-react';
-import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { useEmailPanel, type EmailPanelProduct } from '@/context/EmailPanelContext';
+import { apiClient } from '@/api/client';
 import ContentGeneratorPanel from './ContentGeneratorPanel';
 import type { Product, ProductStats, ProductPriceTier } from '@/types';
 
@@ -66,6 +66,7 @@ interface ProductDetailProps {
 }
 
 function ProductDetail({ product }: ProductDetailProps) {
+  const { openEmailPanel } = useEmailPanel();
   return (
     <div className="mt-3 pt-3 border-t border-gray-100 space-y-3 animate-fadeIn">
       {/* Supplier */}
@@ -176,13 +177,10 @@ function ProductDetail({ product }: ProductDetailProps) {
       </a>
 
       {/* ── Send Inquiry button ────────────────────────────────────────────────── */}
-      {(() => {
-        const { openEmailPanel } = useEmailPanel();
-        return (
-          <button
-            type="button"
-            onClick={() => {
-              openEmailPanel({
+      <button
+        type="button"
+        onClick={() => {
+          openEmailPanel({
                 product: {
                   title: product.name,
                   price: typeof product.price === 'string' ? parseFloat(product.price) || 0 : product.price,
@@ -202,8 +200,6 @@ function ProductDetail({ product }: ProductDetailProps) {
             <Send className="w-4 h-4" />
             Send Inquiry to Contacts
           </button>
-        );
-      })()}
     </div>
   );
 }
@@ -229,20 +225,20 @@ export default function ProductSourcingCard() {
     try {
       const params = new URLSearchParams({ sort: sortBy, pageSize: '24' });
       if (selectedCategory) params.append('category', selectedCategory);
-      const [prodRes, statsRes] = await Promise.all([
-        axios.get(`/api/products?${params}`),
-        axios.get('/api/products/stats'),
+      const [prodRes, statsRes]: any[] = await Promise.all([
+        apiClient.get(`/products?${params}`),
+        apiClient.get('/products/stats'),
       ]);
-      setProducts(Array.isArray(prodRes.data?.data) ? prodRes.data.data : []);
+      setProducts(Array.isArray(prodRes?.data) ? prodRes.data : []);
       setStats({
-        total:           statsRes.data.stats?.total          ?? 0,
-        trending:        statsRes.data.stats?.trending       ?? 0,
-        lightweight:     statsRes.data.stats?.lightweight    ?? 0,
-        avgPrice:        statsRes.data.stats?.avgPrice       ?? null,
-        minPrice:        statsRes.data.stats?.minPrice       ?? null,
-        maxPrice:        statsRes.data.stats?.maxPrice       ?? null,
-        lowMoqCount:     statsRes.data.stats?.lowMoqCount    ?? 0,
-        b2bSuitableCount: statsRes.data.stats?.b2bSuitableCount ?? 0,
+        total:           statsRes?.stats?.total          ?? 0,
+        trending:        statsRes?.stats?.trending       ?? 0,
+        lightweight:     statsRes?.stats?.lightweight    ?? 0,
+        avgPrice:        statsRes?.stats?.avgPrice       ?? null,
+        minPrice:        statsRes?.stats?.minPrice       ?? null,
+        maxPrice:        statsRes?.stats?.maxPrice       ?? null,
+        lowMoqCount:     statsRes?.stats?.lowMoqCount    ?? 0,
+        b2bSuitableCount: statsRes?.stats?.b2bSuitableCount ?? 0,
       });
     } catch {
       setProducts([]);
@@ -273,7 +269,7 @@ export default function ProductSourcingCard() {
     }, 350);
 
     try {
-      const { data } = await axios.post('/api/products/scrape', {
+      const data: any = await apiClient.post('/products/scrape', {
         baseUrl: 'https://www.sokogate.com',
         maxPages: 3,
         maxProducts: 60,
@@ -284,7 +280,7 @@ export default function ProductSourcingCard() {
       setScrapeProgress(100);
 
       if (data.success) {
-        toast.success(`✅ Scraped ${data.productsStored ?? products.length} products from sokogate.com!`);
+        toast.success(`Scraped ${data.productsUpserted ?? products.length} products from sokogate.com!`);
         await fetchData();
       } else if (data.errors?.length) {
         toast.error(`Scraping completed with errors: ${(data.errors as string[]).join(', ')}`);
@@ -294,8 +290,7 @@ export default function ProductSourcingCard() {
     } catch (error: unknown) {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       setScrapeProgress(0);
-      const msg = (error as { response?: { data?: { message?: string } }; message?: string })
-        ?.response?.data?.message ?? (error as Error)?.message ?? 'Scraping failed.';
+      const msg = (error as any)?.response?.data?.message ?? (error as Error)?.message ?? 'Scraping failed.';
       toast.error(msg);
     } finally {
       setIsScraping(false);
@@ -313,7 +308,7 @@ export default function ProductSourcingCard() {
 
   // ── Stat bar ────────────────────────────────────────────────────────────────
 
-  const statDefs = (stats && stats.avgPrice != null)
+  const statDefs = (stats && stats.total != null)
     ? [
         { icon: TrendingUp, color: 'text-orange-500',  label: 'Trending',      value: fmt(stats.trending) },
         { icon: Scale,      color: 'text-green-500',   label: 'Lightweight',   value: fmt(stats.lightweight) },

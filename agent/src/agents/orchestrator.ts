@@ -780,7 +780,7 @@ private async createOrUpdateConversation(
       logger.warn('[orchestrator] semantic search failed — falling back to SQL', {
         error: err.message,
       });
-      return this.getFilteredContacts('prospect', statusFilter, stageFilter, tierFilter, limit);
+      return this.getFilteredContacts('prospect', statusFilter, tierFilter, stageFilter, limit);
     }
   }
 
@@ -789,10 +789,10 @@ private async createOrUpdateConversation(
   }> {
     // Include not_started (fresh) AND delivered (initial email sent, no reply yet)
     const contacts = await this.getFilteredContacts('prospect',
-      ['Not Started'],                  // status filter  ($2)
-      ['T1', 'T2', 'T3'],              // tier filter     ($3)
-      ['not_started', 'delivered'],    // stage filter    ($4)
-      limit);                          // limit           ($5)
+      ['Not Started'],                 // statusFilter
+      ['T1', 'T2', 'T3'],              // tierFilter
+      ['not_started', 'delivered'],    // stageFilter
+      limit);
 
     let sent = 0, failed = 0, skipped = 0;
     for (const contact of contacts) {
@@ -817,9 +817,10 @@ private async createOrUpdateConversation(
     total: number; sent: number; failed: number; skipped: number;
   }> {
     const contacts = await this.getFilteredContacts('investor',
-      ['Not Started'],               // status filter
-      ['not_started', 'delivered'],  // stage filter
-      ['T1', 'T2'], limit);
+      ['Not Started'],                // statusFilter
+      ['T1', 'T2'],                   // tierFilter
+      ['not_started', 'delivered'],   // stageFilter
+      limit);
 
     let sent = 0, failed = 0, skipped = 0;
     for (const contact of contacts) {
@@ -846,9 +847,10 @@ private async createOrUpdateConversation(
     total: number; sent: number; failed: number; skipped: number;
   }> {
     const contacts = await this.getFilteredContacts('funding',
-      ['Not Started'],               // status filter
-      ['not_started', 'delivered'],  // stage filter
-      ['T1'], limit);
+      ['Not Started'],                // statusFilter
+      ['T1'],                         // tierFilter
+      ['not_started', 'delivered'],   // stageFilter
+      limit);
 
     let sent = 0, failed = 0, skipped = 0;
     for (const contact of contacts) {

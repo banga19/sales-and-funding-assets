@@ -183,7 +183,7 @@ router.get('/scrape/status', async (_req: Request, res: Response) => {
           ? 'Scraping in progress…'
           : 'Ready to scrape',
       productCount: count,
-      scrapedAt:    lastRun?.finished_at ?? lastRun?.started_at ?? null,
+      scrapedAt:    lastRun?.completed_at ?? lastRun?.started_at ?? null,
       runId:        lastRun?.id ?? null,
     });
    } catch (err: unknown) {

@@ -293,9 +293,10 @@ export class OutreachBatchService {
     if (type) {
       sql += ` AND type = $${params.length}`;
       params.push(String(type));
+      sql += ` ORDER BY created_at ASC LIMIT $${params.length}`;
+    } else {
+      sql += ` ORDER BY created_at ASC LIMIT $1`;
     }
-
-    sql += ` ORDER BY created_at ASC LIMIT $1`;
 
     const { rows } = await this.db.query<OutreachContactRow>(sql, params);
     return rows;

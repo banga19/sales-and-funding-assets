@@ -24,32 +24,16 @@ export default defineConfig({
     port: 3001,
     strictPort: true,
     proxy: {
-      // ── /api/* → Agent (port 3002)
-      //    Agent owns /api/health, /api/status, /api/agent/*, /api/contacts/*
+      // ── /api/* → Agent (port 3002; /api prefix forwarded as-is)
+      //    Covers: /api/health, /api/status, /api/agent/*, /api/contacts/*,
+      //    /api/products, /api/products/stats, /api/products/:id, /api/products/scrape, etc.
       '/api': {
-        target: API_TARGET,
+        target:       API_TARGET,
         changeOrigin: true,
-      },
-
-      // ── /api/products → Backend (port 3000) — wins over /api catch-all above
-      //    because it is a more specific prefix match
-      '/api/products': {
-        target: BACKEND_TARGET,
-        changeOrigin: true,
-      },
-      '/api/contacts': {
-        target: BACKEND_TARGET,
-        changeOrigin: true,
-      },
-      // ── bare contacts/* → Backend (port 3000)  — matched by ContactsPanel via axios
-      '/contacts': {
-        target: BACKEND_TARGET,
-        changeOrigin: true,
-      },
-      '/api/metrics': {
-        target: BACKEND_TARGET,
-        changeOrigin: true,
+        // Agent health checks + AI calls can take up to 8–12 s; keep the Vite proxy
+        // gate wider so it does not reject a slow-but-healthy response mid-flight.
+        proxyTimeout: 20000,
       },
     },
   },
-});
+};

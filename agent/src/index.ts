@@ -11,7 +11,7 @@ import { langchainService } from './services/langchain.service';
 import agentRoutes from './api/routes/agent.routes';
 import bulkSourcingRoutes from './api/routes/bulk-sourcing.routes';
 import salesMarketingRoutes from './api/routes/sales-marketing.routes';
-import { marketingAgent, type ProductContext } from './services/marketing.agent';
+import { marketingAgent } from './services/marketing.agent';
 import contentCreationRoutes from './api/routes/content-creation.routes';
 import fundingRoutes from './api/routes/funding.routes';
 import { startWSServer } from './wsServer';
@@ -21,6 +21,8 @@ import { initializeMetricsSyncJob } from './jobs/metrics-sync.job';
 import outreachBatchRoutes from './api/routes/outreach-batch.routes';
 import batchSendRoutes from './api/routes/batch-send.routes';
 import masterSwitchRoutes from './api/routes/master-switch.routes';
+import productsRoutes from './api/routes/products.routes';
+import { sourceProductData, getLiveStatus } from './services/product-source.service';
 
 class SalesAgent {
   private app: Express;
@@ -60,64 +62,75 @@ class SalesAgent {
       });
       next();
     });
+
+
   }
 
   /**
    * Setup API routes
    */
-   private setupRoutes(): void {    // Health check — 200 with a per-component breakdown so the frontend can
-    // render a degraded UI (yellow badges) instead of the error screen.
+  private setupRoutes(): void {
+    const HEALTH_TIMEOUT_MS = 2_000;
     this.app.get('/api/health', async (_req: Request, res: Response) => {
-      let dbHealth: { healthy: boolean; error?: string } = { healthy: false };
-      let emailHealth: boolean = false;
+      let dbHealth:   { healthy: boolean; error?: string } = { healthy: false };
+      let emailHealth: boolean  = false;
       let nvidiaHealth: boolean = false;
       let langchainHealth: boolean = false;
 
+      async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+        let timer: ReturnType<typeof setTimeout>;
+        try {
+          return await Promise.race<T>([
+            promise,
+            new Promise<null>((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out after ${ms}ms`)), ms); }),
+          ]);
+        } catch { return null; }
+        finally { clearTimeout(timer); }
+      }
+
       try {
         const results = await Promise.allSettled([
-          db.healthCheck(),
-          emailService.healthCheck(),
-          personalizationService.healthCheck(),
-          langchainService.healthCheck(),
+          withTimeout(db.healthCheck(),                          HEALTH_TIMEOUT_MS),
+          withTimeout(emailService.healthCheck(),                HEALTH_TIMEOUT_MS),
+          withTimeout(personalizationService.healthCheck(),      HEALTH_TIMEOUT_MS),
+          withTimeout(langchainService.healthCheck(),            HEALTH_TIMEOUT_MS),
         ]);
 
-        // Extract values from settled results — never crash on a single service failure
-        if (results[0].status === 'fulfilled') {
+        if (results[0].status === 'fulfilled' && results[0].value != null) {
           dbHealth = results[0].value as { healthy: boolean; error?: string };
         }
-        if (results[1].status === 'fulfilled') {
+        if (results[1].status === 'fulfilled' && results[1].value != null) {
           emailHealth = results[1].value as boolean;
         } else {
-          emailHealth = false; // fallback when email service fails silently
+          emailHealth = false;
         }
-        if (results[2].status === 'fulfilled') {
+        if (results[2].status === 'fulfilled' && results[2].value != null) {
           nvidiaHealth = results[2].value as boolean;
         }
-        if (results[3].status === 'fulfilled') {
+        if (results[3].status === 'fulfilled' && results[3].value != null) {
           langchainHealth = results[3].value as boolean;
         }
       } catch {
-        // If Promise.allSettled itself throws, all services are marked down
         dbHealth = { healthy: false };
         emailHealth = false;
         nvidiaHealth = false;
         langchainHealth = false;
       }
 
-    const checks = {
+      const checks = {
         database:  dbHealth,
         email:     emailHealth,
         nvidia:    nvidiaHealth,
         langchain: langchainHealth,
       } as const;
 
-    const databaseHealthy  = dbHealth.healthy === true;
-    const emailBool         = emailHealth === true;
-    const nvidiaBool        = nvidiaHealth === true;
-    const langchainBool     = langchainHealth === true;
-    const healthyComponents = [databaseHealthy, emailBool, nvidiaBool, langchainBool].filter(Boolean).length;
-    const needsAllFourToBeHealthy = [databaseHealthy, emailBool, nvidiaBool, langchainBool].every(Boolean);
-    const status: 'healthy' | 'degraded' = needsAllFourToBeHealthy ? 'healthy' : 'degraded';
+      const databaseHealthy  = dbHealth.healthy === true;
+      const emailBool         = emailHealth === true;
+      const nvidiaBool        = nvidiaHealth === true;
+      const langchainBool     = langchainHealth === true;
+      const healthyComponents = [databaseHealthy, emailBool, nvidiaBool, langchainBool].filter(Boolean).length;
+      const needsAllFourToBeHealthy = [databaseHealthy, emailBool, nvidiaBool, langchainBool].every(Boolean);
+      const status: 'healthy' | 'degraded' = needsAllFourToBeHealthy ? 'healthy' : 'degraded';
 
       res.json({ status, timestamp: new Date().toISOString(), checks });
     });
@@ -180,6 +193,7 @@ class SalesAgent {
 
     // Mount agent routes
     this.app.use('/api/agent', agentRoutes);
+    this.app.use('/api', productsRoutes);
 
     // ── Agent System: Bulk Sourcing, Sales & Marketing, Content, Funding ───────
     this.app.use('/api/agents', bulkSourcingRoutes);
@@ -372,11 +386,24 @@ class SalesAgent {
       const lines = req.query.lines ? Math.min(parseInt(String(req.query.lines), 10), LOG_BUFFER_MAX) : 100;
       const start = Math.max(0, logBuffer.length - lines);
       res.json({ logs: logBuffer.slice(start), total: logBuffer.length });
-    });
+     });
 
-    this.app.get('/api/outreach/logs', (_req: Request, res: Response) => {
-      res.json(outreachEmailLogs.slice().reverse());
-    });
+     this.app.get('/api/outreach/logs', async (_req: Request, res: Response) => {
+       try {
+         const { rows } = await db.query(
+           `SELECT id, contact_id AS contactId, contact_type AS contactType,
+                   to_email AS "to", subject, body_preview AS body,
+                   status, error_message AS error, sent_at AS sentAt
+              FROM email_logs
+             ORDER BY sent_at DESC
+             LIMIT 200`,
+         );
+         res.json(rows);
+       } catch (err: any) {
+         logger.warn('[outreach/logs] failed — returning empty', { error: err.message });
+         res.json([]);
+       }
+     });
 
     this.app.post('/api/outreach/send', async (req: Request, res: Response) => {
       try {
@@ -513,10 +540,9 @@ class SalesAgent {
           return res.status(404).json({ error: 'Product not found' });
         }
 
-        const products: ProductContext[] = productRows.rows as ProductContext[];
         const targetChannel = agentConfig.salesMarketing.defaultTargetChannel;
 
-        const agentResult = await marketingAgent.run(products, { targetChannel, maxProducts: products.length });
+        const agentResult = await marketingAgent.run([productId], targetChannel);
 
         if (agentResult.errors.length > 0 && agentResult.assetsCreated === 0) {
           if (agentResult.errors.some(e => e.includes('getaddrinfo') || e.includes('ECONNREFUSED'))) {
@@ -549,7 +575,243 @@ class SalesAgent {
       }
     });
 
-    // 404 handler
+    // ── Product Catalogue (PostgreSQL scraped_products) ──────────────────────────
+    // Vite dev proxy (port 3001) forwards /api/products, /api/products/stats, etc.
+    // to this server on port 3002, stripping the /api prefix. Routes live
+    // directly under /products, /products/stats, /products/:id, /products/scrape.
+
+    const sortByClause = (sort: string): string => {
+      switch (sort) {
+        case 'price_asc':    return 'price_current ASC NULLS LAST';
+        case 'price_desc':   return 'price_current DESC NULLS LAST';
+        case 'weight_asc':   return 'weight_grams ASC NULLS LAST';
+        case 'weight_desc':  return 'weight_grams DESC NULLS LAST';
+        case 'trending':
+        default:             return 'trending_score DESC NULLS LAST, last_scraped_at DESC';
+      }
+    };
+
+    // GET /api/products  – paginated catalogue with optional filters
+    this.app.get('/api/products', async (req: Request, res: Response) => {
+      try {
+        const {
+          page    = '1',
+          pageSize = '20',
+          sort     = 'trending',
+          category = '',
+          search   = '',
+          inStock  = '',
+        } = req.query;
+
+        const conditions: string[] = ['is_active = TRUE'];
+        const params: any[] = [];
+        let idx = 1;
+
+        if (category) {   conditions.push(`category ILIKE $${idx++}`); params.push(`%${category}%`); }
+        if (search)   {   conditions.push(`(name ILIKE $${idx++} OR description ILIKE $${idx++})`); params.push(`%${search}%`, `%${search}%`); }
+        if (inStock === 'true')  { conditions.push(`in_stock = TRUE`); }
+        if (inStock === 'false') { conditions.push(`in_stock = FALSE`); }
+
+        const where   = `WHERE ${conditions.join(' AND ')}`;
+        const pg      = Math.max(1, parseInt(String(page), 10)    || 1);
+        const ps      = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
+        const offset  = (pg - 1) * ps;
+        const orderBy = sortByClause(String(sort));
+
+        const [countRow, dataRows, catRows] = await Promise.all([
+          db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM scraped_products ${where}`, params),
+          db.query(`SELECT * FROM scraped_products ${where} ORDER BY ${orderBy} LIMIT $${idx++} OFFSET $${idx++}`, [...params, ps, offset]),
+          db.query<{ category: string }>(
+            `SELECT DISTINCT category FROM scraped_products WHERE is_active = TRUE AND category IS NOT NULL ORDER BY category`
+          ),
+        ]);
+
+        const mapRow = (r: any): any => ({
+          id:              r.id,
+          name:            r.name,
+          description:     r.description  || '',
+          price:           r.price_current || '',
+          category:        r.category     || 'General',
+          images:          r.images       || [],
+          specifications:  (() => { try { return Object.entries(r.specifications || {}).map(([k, v]: [string, any]) => ({ key: k, value: String(v) })); } catch { return []; } })(),
+          inStock:         r.in_stock,
+          sourceUrl:       r.source_url,
+          scrapedAt:       r.last_scraped_at,
+          createdAt:       r.created_at,
+          updatedAt:       r.updated_at,
+          weightGrams:     r.weight_grams      ?? null,
+          trendingScore:   r.trending_score    ?? null,
+          b2bSuitable:     r.b2b_suitable      ?? null,
+          originCountry:   r.origin_country    ?? null,
+          shippingEst:     r.shipping_est      ?? null,
+          subcategory:     r.subcategory       ?? null,
+          sourceId:        r.source_id         ?? null,
+          moq:             r.moq               ?? null,
+          airDeliveryDays: r.air_delivery_days ?? null,
+          seaDeliveryDays: r.sea_delivery_days ?? null,
+          supplierName:    r.supplier_name     ?? null,
+          supplierVerified:r.supplier_verified ?? null,
+        });
+
+        res.json({
+          data:       dataRows.rows.map(mapRow),
+          total:      +(countRow.rows[0]?.count || '0'),
+          page:       pg,
+          pageSize:   ps,
+          categories: (catRows.rows ?? []).map((r: any) => r.category).filter(Boolean),
+          scrapedAt:  new Date().toISOString(),
+        });
+      } catch (error: any) {
+        logger.warn('[products] list failed', { error: error.message });
+        res.status(200).json({ data: [], total: 0, page: 1, pageSize: 20, categories: [], scrapedAt: null });
+      }
+    });
+
+    // GET /api/products/stats  – aggregate statistics
+    this.app.get('/api/products/stats', async (_req: Request, res: Response) => {
+      try {
+        const { rows } = await db.query<any>(
+          `SELECT
+             COUNT(*)                                                       AS total,
+             COUNT(CASE WHEN trending_score >= 80  THEN 1 END)             AS trending,
+             COUNT(CASE WHEN weight_grams   <= 200 THEN 1 END)             AS lightweight,
+             ROUND(AVG(price_current),2)                                    AS avg_price,
+             MIN(price_current)                                             AS min_price,
+             MAX(price_current)                                             AS max_price,
+             COUNT(CASE WHEN moq IS NOT NULL AND moq <= 20 THEN 1 END)     AS low_moq_count,
+             COUNT(CASE WHEN b2b_suitable = TRUE  THEN 1 END)              AS b2b_suitable_count
+           FROM scraped_products
+           WHERE is_active = TRUE`
+        );
+        const r = rows[0];
+        res.json({
+          success: true,
+          stats: {
+            total:             +(r?.total                   || 0),
+            trending:          +(r?.trending                || 0),
+            lightweight:       +(r?.lightweight             || 0),
+            avgPrice:          r?.avg_price ?? null,
+            minPrice:          r?.min_price ?? null,
+            maxPrice:          r?.max_price ?? null,
+            lowMoqCount:       +(r?.low_moq_count           || 0),
+            b2bSuitableCount:  +(r?.b2b_suitable_count      || 0),
+          },
+        });
+      } catch (error: any) {
+        logger.warn('[products] stats failed', { error: error.message });
+        res.status(500).json({ success: false, error: 'Failed to get stats' });
+      }
+    });
+
+    // GET /api/products/:id  – single product detail
+    this.app.get('/api/products/:id', async (req: Request, res: Response) => {
+      try {
+        const { rows } = await db.query(
+          `SELECT * FROM scraped_products WHERE id = $1 AND is_active = TRUE`,
+          [req.params.id]
+        );
+        if (!rows.length) return res.status(404).json({ error: 'Product not found' });
+        const r: any = rows[0];
+        res.json({
+          id:              r.id, name: r.name, description: r.description || '',
+          price:           r.price_current || '', category: r.category || 'General',
+          images:          r.images       || [], specifications: [],
+          inStock:         r.in_stock,
+          sourceUrl:       r.source_url, scrapedAt: r.last_scraped_at,
+          createdAt:       r.created_at,  updatedAt: r.updated_at,
+          weightGrams:     r.weight_grams      ?? null,
+          trendingScore:   r.trending_score    ?? null,
+          b2bSuitable:     r.b2b_suitable      ?? null,
+          originCountry:   r.origin_country    ?? null,
+          shippingEst:     r.shipping_est      ?? null,
+          subcategory:     r.subcategory       ?? null,
+          sourceId:        r.source_id         ?? null,
+          moq:             r.moq               ?? null,
+          airDeliveryDays: r.air_delivery_days ?? null,
+          seaDeliveryDays: r.sea_delivery_days ?? null,
+          supplierName:    r.supplier_name     ?? null,
+          supplierVerified:r.supplier_verified ?? null,
+        });
+      } catch (error: any) {
+        logger.error('[products] get by id failed', { error: error.message });
+        res.status(500).json({ error: 'Failed to get product' });
+      }
+    });
+
+    // GET /api/products/scrape/status  – current scrape progress
+    this.app.get('/api/products/scrape/status', async (_req: Request, res: Response) => {
+      try {
+        const { rows } = await db.query<any>(
+          `SELECT id, status, started_at, completed_at, products_scraped AS product_count
+           FROM scrape_runs ORDER BY started_at DESC LIMIT 1`
+        );
+        if (rows.length === 0) {
+          return res.json({ success: true, phase: 'idle', message: 'Ready to scrape', productCount: 0, scrapedAt: null, runId: null });
+        }
+        const r = rows[0];
+        res.json({
+          success:      true,
+          phase:        r.status === 'completed' ? 'complete' : r.status === 'running' ? 'discovering' : 'idle',
+          message:      r.status === 'completed' ? `Scrape completed — ${r.product_count ?? 0} products` : r.status === 'running' ? 'Scraping in progress…' : 'Ready to scrape',
+          productCount: +(r.product_count ?? 0),
+          scrapedAt:    r.completed_at ?? r.started_at ?? null,
+          runId:        r.id ?? null,
+        });
+      } catch (error: any) {
+        logger.warn('[products] scrape status failed', { error: error.message });
+        res.json({ success: true, phase: 'idle', message: 'Status unavailable', productCount: 0, scrapedAt: null, runId: null });
+      }
+    });
+
+    // POST /api/products/scrape  – synchronous foreground scrape of sokogate.com
+    this.app.post('/api/products/scrape', async (req: Request, res: Response) => {
+      try {
+        const bodyBaseUrl  = String(req.body?.baseUrl  ?? '') || agentConfig.sokogate.baseUrl;
+        const rawMaxPages  = parseInt(String(req.body?.maxPages  ?? '10'), 10);
+        const rawMaxProd   = parseInt(String(req.body?.maxProducts ?? '50'), 10);
+
+        try { new URL(bodyBaseUrl); } catch {
+          return res.status(400).json({ success: false, error: `Invalid baseUrl: "${bodyBaseUrl}"` });
+        }
+
+        const maxPages  = Math.min(isNaN(rawMaxPages)  ? 10 : rawMaxPages,  agentConfig.sokogate.maxPages);
+        const maxProducts = Math.min(isNaN(rawMaxProd)  ? 50 : rawMaxProd,  100);
+
+        logger.info('[products] scrape triggered', { baseUrl: bodyBaseUrl, maxPages, maxProducts });
+
+        const result = await sourceProductData();
+        // sourceProductData handles its own scrape run lifecycle via signals;
+        // it returns { runId, productsFound, productsUpserted, durationMs }.
+        // If external baseUrl differs from config BASE_URL, skip full autonomous
+        // run and return a graceful notice (the Agent scraper uses config BASE_URL).
+        if (bodyBaseUrl !== agentConfig.sokogate.baseUrl) {
+          return res.json({
+            success:      true,
+            message:      `Custom baseUrl "${bodyBaseUrl}" not yet supported by agent-built scraper — run completed against ${agentConfig.sokogate.baseUrl}.`,
+            productsFound:    result.productsFound,
+            productsUpserted: result.productsUpserted,
+            runId:        result.runId,
+            maxPages,
+            maxProducts,
+          });
+        }
+
+        res.json({
+          success:      true,
+          message:      `Scraped and upserted ${result.productsUpserted} of ${result.productsFound} products`,
+          runId:        result.runId,
+          productsFound:    result.productsFound,
+          productsUpserted: result.productsUpserted,
+          maxPages,
+          maxProducts,
+        });
+      } catch (error: any) {
+        logger.error('[products] scrape failed', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // ── 404 handler ───────────────────────────────────────────────────────────────
     this.app.use((req: Request, res: Response) => {
       res.status(404).json({
         error: 'Not found',

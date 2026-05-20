@@ -39,7 +39,7 @@ export function useScrapeStatus(onScrapeComplete?: (products: Product[]) => void
     completeSeen.current = false;
 
     try {
-      const resp: any = await apiClient.post('/api/products/scrape', { mode: 'foreground' });
+      const resp: any = await apiClient.post('/products/scrape', { mode: 'foreground' });
       const actualPhase: ScrapeStatusResponse['phase'] =
         (resp as any)?.phase ?? (resp?.success ? 'discovering' : 'idle');
 
@@ -67,7 +67,7 @@ export function useScrapeStatus(onScrapeComplete?: (products: Product[]) => void
 
     async function tick(): Promise<void> {
       try {
-        const next: any = await apiClient.get('/api/products/scrape/status');
+        const next: any = await apiClient.get('/products/scrape/status');
         const nextPhase = next.phase;
         setScrapeStatus(next);
 
@@ -79,7 +79,7 @@ export function useScrapeStatus(onScrapeComplete?: (products: Product[]) => void
           if (!completeSeen.current && onScrapeComplete) {
             completeSeen.current = true;
             try {
-              const productsResp: any = await apiClient.get('/api/products');
+              const productsResp: any = await apiClient.get('/products');
               const products: Product[] = Array.isArray(productsResp?.data) ? productsResp.data : [];
               onScrapeComplete(products);
             } catch {

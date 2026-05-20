@@ -65,7 +65,7 @@ export interface ScrapeRunRow {
   products_failed:    number;
   products_deleted:   number;
   started_at:         string;
-  finished_at:        string | null;
+  completed_at:       string | null;
   duration_ms:        number | null;
   error_message:      string | null;
   metadata:           Record<string, unknown>;
@@ -190,8 +190,8 @@ export async function getRecentScrapeRuns(limit = 20): Promise<ScrapeRunRow[]> {
   const { rows } = await dbQuery<ScrapeRunRow>(
     `SELECT id, triggered_by, status, base_url, max_pages,
             products_found, products_scraped,
-            started_at, finished_at,
-            duration_ms, error_message, metadata
+            started_at, completed_at,
+            duration_ms, error_message, metadata, phase_message
      FROM scrape_runs ORDER BY started_at DESC LIMIT $1`,
     [limit],
   );
