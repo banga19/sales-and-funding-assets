@@ -18,12 +18,12 @@
  *   · OutputParserStringParser — strip any markdown fences from the LLM output
  */
 
-import { ChatOpenAI } from '@langchain/openai';
 import type { BaseMessage } from '@langchain/core/messages';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
+import { langchainService } from './langchain.service';
 
 export type ContentType = 'blog' | 'product_guide' | 'company_profile';
 
@@ -146,17 +146,7 @@ Cover in sequence:
 // ─── ContentAgent ───────────────────────────────────────────────────────────────
 
 export class ContentAgent {
-  private genLLM: ChatOpenAI;
-
-  constructor() {
-    this.genLLM = new ChatOpenAI({
-      apiKey:         agentConfig.ai.apiKey,
-      model:          agentConfig.ai.model,
-      temperature:    0.4,
-      maxTokens:      2048,
-      configuration:  { baseURL: agentConfig.ai.baseUrl },
-    });
-  }
+  private get genLLM() { return langchainService.getLLM(0.4, 2048); }
 
   /**
    * run — full RAG content generation pipeline.
@@ -199,7 +189,7 @@ export class ContentAgent {
     ]);
 
     const chain = promptTemplate.pipe(this.genLLM);
-    const result = await chain.invoke({});
+    const result = await langchainService.withRetry(() => chain.invoke({}));
     const body = (result as BaseMessage)?.content?.toString().trim()
       || '[content-agent] LLM returned no content.';
 

@@ -15,12 +15,12 @@
  *   · ChatPromptTemplate           — per-product enrichment prompt
  */
 
-import { ChatOpenAI } from '@langchain/openai';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { Product } from '../types/product.types';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
+import { langchainService } from './langchain.service';
 import { sourceProductData } from './product-source.service';
 
 // ── Run succinct struct ────────────────────────────────────────────────────────
@@ -51,17 +51,7 @@ Return ONLY a valid JSON object with no markdown fences:
 // ─── BulkSourcingAgent ─────────────────────────────────────────────────────────
 
 export class BulkSourcingAgent {
-  private enrichmentLLM: ChatOpenAI;
-
-  constructor() {
-    this.enrichmentLLM = new ChatOpenAI({
-      apiKey:         agentConfig.ai.apiKey,
-      model:          agentConfig.ai.model,
-      temperature:    0.2,
-      maxTokens:      300,
-      configuration:  { baseURL: agentConfig.ai.baseUrl },
-    });
-  }
+  private get enrichmentLLM() { return langchainService.getLLM(0.2, 300); }
 
   /**
    * run — execute the full sourcing chain.
@@ -172,7 +162,7 @@ export class BulkSourcingAgent {
       .replace('{description}', ((product.description || 'no description') as string).replace(/"/g, "'").slice(0, 800));
 
     try {
-      const response = await this.enrichmentLLM.invoke([['human', prompt]]);
+      const response = await langchainService.withRetry(() => this.enrichmentLLM.invoke([['human', prompt]]));
       const rawContent = (response as BaseMessage).content?.toString() || '{}';
 
       // Extract the first JSON block from the response

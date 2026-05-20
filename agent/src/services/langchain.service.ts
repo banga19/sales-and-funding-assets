@@ -55,6 +55,42 @@ class LangChainService {
     return LangChainService.instance;
   }
 
+  /** Shared LLM instance — all agents reuse this single ChatOpenAI */
+  getLLM(temperature = 0.3, maxTokens?: number): ChatOpenAI {
+    if (maxTokens) {
+      return new ChatOpenAI({
+        model: agentConfig.ai.model,
+        temperature,
+        maxTokens,
+        apiKey: agentConfig.ai.apiKey,
+        configuration: { baseURL: agentConfig.ai.baseUrl },
+      });
+    }
+    return this.llm;
+  }
+
+  /**
+   * withRetry — wraps any async LLM call with exponential backoff.
+   * Use this in every chain `.invoke()` to survive transient NVIDIA API failures.
+   */
+  async withRetry<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          const jitter = Math.random() * 200;
+          logger.warn('[langchain] retry', { attempt, maxRetries, delayMs: delay + jitter, error: lastError.message });
+          await new Promise(r => setTimeout(r, delay + jitter));
+        }
+      }
+    }
+    throw lastError!;
+  }
+
   /* ════════════════════════════════════════════════════════════════════════
    * CORE CHAIN: generatePersonalizedMessage
    * Replaces personalization.ts raw openai.chat.completions.create() call.
@@ -96,7 +132,7 @@ class LangChainService {
     ]);
     const chain = promptTemplate.pipe(this.llm);
 
-    const response = await chain.invoke({});
+    const response = await this.withRetry(() => chain.invoke({}));
     const content = (response as AIMessage).content?.toString() || '';
 
     return this.parseGeneratedMessage(content, params.isFirstContact);
@@ -189,7 +225,7 @@ Return EXACTLY this JSON shape:
       ['human', INTENT_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
-    const response = await chain.invoke({});
+    const response = await this.withRetry(() => chain.invoke({}));
     const content = (response as AIMessage).content?.toString() || '{}';
 
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -248,7 +284,7 @@ Only respond with the email body text. Do not add a subject line.`;
       ['human', REPLY_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
-    const response = await chain.invoke({});
+    const response = await this.withRetry(() => chain.invoke({}));
     return (response as AIMessage).content?.toString().trim() || '';
   }
 
@@ -300,7 +336,7 @@ Output EXACTLY this JSON — nothing else:
       ['human', CLASSIFY_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
-    const response = await chain.invoke({});
+    const response = await this.withRetry(() => chain.invoke({}));
     const content = (response as AIMessage).content?.toString() || '{}';
 
     const jsonMatch = content.match(/\{[\s\S]*\}/);

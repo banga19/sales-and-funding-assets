@@ -1,8 +1,8 @@
 // agent/src/services/funding.agent.ts
-import { ChatOpenAI } from '@langchain/openai';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
+import { langchainService } from './langchain.service';
 
 // Helpers — safely extract the first JSON object from an LLM response
 const stripFences = (s: string) => s.replace(/^```(?:json)?\s*[\r\n]*/i, '').replace(/[\r\n]*```\s*$/i, '').trim();
@@ -14,13 +14,7 @@ const extractJson = (raw: string): Record<string, any> | null => {
 };
 
 export class FundingPitchAgent {
-  private llm = new ChatOpenAI({
-    apiKey: agentConfig.ai.apiKey,
-    model: agentConfig.ai.model,
-    temperature: 0.2,
-    maxTokens: 1024,
-    configuration: { baseURL: agentConfig.ai.baseUrl },
-  });
+  private get llm() { return langchainService.getLLM(0.2, 1024); }
 
   async run(investorProfile: 'angel' | 'vc' | 'bank' | 'government', companyDetails: Record<string, any>) {
     const start = Date.now();
@@ -31,7 +25,7 @@ export class FundingPitchAgent {
       const researchPrompt = `Research and list 3–5 RECENTLY ACTIVE ${investorProfile} investors for B2B e-commerce/construction-tech in East Africa.
 Return ONLY valid JSON, no markdown code fences:
 {"contacts":[{"name":"..","email":"..","firm":"..","fit":".."}]}`;
-      const raw = await this.llm.invoke([['human', researchPrompt]]);
+      const raw = await langchainService.withRetry(() => this.llm.invoke([['human', researchPrompt]]));
       const text = (raw as any).content?.toString().trim() || '';
       const parsed = extractJson(text);
       if (parsed?.contacts?.length) contacts = parsed.contacts;
@@ -59,7 +53,7 @@ Your tasks:
 Output ONLY a JSON object. Do not write anything before or after the JSON. Do not use markdown fences.
 {"pitch":"...","suggestedContacts":[{"name":"","email":"","firm":"","role":"","fit":"..."}]}`;
 
-      const raw2 = await this.llm.invoke([['human', synthesis]]);
+      const raw2 = await langchainService.withRetry(() => this.llm.invoke([['human', synthesis]]));
       const text2 = (raw2 as any).content?.toString().trim() || '';
       parsed = extractJson(text2) || {};
     } catch (err: any) {

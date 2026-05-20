@@ -1,19 +1,13 @@
 // agent/src/services/marketing.agent.ts
-import { ChatOpenAI } from '@langchain/openai';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
+import { langchainService } from './langchain.service';
 
 const ASSET_TYPES = ['email_sequence', 'social_post', 'ad_copy', 'landing_page'] as const;
 
 export class MarketingAgent {
-  private llm = new ChatOpenAI({
-    apiKey: agentConfig.ai.apiKey,
-    model: agentConfig.ai.model,
-    temperature: 0.3,
-    maxTokens: 1024,
-    configuration: { baseURL: agentConfig.ai.baseUrl },
-  });
+  private get llm() { return langchainService.getLLM(0.3, 1024); }
 
   async run(productIds: string[], targetChannel: string = 'all') {
     const start = Date.now();
@@ -35,7 +29,7 @@ export class MarketingAgent {
       for (const type of ASSET_TYPES) {
         if (targetChannel !== 'all' && targetChannel !== type) continue;
         try {
-          const result = await this.llm.invoke([['human', prompts[type]]]);
+          const result = await langchainService.withRetry(() => this.llm.invoke([['human', prompts[type]]]));
           const content = (result as any).content?.toString().trim();
           if (!content) throw new Error('Empty LLM response');
           await db.query(
