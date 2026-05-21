@@ -131,6 +131,7 @@ export interface MessageResponse {
   message_id?: string;
   error?: string;
   delivered_at?: Date;
+  previewUrl?: string;
 }
 
 // Funding Pipeline Types

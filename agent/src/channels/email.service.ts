@@ -97,6 +97,7 @@ class EmailService {
         success: true,
         message_id: info.messageId,
         delivered_at: new Date(),
+        previewUrl: this.etherealUrl ?? undefined,
       };
     } catch (error: any) {
       loggers.apiError('email', error);

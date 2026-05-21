@@ -41,6 +41,7 @@ export interface QuickSendResult {
   messageId?: string;
   conversationId?: string;
   followUpScheduled?: boolean;
+  previewUrl?: string;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────────
@@ -180,6 +181,7 @@ export async function sendContactEmail(
         result.status     = 'sent';
         result.ok         = true;
         result.messageId  = sendResult.message_id ?? undefined;
+        result.previewUrl = sendResult.previewUrl;
       } else {
         result.status = 'failed';
         result.error  = sendResult.error;
@@ -246,6 +248,7 @@ export async function sendContactEmail(
       sentAt,
       errorMessage: result.error,
       dryRun:       dryRun || agentConfig.dryRun,
+      previewUrl:   result.previewUrl,
     });
   } catch (err: any) {
     logger.warn('[quick-send] email_logs insert failed', {
@@ -448,14 +451,16 @@ async function insertEmailLog(params: {
   sentAt:       string;
   errorMessage?: string;
   dryRun:       boolean;
+  previewUrl?:  string;
 }): Promise<void> {
   try {
+    const metadata = params.previewUrl ? JSON.stringify({ previewUrl: params.previewUrl }) : null;
     await db.query(
       `INSERT INTO email_logs
          (contact_id, contact_type, to_email, from_email, subject,
           body_preview, status, message_id, template_used, sent_at,
-          error_message, dry_run)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          error_message, dry_run, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         params.contactId,
         params.contactType,
@@ -469,6 +474,7 @@ async function insertEmailLog(params: {
         params.sentAt,
         params.errorMessage ?? null,
         params.dryRun,
+        metadata,
       ],
     );
   } catch (err: any) {
