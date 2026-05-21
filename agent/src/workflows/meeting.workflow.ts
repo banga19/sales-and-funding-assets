@@ -58,8 +58,9 @@ export class MeetingWorkflow {
         [contactId]
       );
 
-      // Schedule reminder to follow up if no response
-      await this.scheduleFollowUpReminder(contactId, 2); // 2 days
+      // Schedule reminder to follow up if no response (configurable days)
+      const meetingFollowUpDays = agentConfig.followUpDelays?.meeting_suggested ?? 2;
+      await this.scheduleFollowUpReminder(contactId, meetingFollowUpDays);
 
       logger.info('Meeting suggestion sent', { contact_id: contactId });
 
@@ -226,6 +227,9 @@ export class MeetingWorkflow {
           if (success) {
             stats.successful++;
             await this.markReminderSent(reminder.id);
+            // Schedule a quick 2-hour post-meeting follow-up so we re-engage
+            // if the contact does not show up or follow up.
+            await this.schedulePostMeetingFollowUp(reminder.contact_id);
           } else {
             stats.failed++;
           }
@@ -361,7 +365,7 @@ export class MeetingWorkflow {
   /**
    * Schedule meeting reminders
    */
-  private async scheduleMeetingReminders(contactId: string, meetingDate: Date): Promise<void> {
+    private async scheduleMeetingReminders(contactId: string, meetingDate: Date): Promise<void> {
     // 24 hours before
     const reminder24h = new Date(meetingDate);
     reminder24h.setHours(reminder24h.getHours() - 24);
@@ -370,11 +374,14 @@ export class MeetingWorkflow {
     const reminder1h = new Date(meetingDate);
     reminder1h.setHours(reminder1h.getHours() - 1);
 
+    // Do NOT overwrite an existing reminder slot — INSERT … ON CONFLICT DO NOTHING
+    // so a re-schedule from the followup job does not create duplicates.
     await db.query(
       `INSERT INTO scheduled_actions (contact_id, action_type, scheduled_for, status)
        VALUES 
          ($1, 'meeting_reminder_24h', $2, 'pending'),
-         ($1, 'meeting_reminder_1h', $3, 'pending')`,
+         ($1, 'meeting_reminder_1h',   $3, 'pending')
+       ON CONFLICT (contact_id, action_type, scheduled_for) DO NOTHING`,
       [contactId, reminder24h, reminder1h]
     );
 
@@ -394,8 +401,25 @@ export class MeetingWorkflow {
 
     await db.query(
       `INSERT INTO scheduled_actions (contact_id, action_type, scheduled_for, status)
-       VALUES ($1, 'meeting_followup', $2, 'pending')`,
+       VALUES ($1, 'meeting_followup', $2, 'pending')
+       ON CONFLICT (contact_id, action_type, scheduled_for) DO NOTHING`,
       [contactId, scheduledFor]
+    );
+  }
+
+  /**
+   * Schedule a post-meeting follow-up 2 hours after a reminder is sent.
+   * Idempotent — ON CONFLICT DO NOTHING prevents duplicates.
+   */
+  private async schedulePostMeetingFollowUp(contactId: string): Promise<void> {
+    const twoHoursLater = new Date();
+    twoHoursLater.setHours(twoHoursLater.getHours() + 2);
+
+    await db.query(
+      `INSERT INTO scheduled_actions (contact_id, action_type, scheduled_for, status)
+       VALUES ($1, 'post_meeting_follow_up', $2, 'pending')
+       ON CONFLICT (contact_id, action_type, scheduled_for) DO NOTHING`,
+      [contactId, twoHoursLater]
     );
   }
 

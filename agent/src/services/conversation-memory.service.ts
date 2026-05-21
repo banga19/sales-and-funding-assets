@@ -1,231 +1,320 @@
 /**
  * conversation-memory.service.ts
  *
- * LangChain-compatible conversation memory service for the Sokogate Agent.
+ * Conversation Memory Layer — tracks state transitions for the conversation
+ * state machine and persists rolling summarised context per conversation.
  *
- * Bridges the `message_history` PostgreSQL table (already the authoritative
- * audit trail for all inbound / outbound messages) with a LangChain-compatible
- * ChatMessageHistory interface plus an LLM-powered summarisation chain.
+ * State machine (transition diagram — see langgraph.html p2):
  *
- * LangChain classes used
- *   · BaseChatMessageHistory  — LangChain interface that every Runnable can consume
- *   · ChatOpenAI              — summarisation LLM
- *   · ChatPromptTemplate      — summary prompt template
- *   · RunnableLambda          — compose memory into the personalisation chain
+ *   not_started
+ *     └─► initial_sent          (outreach sent)
+ *           └─► follow_up        (auto-follow-up fired)
+ *                 └─► engaged    (positive reply received)
+ *                       ├─► meeting_suggested  ─► meeting_scheduled
+ *                       └─► objection           ─► (re-engaged or escalated)
+ *           └─► not_interested   (hard decline → STOP)
+ *           └─► escalated        (complex question / negative sentiment 3× → human)
  *
- * Summary strategy
- *   Every contact's message_history feed is partitioned into:
- *     • "recent window" — last N raw turns (no truncation)
- *     • "older summary" — everything before the window, compressed by LLM to
- *       ≤ 4 sentences (key points only)
- *   The summary text is injected as an additional prompt variable so the LLM
- *   drafting an email sees the gist of prior turns without hitting token limits.
+ * All transitions are written to conversation_memory for:
+ *   • AI summarizer context (stage + key_points + summary)
+ *   • Audit trail
+ *   • Analytics
  */
 
-import { ChatOpenAI } from '@langchain/openai';
-import type { BaseMessage } from '@langchain/core/messages';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
-import type { MessageContext } from '../types/message.types';
 import { langchainService } from './langchain.service';
 
-// ── Config ─────────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════════
+// Types
+// ══════════════════════════════════════════════════════════════════════════════════
 
-const MAX_RAW_TURNS       = 10;   // keep this many raw turns in the context window
-const SUMMARY_MIN_CONTEXT = 6;    // summarise only when ≥ this many older turns
-const SUMMARY_MAX_SENTENCES = 4;   // max sentences in an LLM-generated summary
+export type ConversationStage =
+  | 'not_started'
+  | 'initial_sent'
+  | 'follow_up'
+  | 'engaged'
+  | 'meeting_suggested'
+  | 'meeting_scheduled'
+  | 'meeting_completed'
+  | 'objection'
+  | 'not_interested'
+  | 'out_of_office'
+  | 'escalated'
+  | 'closed';
 
-// ── Interfaces ─────────────────────────────────────────────────────────────────
-
-/** Return shape for the top-level memory helper. */
-export interface ConversationMemoryResult {
-  /** Raw turns in chronological order, most recent last. */
-  recentMessages: RecentTurn[];
-  /** LLM-generated gist of all older turns (empty if not enough history). */
-  summary: string;
-  /** Total message count for this contact. */
-  totalMessages: number;
+export interface MemoryRow {
+  id:               string;
+  conversation_id:  string;
+  contact_id:       string;
+  contact_type:     string;
+  current_stage:    ConversationStage;
+  summary:          string | null;
+  key_points:       string[];
+  last_message_at:  Date | null;
+  message_count:    number;
+  sentiment_trend:  string | null;
+  created_at:       Date;
+  updated_at:       Date;
 }
 
-/** One turn of a conversation, formatted for LLM prompt injection. */
-export interface RecentTurn {
-  role:    'user' | 'assistant';
-  content: string;
-  ts?:     string;   // ISO timestamp of the message
-  intent?: string;   // optional: intent_detected from message_history
+export interface StageTransition {
+  from:    ConversationStage;
+  to:      ConversationStage;
+  reason:  string;
+  metadata?: Record<string, any>;
 }
 
-// ─── Logger sub-context (avoids repeating long IDs in every log line) ───────────
+// Allowed stage transitions (direct edges in the state machine).
+// Callers use `canTransition(from, to)` before writing.
+const ALLOWED_TRANSITIONS: Record<ConversationStage, ConversationStage[]> = {
+  not_started:     ['initial_sent', 'escalated'],
+  initial_sent:    ['follow_up', 'engaged', 'objection', 'not_interested', 'out_of_office', 'escalated'],
+  follow_up:       ['engaged', 'objection', 'not_interested', 'out_of_office', 'escalated', 'closed'],
+  engaged:         ['meeting_suggested', 'objection', 'not_interested', 'escalated', 'closed'],
+  meeting_suggested: ['meeting_scheduled', 'not_interested', 'escalated', 'closed'],
+  meeting_scheduled: ['meeting_completed', 'escalated', 'closed'],
+  meeting_completed: ['follow_up', 'engaged', 'not_interested', 'escalated', 'closed'],
+  objection:       ['follow_up', 'engaged', 'escalated', 'closed'],
+  not_interested:  ['closed'],
+  out_of_office:   ['follow_up', 'not_interested', 'escalated', 'closed'],
+  escalated:       ['engaged', 'closed'],
+  closed:          [], // terminal
+};
 
-const mc = (contactId: string) => ({ contactId });
+// ══════════════════════════════════════════════════════════════════════════════════
+// Service
+// ══════════════════════════════════════════════════════════════════════════════════
 
-// ─── PostgresChatMessageHistory ────────────────────────────────────────────────
-
-/**
- * PostgresChatMessageHistory
- *
- * Implements the LangChain BaseChatMessageHistory protocol using the
- * `message_history` PostgreSQL table as the persistent store.
- *
- * Read path:  SELECT … FROM message_history WHERE contact_id = $1 ORDER BY ts ASC
- * Write path: INSERT INTO message_history …
- */
-class PostgresChatMessageHistory {
-  messages: {
-    role:    'user' | 'assistant';
-    content: string;
-    ts?:     string;
-    intent?: string;
-  }[] = [];
-
-  constructor(private contactId: string) {}
-
-  /** Hydrate messages from the DB. */
-  async init(): Promise<void> {
-    try {
-      const { rows } = await db.query(
-        `SELECT direction, content, COALESCE(sent_at, received_at) AS ts, intent_detected
-           FROM message_history
-          WHERE contact_id = $1
-          ORDER BY COALESCE(sent_at, received_at) ASC
-          LIMIT 200`, [this.contactId]);
-
-      this.messages = rows.map((r: any) => ({
-        role:    r.direction === 'outbound' ? 'assistant' : 'user',
-        content: r.content || '',
-        ts:      r.ts?.slice(0, 16),
-        ...(r.intent_detected ? { intent: r.intent_detected } : {}),
-      }));
-      logger.debug('[conversation-memory] init', { ...mc(this.contactId), count: this.messages.length });
-    } catch (err: any) {
-      logger.warn('[conversation-memory] init failed', { ...mc(this.contactId), error: err.message });
-    }
+export class ConversationMemoryService {
+  /**
+   * canTransition — returns true if the state machine allows the move.
+   * Does not write to DB.
+   */
+  canTransition(from: ConversationStage, to: ConversationStage): boolean {
+    return ALLOWED_TRANSITIONS[from]?.includes(to) ?? false;
   }
 
-  /** Append an inbound (user) message to both memory and DB. */
-  async addUserMessage(content: string): Promise<void> {
-    this.messages.push({ role: 'user', content });
-    try {
-      await db.query(
-        `INSERT INTO message_history (contact_id, contact_type, direction, channel, content, received_at)
-         VALUES ($1, 'prospect', 'inbound', 'email', $2, NOW())`,
-        [this.contactId, content?.slice(0, 4000)],
-      );
-    } catch (err: any) {
-      logger.warn('[conversation-memory] addUser DB fail', { ...mc(this.contactId), error: err.message });
-    }
-  }
-
-  /** Append an outbound (assistant/AI) message to both memory and DB. */
-  async addAIMessage(content: string): Promise<void> {
-    this.messages.push({ role: 'assistant', content });
-    try {
-      await db.query(
-        `INSERT INTO message_history (contact_id, contact_type, direction, channel, content, sent_at)
-         VALUES ($1, 'prospect', 'outbound', 'email', $2, NOW())`,
-        [this.contactId, content?.slice(0, 4000)],
-      );
-    } catch (err: any) {
-      logger.warn('[conversation-memory] addAIMessage DB fail', { ...mc(this.contactId), error: err.message });
-    }
-  }
-}
-
-// ─── Summarisation chain ───────────────────────────────────────────────────────
-
-const SUMMARY_PROMPT = ChatPromptTemplate.fromMessages([
-  ['system',
-   `Summarise the key points of a B2B sales / investor conversation.
-Write at most ${SUMMARY_MAX_SENTENCES} sentences.
-Include: pain points raised, objections made, commitments given, and next steps agreed.
-Return only the summary text — no labels.`],
-  ['human',
-   `Conversation history ({window} older turns — most recent are appended separately):\n\n{history}`],
-]);
-
-/**
- * summarizeHistory — compress older conversation turns into a single gist string using
- * the same NVIDIA Nemotron model.  Returns empty string on any failure.
- */
-async function summarizeHistory(contactId: string, tail: RecentTurn[]): Promise<string> {
-  if (!agentConfig.features.memorySummaries) return '';
-  if (tail.length < SUMMARY_MIN_CONTEXT) return '';
-
-  const historyText = tail
-    .map(t => `[${t.ts || '??'} ${t.role}${t.intent ? `(${t.intent})` : ''}] ${t.content?.slice(0, 200)}`)
-    .join('\n');
-
-  try {
-    const llm = langchainService.getLLM(0.2, 200);
-    const chain = SUMMARY_PROMPT.pipe(llm);
-    const res   = await langchainService.withRetry(() => chain.invoke({ window: tail.length.toString(), history: historyText }));
-    const raw   = (res as any)?.content?.toString().trim() || '';
-    return raw.replace(/^(Summary:\s*)?/i, '');
-  } catch (err: any) {
-    logger.warn('[conversation-memory] summarisation failed', { ...mc(contactId), error: err.message });
-    return '';
-  }
-}
-
-// ─── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * getConversationMemory — primary entry point.
- * Returns both the raw recent-turn window and an optional LLM-generated summary.
- *
- * Called from:
- *  · orchestrator.ts processInitialOutreach()
- *  · orchestrator.ts processIncomingMessage()
- *  · followup.workflow.ts executeFollowUp()
- *  · quick-send.service.ts buildMessageContext()   (indirectly)
- */
-export async function getConversationMemory(
-  contactId: string,
-): Promise<ConversationMemoryResult> {
-  const history = new PostgresChatMessageHistory(contactId);
-  await history.init();
-
-  const totalMessages = history.messages.length;
-  const recent  = history.messages.slice(-MAX_RAW_TURNS);
-  const older   = history.messages.slice(0, -MAX_RAW_TURNS);
-
-  // Summarise in the background — do not await for the calling path
-  // (runAllEnabled in master-switch will do its own orchestration).
-  const summaryPromise = summarizeHistory(contactId, older as RecentTurn[]);
-
-  return {
-    recentMessages: recent as RecentTurn[],
-    summary:        await summaryPromise,
-    totalMessages,
-  };
-}
-
-/**
- * buildContextWithMemory — convenience wrapper.  Accepts the current MessageContext
- * plus a `contactId`, fetches memory, and returns an enriched MessageContext that
- * personalizationService.generateMessage() can consume directly.
- *
- * This is the single line the orchestrator file needs to change.
- */
-export async function buildContextWithMemory(
-  baseContext: MessageContext,
-  contactId:   string,
-): Promise<{ context: MessageContext; memory: ConversationMemoryResult }> {
-  const memory = await getConversationMemory(contactId);
-
-  return {
-    context: {
-      ...baseContext,
-      // Pass the recent turns as previous_messages (role: content format the chain expects)
-      previous_messages: memory.recentMessages.map(m => ({
-        role:    m.role,
-        content: m.content.slice(0, 600),
-      })) as any,
-      // Inject summary as a free-form field that the chain prompt can handle
-      conversation_summary: memory.summary,
+  /**
+   * recordTransition — writes a conversation_memory row and (optionally)
+   * updates conversations.current_stage.
+   *
+   * @param transition  { conversationId, contactId, contactType, from, to, reason, metadata? }
+   * @param updateConversation  if true (default) also UPDATs conversations.current_stage
+   */
+  async recordTransition(
+    transition: StageTransition & {
+      conversationId: string;
+      contactId:      string;
+      contactType:    string;
     },
-    memory,
-  };
+    updateConversation = true,
+  ): Promise<MemoryRow | null> {
+    if (!this.canTransition(transition.from, transition.to)) {
+      logger.warn('[conversation-memory] blocked transition', {
+        from: transition.from,
+        to:   transition.to,
+        reason: transition.reason,
+      });
+      return null;
+    }
+
+    const { conversationId, contactId, contactType, from, to, reason, metadata } = transition;
+
+    try {
+      const row = await db.query<MemoryRow>(
+        `INSERT INTO conversation_memory
+           (conversation_id, contact_id, contact_type, current_stage, key_points, sentiment_trend, created_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, NOW())
+         ON CONFLICT (conversation_id) DO UPDATE SET
+           current_stage = EXCLUDED.current_stage,
+           key_points    = EXCLUDED.key_points,
+           sentiment_trend = EXCLUDED.sentiment_trend,
+           updated_at    = NOW()
+         RETURNING *`,
+        [
+          conversationId,
+          contactId,
+          contactType,
+          to,
+          JSON.stringify(metadata?.key_points || []),
+          metadata?.sentiment_trend || null,
+        ],
+      );
+
+      const result = row.rows[0] as MemoryRow;
+
+      if (updateConversation) {
+        await db.query(
+          `UPDATE conversations
+           SET current_stage = $1, next_action = $2, updated_at = NOW()
+           WHERE id = $3`,
+          [
+            to,
+            metadata?.next_action || null,
+            conversationId,
+          ],
+        );
+      }
+
+      logger.info('[conversation-memory] transition recorded', {
+        conversation_id: conversationId,
+        from,
+        to,
+        reason,
+      });
+
+      return result;
+    } catch (err: any) {
+      logger.error('[conversation-memory] transition failed', {
+        conversation_id: conversationId,
+        error: err.message,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * getMemory — returns the current memory row for a conversation.
+   */
+  async getMemory(conversationId: string): Promise<MemoryRow | null> {
+    const row = await db.query<MemoryRow>(
+      'SELECT * FROM conversation_memory WHERE conversation_id = $1 LIMIT 1',
+      [conversationId],
+    );
+    return row.rows[0] ?? null;
+  }
+
+  /**
+   * getMemoryByContact — looks up conversation_id → memory.
+   */
+  async getMemoryByContact(contactId: string): Promise<MemoryRow | null> {
+    const row = await db.query<MemoryRow>(
+      `SELECT cm.* FROM conversation_memory cm
+       JOIN conversations c ON cm.conversation_id = c.id
+       WHERE c.contact_id = $1
+       ORDER BY cm.updated_at DESC LIMIT 1`,
+      [contactId],
+    );
+    return row.rows[0] ?? null;
+  }
+
+  /**
+   * summarizeConversation — generates or updates the LLM summary for a
+   * conversation_memory row.  Safe to call repeatedly; UPSERTs a single row.
+   */
+  async summarizeConversation(
+    conversationId: string,
+    _maxWords = 150,
+  ): Promise<{ ok: boolean; summary: string; fallback: boolean }> {
+    try {
+      // Fetch last 10 message_history rows
+      const { rows: messages } = await db.query(
+        `SELECT direction, content, sent_at FROM message_history
+         WHERE conversation_id = $1
+         ORDER BY COALESCE(sent_at, received_at) DESC
+         LIMIT 10`,
+        [conversationId],
+      );
+
+      if (messages.length === 0) {
+        return { ok: false, summary: '', fallback: true };
+      }
+
+      const transcript = messages
+        .reverse()
+        .map((m: any) => `${m.direction === 'outbound' ? 'Agent' : 'Contact'}: ${m.content?.slice(0, 300)}`)
+        .join('\n');
+
+      const summary = await langchainService.streamChain(
+        `Summarise the following conversation in ${_maxWords} words or fewer.
+Focus on: key pain points, stated needs, any objections raised, and current position.
+No preamble, just the summary.
+
+---
+${transcript}
+---`,
+        undefined,
+        0.2,
+        300,
+      );
+
+      const keyPoints = messages
+        .filter((m: any) => m.direction === 'inbound')
+        .slice(0, 5)
+        .map((m: any) => m.content?.slice(0, 120).replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
+      await db.query(
+        `UPDATE conversation_memory
+         SET summary = $1, key_points = $2::jsonb, message_count = $3, updated_at = NOW()
+         WHERE conversation_id = $4`,
+        [summary.trim(), JSON.stringify(keyPoints), messages.length, conversationId],
+      );
+
+      return { ok: true, summary: summary.trim(), fallback: false };
+    } catch (err: any) {
+      logger.warn('[conversation-memory] summarisation failed', { error: err.message });
+      return { ok: false, summary: '', fallback: true };
+    }
+  }
+
+  /**
+   * upsertMemory — creates or updates a conversation_memory row directly.
+   * Used by orchestrator.processIncomingMessage after every inbound reply.
+   */
+  async upsertMemory(params: {
+    conversationId: string;
+    contactId:      string;
+    contactType:    string;
+    stage:          ConversationStage;
+    keyPoints?:     string[];
+    sentimentTrend?: string;
+  }): Promise<MemoryRow | null> {
+    try {
+      const row = await db.query<MemoryRow>(
+        `INSERT INTO conversation_memory
+           (conversation_id, contact_id, contact_type, current_stage, key_points, sentiment_trend, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, NOW())
+         ON CONFLICT (conversation_id) DO UPDATE SET
+           current_stage   = EXCLUDED.current_stage,
+           key_points      = EXCLUDED.key_points,
+           sentiment_trend = EXCLUDED.sentiment_trend,
+           updated_at      = NOW()
+         RETURNING *`,
+        [
+          params.conversationId,
+          params.contactId,
+          params.contactType,
+          params.stage,
+          JSON.stringify(params.keyPoints || []),
+          params.sentimentTrend || null,
+        ],
+      );
+      return row.rows[0] ?? null;
+    } catch (err: any) {
+      logger.error('[conversation-memory] upsert failed', { error: err.message });
+      return null;
+    }
+  }
+
+  /**
+   * getActiveConversations — returns all conversations whose memory is
+   * stale (no summary generated within the TTL).
+   */
+  async getStaleSummaries(maxAgeHours = 24): Promise<MemoryRow[]> {
+    const { rows } = await db.query<MemoryRow>(
+      `SELECT * FROM conversation_memory
+       WHERE updated_at < NOW() - INTERVAL '${maxAgeHours} hours'
+         AND current_stage NOT IN ('closed', 'not_interested')
+       ORDER BY updated_at ASC
+       LIMIT 50`,
+    );
+    return rows;
+  }
 }
+
+export const conversationMemoryService = new ConversationMemoryService();
+
+// Made with Bob

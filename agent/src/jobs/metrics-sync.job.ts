@@ -117,6 +117,20 @@ async function calculateDailyMetrics(startDate: Date, endDate: Date): Promise<an
   `;
   const conversations = await db.query(conversationsQuery, [startDate, endDate]);
 
+  // Lead source breakdown — contacts by type tracked today
+  const leadSourceQuery = `
+    SELECT type, COUNT(*) as cnt
+    FROM contacts
+    WHERE created_at >= $1 AND created_at < $2
+    GROUP BY type
+    ORDER BY type
+  `;
+  const leadSourceRows = await db.query(leadSourceQuery, [startDate, endDate]);
+  const leadSource: Record<string, number> = {};
+  for (const row of leadSourceRows.rows) {
+    leadSource[row.type] = parseInt(row.cnt, 10);
+  }
+
   // Response rate
   const totalSent = parseInt(messagesSent.rows[0].total) || 0;
   const totalReceived = parseInt(messagesReceived.rows[0].total) || 0;
@@ -154,6 +168,7 @@ async function calculateDailyMetrics(startDate: Date, endDate: Date): Promise<an
       escalated: escalated,
       closed: parseInt(conversations.rows[0].closed) || 0,
     },
+    lead_source: leadSource,
     rates: {
       response_rate: responseRate,
       meeting_conversion_rate: meetingConversionRate,
@@ -182,6 +197,11 @@ async function storeDailyMetrics(date: Date, metrics: any): Promise<void> {
     { type: 'conversations_meeting_scheduled', value: metrics.conversations.meeting_scheduled },
     { type: 'conversations_escalated', value: metrics.conversations.escalated },
     { type: 'conversations_closed', value: metrics.conversations.closed },
+    // lead_source breakdown — one row per contact type
+    ...Object.entries(metrics.lead_source || {}).map(([type, count]) => ({
+      type: `lead_source_${type}`,
+      value: count as number,
+    })),
     { type: 'response_rate', value: metrics.rates.response_rate },
     { type: 'meeting_conversion_rate', value: metrics.rates.meeting_conversion_rate },
     { type: 'escalation_rate', value: metrics.rates.escalation_rate },

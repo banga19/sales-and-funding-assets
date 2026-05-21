@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { CheckCircle, XCircle, FileText, Mail, Briefcase, Zap, RefreshCw } from 'lucide-react';
 
 interface Props {
@@ -102,34 +103,65 @@ function BulkResult({ data }: { data: any }) {
 
 function MarketingResult({ data }: { data: any }) {
   const assets = data.assets || [];
-  if (assets.length === 0) return <p className="text-sm text-gray-600">No assets generated.</p>;
+  const assetsCreated = data.assetsCreated || assets.length;
+  const productsProcessed = data.productsProcessed || 0;
+  
+  if (assetsCreated === 0) {
+    return (
+      <div className="text-sm text-gray-600 space-y-1">
+        <p>No assets generated.</p>
+        {data.errors && data.errors.length > 0 && (
+          <p className="text-xs text-red-500 mt-1">Errors: {data.errors.join(', ')}</p>
+        )}
+      </div>
+    );
+  }
+  
   return (
-    <div className="space-y-2 max-h-48 overflow-y-auto">
-      {assets.map((asset: any, i: number) => (
-        <div key={i} className="text-sm bg-white rounded-lg p-2.5 border border-gray-200">
-          <p className="font-medium text-gray-700">{asset.product}</p>
-          <p className="text-xs text-indigo-600 mb-1 uppercase tracking-wide">{asset.type}</p>
-          <p className="text-gray-500 text-xs line-clamp-2">{asset.content ?? 'No preview available.'}</p>
-        </div>
-      ))}
+    <div className="space-y-2">
+      <p className="text-xs text-gray-500">
+        Generated {assetsCreated} assets for {productsProcessed} product{productsProcessed !== 1 ? 's' : ''}.
+      </p>
+      <div className="max-h-48 overflow-y-auto space-y-1.5">
+        {assets.map((asset: any, i: number) => (
+          <div key={asset.id || i} className="text-sm bg-white rounded-lg p-2.5 border border-gray-200">
+            <p className="font-medium text-gray-700">{asset.product}</p>
+            <p className="text-xs text-indigo-600 mb-1 uppercase tracking-wide">{asset.type.replace('_', ' ')}</p>
+            <p className="text-gray-500 text-xs line-clamp-2">{asset.content?.substring(0, 150) || 'No preview available.'}</p>
+          </div>
+        ))}
+      </div>
+      {data.errors && data.errors.length > 0 && (
+        <p className="text-xs text-red-500 mt-1">Errors: {data.errors.length} failed</p>
+      )}
     </div>
   );
 }
 
 function ContentResult({ data }: { data: any }) {
+  const [expanded, setExpanded] = useState(false);
   const piece: { title?: string; body?: string; type?: string; createdAt?: string; imageUrls?: string[] } = {
     title: data.title || '',
     body:  data.body  || '',
     type:  data.type  || '',
     imageUrls: data.imageUrls || [],
   };
-  if (!piece.title) return <p className="text-sm text-gray-600">No content generated.</p>;
+  if (!piece.title && !piece.body) return <p className="text-sm text-gray-600">No content generated.</p>;
+  
+  const typeLabels: Record<string, string> = {
+    blog: 'Blog Article',
+    product_guide: 'Product Guide',
+    company_profile: 'Company Profile',
+  };
+  
   return (
     <div className="space-y-2">
-      <h4 className="font-medium text-gray-700 text-sm">{piece.title}</h4>
-      <p className="text-xs text-gray-500">
-        {piece.type || 'generated'} · {new Date(piece.createdAt || Date.now()).toLocaleDateString()}
-      </p>
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium text-gray-700 text-sm">{piece.title || 'Generated Content'}</h4>
+        <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+          {typeLabels[piece.type || ''] || piece.type || 'generated'}
+        </span>
+      </div>
       {piece.imageUrls && piece.imageUrls.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-2">
           {piece.imageUrls.map((url: string, i: number) => (
@@ -143,8 +175,17 @@ function ContentResult({ data }: { data: any }) {
         </div>
       )}
       <div className="text-sm text-gray-600 bg-white p-3 rounded-lg border max-h-40 overflow-y-auto whitespace-pre-wrap">
-        {piece.body?.substring(0, 500)}...
+        {expanded ? piece.body : piece.body?.substring(0, 500)}
+        {!expanded && piece.body && piece.body.length > 500 && <span>...</span>}
       </div>
+      {piece.body && piece.body.length > 500 && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-indigo-600 hover:text-indigo-800 underline"
+        >
+          {expanded ? 'Show less' : `Show full content (${piece.body.length} chars)`}
+        </button>
+      )}
     </div>
   );
 }

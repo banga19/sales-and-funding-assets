@@ -7,12 +7,13 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X, Tag, ChevronDown, Check } from 'lucide-react';
+import { Mail, Loader2, Send, RefreshCw, Inbox, Eye, X, Tag, ChevronDown, Check, Layers } from 'lucide-react';
 import { SOK } from '@/design-tokens';
 import { useOutreach } from '@/context/OutreachContext';
 import { useEmailPanel } from '@/context/EmailPanelContext';
+import BatchSendPanel from './BatchSendPanel';
 
-type Tab = 'contacts' | 'logs';
+type Tab = 'contacts' | 'logs' | 'batch';
 
 type ContactType = 'prospect' | 'investor' | 'partner' | 'funding';
 
@@ -249,6 +250,12 @@ export default function OutreachPanel() {
           icon={<Eye className="w-4 h-4" />}
           label="Email Logs"
         />
+        <TabButton
+          active={activeTab === 'batch'}
+          onClick={() => setActiveTab('batch')}
+          icon={<Layers className="w-4 h-4" />}
+          label="Batch Send"
+        />
       </div>
 
       {/* Type filter — only on Contacts tab */}
@@ -337,6 +344,11 @@ export default function OutreachPanel() {
             </div>
           )}
         </>
+      )}
+
+      {/* Batch Send tab */}
+      {activeTab === 'batch' && (
+        <BatchSendPanel />
       )}
 
       {/* Email Logs tab */}

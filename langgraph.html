@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sokogate Agent â€” Async Data-Flow Architecture</title>
+  <style>
+:root{--bg:#0d1117;--panel:#161b22;--bg2:#1c2333;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#d29922;--red:#f85149;--purple:#bc8cff;--pink:#ff7eb6;--cyan:#39d353;--yellow:#e3b341}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:Consolas,Menlo,monospace;font-size:12.5px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.hdr{background:var(--panel);border-bottom:1px solid var(--border);padding:8px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.hdr-title{font-size:15px;font-weight:700;color:var(--accent)}
+.hdr-sub{font-size:11px;color:var(--dim);margin-top:2px}
+.badge{background:rgba(63,185,80,.12);border:1px solid var(--green);color:var(--green);padding:2px 9px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap}
+.tab-bar{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;gap:0;overflow-x:auto;flex-shrink:0}
+.tab-btn{padding:8px 18px;cursor:pointer;color:var(--dim);border-bottom:2px solid transparent;white-space:nowrap;font-size:12px;font-weight:500;transition:color .1s,border-color .1s}
+.tab-btn:hover{color:var(--text);background:rgba(88,166,255,.05)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.page{display:none;flex:1;overflow:auto;padding:16px;gap:16px;flex-direction:column;contain:content}
+.page.active{display:flex}
+.legend{display:flex;flex-wrap:wrap;gap:10px;padding:7px 12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;align-items:center;flex-shrink:0}
+.leg-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim)}
+.leg-swatch{width:13px;height:13px;border-radius:3px;flex-shrink:0}
+.svg-wrap{flex:1;display:flex;justify-content:center;align-items:flex-start;min-height:0;overflow:auto;background:rgba(13,17,23,.5);border-radius:10px}
+.svg-wrap svg{width:100%;height:auto;max-width:1200px;min-width:660px}
+svg text{font-family:Consolas,Menlo,monospace;fill:var(--text);font-size:10px}
+.e-blue{stroke:#58a6ff;stroke-width:2;fill:none;stroke-dasharray:8 4;stroke-linecap:round;animation:dashFlow .9s linear infinite}
+.e-thin{stroke:#30363d;stroke-width:1;fill:none}
+.e-email{stroke:#f85149;stroke-width:2;fill:none;stroke-dasharray:6 4}
+.e-resched{stroke:#3fb950;stroke-width:1.8;fill:none;stroke-dasharray:5 3}
+@keyframes dashFlow{to{stroke-dashoffset:-12}}
+.pulse{animation:glow 2s ease-in-out infinite alternate;will-change:filter}
+@keyframes glow{0%{filter:drop-shadow(0 0 0 transparent)}to{filter:drop-shadow(0 0 3px rgba(88,166,255,.4))}}
+.ab{fill:#58a6ff}.ag{fill:#3fb950}.ap{fill:#bc8cff}.ao{fill:#d29922}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div><div class="hdr-title">Sokogate Agent â€” Async Data-Flow Architecture</div><div class="hdr-sub">Express :3002 Â· BullMQ + Redis :6379 Â· PostgreSQL :5433 Â· NVIDIA API Â· LangChain ChatOpenAI</div></div>
+  <div class="badge">LIVE</div>
+</div>
+
+<div class="tab-bar">
+  <div class="tab-btn active" data-page="p1">â‘  Scheduled Streams</div>
+  <div class="tab-btn" data-page="p2">â‘¡ Orchestrator &amp; Workflows</div>
+  <div class="tab-btn" data-page="p3">â‘¢ LangChain Agent Loops</div>
+  <div class="tab-btn" data-page="p4">â‘£ Data Layer</div>
+  <div class="tab-btn" data-page="p5">⑤ Runtime Config</div>
+</div>
+
+<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+     PAGE 1 â€” 3 BullMQ Scheduled Streams
+     Derived from: index.ts:840-861, daily-outreach.job.ts, followup-check.job.ts, metrics-sync.job.ts, queue.manager.ts
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+<div class="page active" id="p1">
+<div class="legend">
+  <div class="leg-item"><div class="leg-swatch" style="background:#58a6ff"></div>Async path</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#3fb950"></div>DB write/mutate</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#d29922"></div>LLM / NVIDIA</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#bc8cff"></div>Notification</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#f85149"></div>Email / Nodemailer</div>
+  <div class="leg-item"><span style="font-size:10px;color:var(--dim)">Stream 1: cron `0 6 * * *` (9 AM EAT) Â· Stream 2: `0 * * * *` + `*/30 * * * *` Â· Stream 3: `0 21 * * *` (mid EAT)</span></div>
+</div>
+<div class="svg-wrap">
+<svg viewBox="0 0 1100 620" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="mAB" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ab"/></marker>
+  <marker id="mAG" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ag"/></marker>
+  <marker id="mAP" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ap"/></marker>
+  <marker id="mAO" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ao"/></marker>
+</defs>
+
+<!-- â”€â”€â”€ SECTION BACKGROUNDS â”€â”€â”€ -->
+<rect x="8" y="8" width="1080" height="192" rx="6" fill="rgba(88,166,255,.03)" stroke="#58a6ff" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="24" y="26" font-size="12.5" font-weight="bold" fill="#58a6ff">STREAM 1 â€” DAILY OUTREACH  Â·  BullMQ cron: `0 6 * * *`  â†’  daily-outreach.job.ts:initializeDailyOutreachJob()  Â·  Worker â†’ outreachWorkflow.executeDailyBatch()</text>
+
+<rect x="8" y="210" width="1080" height="192" rx="6" fill="rgba(210,153,34,.03)" stroke="#d29922" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="24" y="228" font-size="12.5" font-weight="bold" fill="#d29922">STREAM 2 â€” FOLLOW-UP &amp; MEETING REMINDERS  Â·  cron: `0 * * * *` + `*/30 * * * *`  â†’  followup-check.job.ts:initializeFollowUpCheckJob()</text>
+
+<rect x="8" y="412" width="1080" height="192" rx="6" fill="rgba(188,140,255,.03)" stroke="#bc8cff" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="24" y="430" font-size="12.5" font-weight="bold" fill="#bc8cff">STREAM 3 â€” METRICS SYNC  Â·  cron: `0 21 * * *` (midnight EAT)  â†’  metrics-sync.job.ts:initializeMetricsSyncJob()</text>
+
+<!-- â•â• STREAM 1: Labor Queen-Long Coupon Verification (automated) â•â• -->
+<!-- Event 1: Redis/BullMQ -->
+<rect x="14" y="50" width="62" height="22" rx="4" fill="#c0392b"/><text x="45" y="65" font-size="10" fill="white" text-anchor="middle">BullMQ</text>
+<text x="14" y="82" font-size="9" fill="#444">agent-run-queue.ts:86-150</text>
+
+<!-- dequeue â†’ select contacts -->
+<line x1="76" y1="61" x2="300" y2="61" class="e-blue" marker-end="url(#mAB)"/>
+<text x="108" y="55" font-size="9.5" fill="#58a6ff">dequeue job</text>
+
+<rect x="301" y="50" width="148" height="26" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1.5"/>
+<text x="375" y="60" font-size="10" fill="#3fb950" text-anchor="middle" font-weight="bold">getContactsForOutreach()</text>
+<text x="375" y="72" font-size="9" fill="#8b949e" text-anchor="middle">status IN Not Started | Contacted</text>
+<text x="301" y="86" font-size="8.5" fill="#444">outreach.workflow.ts:74-92</text>
+
+<!-- â†’ orchestrator processInitialOutreach -->
+<line x1="449" y1="63" x2="524" y2="63" class="e-blue" marker-end="url(#mAB)"/>
+<text x="456" y="56" font-size="9.5" fill="#58a6ff">for each contact</text>
+<rect x="525" y="50" width="148" height="26" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="599" y="60" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">orchestrator.processInitial</text>
+<text x="599" y="71" font-size="9" fill="#8b949e" text-anchor="middle">Outreach(contact)</text>
+<text x="525" y="86" font-size="8.5" fill="#444">orchestrator.ts:194-282</text>
+
+<!-- Step 1: Enrich with NVIDIA -->
+<line x1="673" y1="63" x2="725" y2="63" class="e-blue" marker-end="url(#mAO)"/>
+<text x="676" y="56" font-size="9.5" fill="#d29922">Step 1. ENRICH</text>
+<rect x="726" y="50" width="134" height="26" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="793" y="59" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">enrichContact() â€” NVIDIA</text>
+<text x="793" y="71" font-size="9" fill="#8b949e" text-anchor="middle">LLM research brief, upsert</text>
+<text x="726" y="85" font-size="8.5" fill="#444">orchestrator.ts:53-152</text>
+
+<!-- Step 2: LLM gen message -->
+<line x1="860" y1="63" x2="920" y2="63" class="e-blue" marker-end="url(#mAB)"/>
+<text x="863" y="56" font-size="9.5" fill="#58a6ff">Step 2. LLM gen</text>
+<rect x="921" y="50" width="148" height="26" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="995" y="60" font-size="10" fill="#58a6ff" text-anchor="middle" font-weight="bold">personalizationService</text>
+<text x="995" y="71" font-size="9" fill="#8b949e" text-anchor="middle">generateMessage() Â· LLM</text>
+<text x="921" y="85" font-size="8.5" fill="#444">langchain.service.ts:251-291</text>
+
+<!-- Step 3: Email send Nodemailer -->
+<line x1="1069" y1="63" x2="1069" y2="108" class="e-email" marker-end="url(#mAG)"/>
+<line x1="1069" y1="108" x2="490" y2="108" class="e-email" marker-end="url(#mAG)"/>
+<text x="778" y="100" font-size="10" fill="#f85149" font-weight="bold">Step 3. EMAIL â€” emailService.send() â€” Nodemailer SMTP</text>
+<text x="490" y="120" font-size="9.5" fill="#f85149">(nodemailer.service.ts â€” SMTP / Ethereal-dev / console-stub fallback)</text>
+
+<!-- Step 4: DB writes row -->
+<line x1="490" y1="128" x2="490" y2="144" class="e-resched" marker-end="url(#mAG)"/>
+<text x="498" y="141" font-size="9.5" fill="#3fb950">Step 4. DB MUTATE</text>
+
+<rect x="318" y="145" width="128" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="382" y="157" font-size="9.5" fill="#3fb950" text-anchor="middle">conversations INSERT/UPSERT</text>
+<rect x="460" y="145" width="128" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="524" y="157" font-size="9.5" fill="#3fb950" text-anchor="middle">message_history INSERT</text>
+<rect x="602" y="145" width="128" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="666" y="157" font-size="9.5" fill="#3fb950" text-anchor="middle">contacts UPDATE</text>
+<text x="308" y="172" font-size="8.5" fill="#444">orchestrator.ts:249-268, logMessage():631-684</text>
+
+<!-- Step 5: RESCHEDULE follow-up -->
+<rect x="374" y="173" width="240" height="22" rx="4" fill="#0d1117" stroke="#3fb950" stroke-width="2"/>
+<text x="494" y="186" font-size="10" fill="#3fb950" text-anchor="middle" font-weight="bold">scheduleFollowUp(contactId, 3d) â†’ scheduled_actions [status=pending]</text>
+<text x="374" y="204" font-size="8.5" fill="#444">orchestrator.ts:513-537</text>
+
+<!-- NotificationHub event -->
+<line x1="494" y1="195" x2="494" y2="210" class="e-blue" marker-end="url(#mAP)"/>
+<rect x="400" y="210" width="188" height="20" rx="3" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="494" y="223" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">notify() â€” notificationHub (pub/sub)</text>
+<text x="400" y="237" font-size="8.5" fill="#444">event type: runCompleted / runFailed</text>
+
+<!-- â•â• STREAM 2: Follow-up (hourly) + Meeting reminder (30 min) â•â• -->
+<rect x="14" y="254" width="62" height="22" rx="4" fill="#c0392b"/><text x="45" y="269" font-size="10" fill="white" text-anchor="middle">BullMQ</text>
+<line x1="76" y1="265" x2="280" y2="265" class="e-blue" marker-end="url(#mAB)" stroke="#d29922"/>
+
+<rect x="281" y="254" width="148" height="26" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1.5"/>
+<text x="355" y="264" font-size="10" fill="#3fb950" text-anchor="middle" font-weight="bold">getDueFollowUps()</text>
+<text x="355" y="276" font-size="9" fill="#8b949e" text-anchor="middle">scheduled_actions WHERE action_type=</text>
+<text x="355" y="286" font-size="9" fill="#8b949e" text-anchor="middle">'follow_up' AND status='pending'</text>
+<text x="281" y="300" font-size="8.5" fill="#444">followup.workflow.ts:72-89</text>
+
+<!-- â†’ executeFollowUp -->
+<line x1="429" y1="267" x2="500" y2="267" class="e-blue" marker-end="url(#mAB)"/>
+<rect x="501" y="254" width="156" height="26" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="579" y="264" font-size="10" fill="#58a6ff" text-anchor="middle" font-weight="bold">executeFollowUp(action)</text>
+<text x="579" y="275" font-size="9" fill="#8b949e" text-anchor="middle">build MessageContext â†’ LLM gen</text>
+<text x="501" y="288" font-size="8.5" fill="#444">followup.workflow.ts:94-214</text>
+
+<!-- email send -->
+<line x1="657" y1="267" x2="700" y2="267" class="e-email" marker-end="url(#mAG)"/>
+<text x="660" y="260" font-size="9.5" fill="#f85149">send</text>
+<rect x="701" y="254" width="110" height="26" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="756" y="264" font-size="9.5" fill="#3fb950" text-anchor="middle">message_history</text>
+<text x="756" y="275" font-size="9.5" fill="#3fb950" text-anchor="middle">INSERT</text>
+
+<!-- reschedule loop -->
+<line x1="811" y1="267" x2="813" y2="230" class="e-resched" marker-end="url(#mAG)"/>
+<line x1="813" y1="230" x2="930" y2="230" class="e-resched"/>
+<line x1="930" y1="230" x2="930" y2="92" class="e-resched" marker-end="url(#mAG)"/>
+<text x="870" y="220" font-size="10" fill="#3fb950" text-anchor="middle" font-weight="bold">reschedule follow-up (+next interval)</text>
+
+<!-- meeting reminder branch -->
+<rect x="276" y="358" width="146" height="40" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.5"/>
+<text x="349" y="371" font-size="9.5" fill="#d29922" text-anchor="middle" font-weight="bold">meetingWorkflow.sendMeetingReminder()</text>
+<text x="349" y="384" font-size="9.5" fill="#3fb950" text-anchor="middle">sendMeetingReminder()</text>
+<line x1="357" y1="394" x2="357" y2="410" class="e-email" marker-end="url(#mAO)"/>
+<text x="206" y="390" font-size="9" fill="#d29922">*/30 min cron fires â†’ meetingWorkflow</text>
+<text x="301" y="358" font-size="8.5" fill="#444">followup-check.job.ts:97-107 meetings processed separately</text>
+
+<!-- â•â• STREAM 3: Metrics Sync â•â• -->
+<rect x="14" y="448" width="62" height="22" rx="4" fill="#c0392b"/><text x="45" y="463" font-size="10" fill="white" text-anchor="middle">BullMQ</text>
+<line x1="76" y1="459" x2="322" y2="459" class="e-blue" marker-end="url(#mAP)" stroke="#bc8cff"/>
+
+<rect x="323" y="448" width="148" height="26" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="397" y="458" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">syncDailyMetrics()</text>
+<text x="397" y="469" font-size="9" fill="#8b949e" text-anchor="middle">message_history + conversations</text>
+<text x="242" y="486" font-size="8.5" fill="#444">metrics-sync.job.ts:62-163</text>
+
+<line x1="323" y1="474" x2="323" y2="498" class="e-resched" marker-end="url(#mAG)"/>
+
+<rect x="254" y="498" width="170" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/>
+<text x="339" y="510" font-size="9.5" fill="#3fb950" text-anchor="middle">agent_metrics INSERT / UPDATE</text>
+</svg>
+</div>
+</div>
+
+<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+     PAGE 2 â€” Orchestrator & Workflows
+     Derived from: orchestrator.ts, master-switch.ts, outreach.workflow.ts, followup.workflow.ts, meeting.workflow.ts
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+<div class="page" id="p2">
+<div class="legend">
+  <div class="leg-item"><div class="leg-swatch" style="background:#58a6ff"></div>Async path</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#3fb950"></div>DB write/mutate</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#d29922"></div>LLM / NVIDIA</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#bc8cff"></div>Event / notification</div>
+</div>
+<div class="svg-wrap">
+<svg viewBox="0 0 1060 730" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="ab2" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ab"/></marker>
+  <marker id="ag2" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ag"/></marker>
+  <marker id="ap2" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ap"/></marker>
+  <marker id="ao2" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ao"/></marker>
+</defs>
+
+<!-- Orchestrator (singleton) -->
+<rect x="330" y="12" width="340" height="56" rx="8" fill="#0e2137" stroke="#58a6ff" stroke-width="2.5" class="pulse"/>
+<text x="500" y="38" font-size="14" font-weight="bold" fill="#58a6ff" text-anchor="middle">AgentOrchestrator</text>
+<text x="500" y="55" font-size="10" fill="#8b949e" text-anchor="middle">agent-orchestrator.ts Â· Singleton pattern Â· getInstance()</text>
+<text x="500" y="68" font-size="9" fill="#444" text-anchor="middle">public: processInitialOutreach Â· processIncomingMessage Â· runSalesOutreach Â· runInvestorOutreach Â·</text>
+<text x="500" y="79" font-size="9" fill="#444" text-anchor="middle">runFundingOutreach Â· sendQuickPersonalized Â· getFundingPipelineSummary Â· sourceProductData</text>
+
+<!-- â”€â”€ 7 sub-steps of processInitialOutreach â”€â”€ -->
+<line x1="500" y1="68" x2="500" y2="88" stroke="#58a6ff" stroke-width="2" marker-end="url(#ab2)"/>
+<rect x="320" y="88" width="360" height="118" rx="5" fill="#1a2535" stroke="#58a6ff" stroke-width="1.2"/>
+<text x="500" y="105" font-size="11" font-weight="bold" fill="#58a6ff" text-anchor="middle">processInitialOutreach(contact) â€” 7 steps</text>
+<text x="500" y="120" font-size="9.5" fill="#8b949e" text-anchor="middle">orchestrator.ts:194-282</text>
+
+<line x1="325" y1="134" x2="670" y2="134" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="330" y="130" font-size="9" fill="#3fb950">[1] enrichContact(contact)</text>
+<text x="330" y="142" font-size="9" fill="#3fb950">     â†’ LLM research brief Â· upsert market_leads.enriched_data JSONB</text>
+
+<line x1="325" y1="152" x2="670" y2="152" stroke="#58a6ff" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="330" y="148" font-size="9" fill="#58a6ff">[2] getConversation(enriched.id)</text>
+<text x="330" y="160" font-size="9" fill="#58a6ff">     â†’ check existing, stage = 'initial' or 'not_started'</text>
+
+<line x1="325" y1="170" x2="670" y2="170" stroke="#d29922" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="330" y="166" font-size="9" fill="#d29922">[3] buildMessageContext(enriched, research, stage)</text>
+<text x="330" y="178" font-size="9" fill="#d29922">     â†’ pain_point Â· engagement_angle Â· tier Â· type</text>
+
+<line x1="325" y1="188" x2="670" y2="188" stroke="#d29922" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="330" y="184" font-size="9" fill="#d29922">[4] personalizationService.generateMessage()</text>
+<text x="330" y="196" font-size="9" fill="#d29922">     â†’ ChatPromptTemplate.pipe(LLM) NVIDIA Nemotron</text>
+
+<line x1="325" y1="204" x2="670" y2="204" stroke="#f85149" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="330" y="200" font-size="9" fill="#f85149">[5] emailService.send() â€” Nodemailer (SMTP / Ethereal / console-stub)</text>
+
+<line x1="325" y1="184" x2="670" y2="184" stroke="#bc8cff" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="674" y="184" font-size="9" fill="#bc8cff">[6] conversations INSERT/UPSERT â†’ DB</text>
+<text x="674" y="195" font-size="9" fill="#bc8cff">     message_history INSERT â†’ DB</text>
+
+<line x1="325" y1="164" x2="670" y2="164" stroke="#3fb950" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="674" y="148" font-size="9" fill="#3fb950">[7] scheduleFollowUp(id, 3d)</text>
+<text x="674" y="159" font-size="9" fill="#3fb950">     â†’ scheduled_actions INSERT [status=pending]</text>
+
+<!-- â”€â”€ processIncomingMessage â”€â”€ -->
+<line x1="670" y1="102" x2="780" y2="102" stroke="#58a6ff" stroke-width="2" stroke-dasharray="3 3" marker-end="url(#ab2)"/>
+<rect x="781" y="88" width="244" height="118" rx="5" fill="#1a2535" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="903" y="105" font-size="11" font-weight="bold" fill="#bc8cff" text-anchor="middle">processIncomingMessage(inMsg)</text>
+<text x="903" y="120" font-size="9.5" fill="#8b949e" text-anchor="middle">orchestrator.ts:286-347</text>
+
+<text x="785" y="134" font-size="9.5" fill="#3fb950">[1] re-research contact (fresh LLM context)</text>
+<text x="785" y="146" font-size="9.5" fill="#3fb950">[2] personalizationService.analyzeIntent()</text>
+<text x="785" y="158" font-size="9.5" fill="#3fb950">[3] log inbound â†’ message_history</text>
+<text x="785" y="170" font-size="9.5" fill="#58a6ff">[4] handleIntent() â€” switch route</text>
+<text x="785" y="182" font-size="9.5" fill="#bc8cff">[5] updateConversationStage(contactId, intent)</text>
+<!-- intent router continuation -->
+<line x1="903" y1="187" x2="903" y2="208" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#ap2)"/>
+<rect x="782" y="208" width="242" height="122" rx="5" fill="#1a2535" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="903" y="225" font-size="10.5" font-weight="bold" fill="#bc8cff" text-anchor="middle">handleIntent() â€” intent.type switch</text>
+<text x="903" y="240" font-size="9.5" fill="#8b949e" text-anchor="middle">orchestrator.ts:349-376</text>
+
+<text x="787" y="258" font-size="9.5" fill="#3fb950">positive_interest â†’ handlePositiveInterest()</text>
+<text x="787" y="270" font-size="9.5" fill="#3fb950">question          â†’ handleQuestion()</text>
+<text x="787" y="282" font-size="9.5" fill="#d29922">objection         â†’ handleObjection() â€” after 3x â†’ escalateToHuman()</text>
+<text x="787" y="294" font-size="9.5" fill="#f85149">not_interested    â†’ cancelScheduledActions() â€” end</text>
+<text x="787" y="306" font-size="9.5" fill="#3fb950">out_of_office     â†’ scheduleFollowUp(+7d)</text>
+<text x="787" y="318" font-size="9.5" fill="#f85149">unclear (conf-0.3)â†’ escalateToHuman()</text>
+
+<!-- â”€â”€ Outreach batch methods â”€â”€ -->
+<line x1="570" y1="88" x2="570" y2="112" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#ab2)"/>
+<rect x="430" y="112" width="170" height="22" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1.2"/>
+<text x="515" y="125" font-size="10" fill="#58a6ff" text-anchor="middle" font-weight="bold">runSalesOutreach(limit=20)</text>
+<text x="430" y="137" font-size="8.5" fill="#444">orchestrator.ts:779-806</text>
+
+<line x1="570" y1="84" x2="570" y2="105" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#ap2)"/>
+<rect x="610" y="112" width="198" height="22" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="709" y="125" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">runInvestorOutreach(limit=15)</text>
+<text x="610" y="137" font-size="8.5" fill="#444">orchestrator.ts:808-836</text>
+
+<line x1="570" y1="80" x2="570" y2="98" stroke="#d29922" stroke-width="1.5" marker-end="url(#ao2)"/>
+<rect x="606" y="140" width="200" height="22" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.2"/>
+<text x="706" y="153" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">runFundingOutreach(limit=20)</text>
+<text x="606" y="165" font-size="8.5" fill="#444">orchestrator.ts:838-866</text>
+
+<!-- getFilteredContacts -->
+<rect x="430" y="288" width="240" height="50" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="550" y="306" font-size="10.5" font-weight="bold" fill="#bc8cff" text-anchor="middle">getFilteredContacts(typeLabel, statusFilter, tierFilter)</text>
+<text x="550" y="320" font-size="9.5" fill="#8b949e" text-anchor="middle">SQL: SELECT c.* FROM contacts c LEFT JOIN conversations conv</text>
+<text x="550" y="332" font-size="9.5" fill="#8b949e" text-anchor="middle">WHERE c.type=$1 AND c.status=ANY($2) AND c.tier=ANY($3)</text>
+<text x="430" y="350" font-size="8.5" fill="#444">orchestrator.ts:724-745</text>
+
+<!-- optional: semantic search -->
+<rect x="430" y="358" width="240" height="50" rx="4" fill="#1c2333" stroke="#58a6ff" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="550" y="376" font-size="10.5" font-weight="bold" fill="#58a6ff" text-anchor="middle">getContactsBySemanticQuery() [optional â€” pgvector]</text>
+<text x="550" y="390" font-size="9.5" fill="#8b949e" text-anchor="middle">semanticSearchContacts(intentQuery, 0.72, limit) â€” falls back to SQL</text>
+<text x="430" y="406" font-size="8.5" fill="#444">orchestrator.ts:755-777</text>
+
+<!-- â”€â”€ LEFT PANEL: Service Layer â”€â”€ -->
+<rect x="14" y="12" width="194" height="264" rx="6" fill="#0f1419" stroke="#30363d" stroke-width="1"/>
+<text x="111" y="31" font-size="11.5" font-weight="bold" fill="#e6edf3" text-anchor="middle">Services / Dependencies</text>
+
+<rect x="24" y="36" width="174" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/><text x="111" y="49" font-size="9.5" fill="#3fb950" text-anchor="middle">emailService Â· nodemailer.service.ts</text>
+<rect x="24" y="62" width="174" height="20" rx="3" fill="#1c2333" stroke="#f85149" stroke-width="1"/><text x="111" y="75" font-size="9.5" fill="#f85149" text-anchor="middle">personalizationService Â· agents/</text>
+<rect x="24" y="88" width="174" height="36" rx="3" fill="#1c2333" stroke="#58a6ff" stroke-width="1"/><text x="111" y="100" font-size="9.5" fill="#58a6ff" text-anchor="middle">langchainService</text><text x="111" y="112" font-size="9.5" fill="#58a6ff" text-anchor="middle">ChatPromptTemplate</text><text x="111" y="124" font-size="9.5" fill="#58a6ff" text-anchor="middle">.pipe(ChatOpenAI Â· NVIDIA)</text>
+<rect x="24" y="130" width="174" height="20" rx="3" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/><text x="111" y="143" font-size="9.5" fill="#bc8cff" text-anchor="middle">notificationHub Â· pub/sub</text>
+<rect x="24" y="156" width="174" height="58" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/><text x="111" y="169" font-size="9.5" fill="#3fb950" text-anchor="middle">PostgreSQL :5433 Â· db.client.ts</text><text x="111" y="181" font-size="9" fill="#8b949e" text-anchor="middle">contacts Â· conversations</text><text x="111" y="192" font-size="9" fill="#8b949e" text-anchor="middle">message_history Â· scheduled_actions</text><text x="111" y="203" font-size="9" fill="#8b949e" text-anchor="middle">agent_metrics Â· market_leads</text><text x="111" y="214" font-size="9" fill="#8b949e" text-anchor="middle">funding_leads Â· scraped_products</text>
+<rect x="24" y="220" width="174" height="20" rx="3" fill="#1c2333" stroke="#d29922" stroke-width="1"/><text x="111" y="233" font-size="9.5" fill="#d29922" text-anchor="middle">semanticSearchContacts â€” pgvector</text>
+
+<!-- Master Switch bottom -->
+<rect x="300" y="490" width="458" height="50" rx="6" fill="#0e2137" stroke="#bc8cff" stroke-width="2"/>
+<text x="529" y="508" font-size="12.5" font-weight="bold" fill="#bc8cff" text-anchor="middle">MasterSwitch â€” master-switch.ts Â· 7 feature-flagged sub-agents</text>
+<text x="529" y="524" font-size="9.5" fill="#8b949e" text-anchor="middle">runAgent(name) â†’ featureFlag check â†’ cooldown check â†’ run() â†’ sub_agent_runs table</text>
+<text x="529" y="538" font-size="9" fill="#444">runAllEnabled(): sequential=true (default) OR Promise.all-concurrent when masterSwitch.sequential=false</text>
+
+<g transform="translate(50, 548)">
+<rect width="120" height="34" rx="4" fill="#1a2535" stroke="#58a6ff" stroke-width="1"/>
+<text x="60" y="15" font-size="9.5" fill="#58a6ff" text-anchor="middle" font-weight="bold">bulkSourcing</text><text x="60" y="27" font-size="8.5" fill="#8b949e" text-anchor="middle">productSourcing Â· 1h cooldown</text>
+
+<rect x="128" width="120" height="34" rx="4" fill="#1a2535" stroke="#bc8cff" stroke-width="1"/>
+<text x="188" y="15" font-size="9.5" fill="#58a6ff" text-anchor="middle" font-weight="bold">salesMarketing</text><text x="188" y="27" font-size="8.5" fill="#8b949e" text-anchor="middle">salesOutreach Â· 10 min</text>
+
+<rect x="256" width="120" height="34" rx="4" fill="#1a2535" stroke="#bc8cff" stroke-width="1"/>
+<text x="316" y="15" font-size="9.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">contentCreation</text><text x="316" y="27" font-size="8.5" fill="#8b949e" text-anchor="middle">contentAgent Â· 1h cooldown</text>
+
+<rect x="384" width="120" height="34" rx="4" fill="#1a2535" stroke="#d29922" stroke-width="1"/>
+<text x="444" y="15" font-size="9.5" fill="#d29922" text-anchor="middle" font-weight="bold">fundingPitch</text><text x="444" y="27" font-size="8.5" fill="#8b949e" text-anchor="middle">fundingOutreach Â· 15 min</text>
+
+<rect x="512" width="120" height="34" rx="4" fill="#1a2535" stroke="#3fb950" stroke-width="1"/>
+<text x="572" y="15" font-size="9.5" fill="#3fb950" text-anchor="middle" font-weight="bold">dailyOutreach</text><text x="572" y="27" font-size="8.5" fill="#8b949e" text-anchor="middle">investorOutreach Â· 4h</text>
+
+<rect x="640" width="150" height="34" rx="4" fill="#1a2535" stroke="#3fb950" stroke-width="1"/>
+<text x="715" y="15" font-size="9.5" fill="#3fb950" text-anchor="middle" font-weight="bold">followupCheck</text><text x="715" y="27" font-size="8.5" fill="#8b949e" text-anchor="middle">autoFollowup Â· 1h cooldown</text>
+
+<rect x="798" width="150" height="34" rx="4" fill="#1a2535" stroke="#bc8cff" stroke-width="1"/>
+<text x="873" y="15" font-size="9.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">metricsSync</text><text x="873" y="27" font-size="8.5" fill="#8b949e" text-anchor="middle">agentsEnabled Â· 1h cooldown</text>
+</g>
+
+<line x1="529" y1="462" x2="529" y2="332" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ab2)"/>
+<text x="536" y="412" font-size="9" fill="#bc8cff">masterSwitch.</text><text x="536" y="423" font-size="9" fill="#bc8cff">runAgent()</text>
+
+<!-- Right: runtime trigger callers -->
+<rect x="874" y="12" width="168" height="130" rx="6" fill="#0f1419" stroke="#30363d" stroke-width="1"/>
+<text x="958" y="30" font-size="11.5" font-weight="bold" fill="#e6edf3" text-anchor="middle">HTTP Triggers (index.ts)</text>
+<text x="958" y="50" font-size="9.5" fill="#f85149" text-anchor="middle">POST /api/outreach/send</text>
+<text x="958" y="63" font-size="9.5" fill="#8b949e" text-anchor="middle">  â†’ orchestrator</text>
+<text x="958" y="63" font-size="9.5" fill="#8b949e" text-anchor="middle">.sendQuickPersonalized()</text>
+<text x="958" y="80" font-size="9.5" fill="#f85149" text-anchor="middle">POST /api/generate-content</text>
+<text x="958" y="92" font-size="9.5" fill="#8b949e" text-anchor="middle">  â†’ marketingAgent.run()</text>
+<text x="958" y="108" font-size="9.5" fill="#f85149" text-anchor="middle">POST /api/agents/loops/*</text>
+<text x="958" y="120" font-size="9.5" fill="#8b949e" text-anchor="middle">  â†’ factory.{loop}()</text>
+
+</svg>
+</div>
+</div>
+
+<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+     PAGE 3 â€” LangChain Agent Loops (4 boxes)
+     Derived from: agent-loop.factory.ts (822 lines) Â· langchain.service.ts
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+<div class="page" id="p3">
+<div class="legend">
+  <div class="leg-item"><div class="leg-swatch" style="background:#f85149"></div>HTTP fetch call</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#d29922"></div>ChatPromptTemplate + LLM</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#3fb950"></div>DB persist</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#bc8cff"></div>notificationHub event</div>
+</div>
+<div class="svg-wrap">
+<svg viewBox="0 0 1100 480" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="a3b" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ab"/></marker>
+  <marker id="a3g" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ag"/></marker>
+  <marker id="a3o" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" class="ao"/></marker>
+</defs>
+<text x="550" y="20" font-size="14" font-weight="bold" fill="#e6edf3" text-anchor="middle">Agent Loop Factory â€” agent-loop.factory.ts Â· 4 LangChain Runnable loops Â· withRetry Â· Zod structured output Â· response-cache</text>
+
+<!-- LOOP 1: BulksOuting -->
+<rect x="10" y="32" width="250" height="400" rx="6" fill="#0d1b24" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="135" y="50" font-size="12" font-weight="bold" fill="#58a6ff" text-anchor="middle">loop.bulkSourcing() â€” factory.ts:71-239</text>
+
+<rect x="22" y="58" width="226" height="20" rx="3" fill="#1c2333"/><text x="135" y="71" font-size="9.5" fill="#8b949e" text-anchor="middle">opts: pages, enrichWithAI, maxEnrich, onProgress</text>
+
+<line x1="135" y1="78" x2="135" y2="92" class="e-blue" marker-end="url(#a3b)"/>
+
+<rect x="22" y="92" width="226" height="62" rx="3" fill="#1a2535" stroke="#f85149" stroke-width="1.2"/>
+<text x="135" y="106" font-size="10.5" fill="#f85149" text-anchor="middle" font-weight="bold">fetch('/api/products/scrape')</text>
+<text x="135" y="118" font-size="9.5" fill="#8b949e" text-anchor="middle">POST { baseUrl, maxPages, mode:'fg' }</text>
+<text x="135" y="130" font-size="9.5" fill="#8b949e" text-anchor="middle">â†’ backend Playwright scraper (sokogate.com)</text>
+<text x="135" y="142" font-size="9" fill="#444">fallback: legacy cheerio sourceProductData()</text>
+<line x1="135" y1="154" x2="135" y2="170" class="e-blue" marker-end="url(#a3b)"/>
+
+<text x="135" y="169" font-size="9.5" fill="#8b949e" text-anchor="middle">productsFound = DB COUNT(scraped_products)</text>
+<line x1="135" y1="172" x2="135" y2="188" class="e-blue" marker-end="url(#a3b)"/>
+
+<rect x="22" y="188" width="226" height="20" rx="3" fill="#1c2333"/><text x="135" y="201" font-size="9.5" fill="#8b949e" text-anchor="middle">steps.scraping = { productsFound, productsUpserted }</text>
+<line x1="135" y1="208" x2="135" y2="224" class="e-blue" marker-end="url(#a3b)"/>
+
+<rect x="22" y="224" width="226" height="20" rx="3" fill="#1c2333" stroke="#d29922" stroke-width="1"/><text x="135" y="237" font-size="9.5" fill="#d29922" text-anchor="middle">if enrichWithAI â†’ enrichment batch</text>
+
+<rect x="22" y="244" width="226" height="102" rx="3" fill="#1a2535" stroke="#d29922" stroke-width="1.2"/>
+<text x="135" y="257" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">ChatPromptTemplate.pipe(LLM) â€” NVIDIA</text>
+<text x="135" y="269" font-size="9.5" fill="#8b949e" text-anchor="middle">system: B2B cataloguer (suppress CoT)</text>
+<text x="135" y="280" font-size="9.5" fill="#8b949e" text-anchor="middle">â†’ enrichment_keywords, tagline,</text>
+<text x="135" y="292" font-size="9.5" fill="#8b949e" text-anchor="middle">  selling_points [EnrichmentSchema JSON]</text>
+<text x="135" y="304" font-size="9.5" fill="#8b949e" text-anchor="middle">langchainService.withRetry() Ã— batch</text>
+<text x="135" y="315" font-size="9.5" fill="#8b949e" text-anchor="middle">cache: response-cache.service Â· 24h TTL</text>
+<text x="22" y="331" font-size="8.5" fill="#444">agent-loop.factory.ts:137-221</text>
+
+<line x1="135" y1="346" x2="135" y2="362" class="e-blue" marker-end="url(#a3o)"/>
+
+<rect x="22" y="362" width="226" height="20" rx="3" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="135" y="375" font-size="9.5" fill="#8b949e" text-anchor="middle">scraped_products UPDATE enriched_data</text>
+<line x1="135" y1="382" x2="135" y2="398" class="e-blue" marker-end="url(#a3g)"/>
+
+<rect x="22" y="398" width="226" height="20" rx="3" fill="#1a2535" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="135" y="411" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">_notifyCompletion('bulk-sourcing')</text>
+
+<!-- LOOP 2: SalesMarketing -->
+<rect x="266" y="32" width="250" height="400" rx="6" fill="#0d1b24" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="391" y="50" font-size="12" font-weight="bold" fill="#58a6ff" text-anchor="middle">loop.salesMarketing() â€” factory.ts:243-408</text>
+
+<rect x="278" y="58" width="226" height="20" rx="3" fill="#1c2333"/>
+<text x="391" y="70" font-size="9.5" fill="#8b949e" text-anchor="middle">opts: productIds, targetChannel</text>
+
+<line x1="391" y1="78" x2="391" y2="92" class="e-blue" marker-end="url(#a3b)"/>
+
+<rect x="278" y="92" width="226" height="20" rx="3" fill="#1c2333"/>
+<text x="391" y="105" font-size="9.5" fill="#8b949e" text-anchor="middle">SELECT products WHERE id=ANY($1)</text>
+<text x="278" y="119" font-size="9" fill="#444">fallback SELECT recent if none</text>
+<line x1="391" y1="82" x2="391" y2="120" class="e-blue" marker-end="url(#a3b)"/>
+
+<text x="391" y="138" font-size="9.5" fill="#8b949e" text-anchor="middle">ASSET_TYPES: email_sequence / social_post</text>
+<rect x="278" y="142" width="226" height="20" rx="3" fill="#1c2333"/><text x="391" y="155" font-size="9.5" fill="#8b949e" text-anchor="middle">ad_copy / landing_page</text>
+
+<line x1="391" y1="162" x2="391" y2="178" class="e-blue" marker-end="url(#a3b)"/>
+
+<!-- Asset prompt dict lo shows text -->
+<rect x="278" y="178" width="226" height="92" rx="3" fill="#1a2535" stroke="#d29922" stroke-width="1.2"/>
+<text x="391" y="191" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">ChatPromptTemplate.pipe(LLM)</text>
+<text x="391" y="203" font-size="9.5" fill="#8b949e" text-anchor="middle">ASSET_PROMPTS per type/modelId</text>
+<text x="391" y="215" font-size="9.5" fill="#8b949e" text-anchor="middle">langchainService.withRetry()</text>
+<text x="391" y="227" font-size="9.5" fill="#8b949e" text-anchor="middle">â†’ MarketingAssetSchema JSON</text>
+<text x="391" y="239" font-size="9" fill="#444">cache: marketing/{productId}:{type}</text>
+<line x1="391" y1="270" x2="391" y2="284" class="e-blue" marker-end="url(#a3o)"/>
+
+<rect x="278" y="284" width="226" height="20" rx="3" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="391" y="297" font-size="9.5" fill="#8b949e" text-anchor="middle">marketing_assets INSERT per productÃ—type</text>
+<line x1="391" y1="304" x2="391" y2="320" class="e-blue" marker-end="url(#a3g)"/>
+
+<rect x="278" y="320" width="226" height="20" rx="3" fill="#1a2535" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="391" y="333" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">_notifyCompletion('sales-marketing')</text>
+
+<!-- LOOP 3: ContentCreation -->
+<rect x="522" y="32" width="250" height="400" rx="6" fill="#0d1b24" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="647" y="50" font-size="12" font-weight="bold" fill="#bc8cff" text-anchor="middle">loop.contentCreation() â€” factory.ts:412-611</text>
+
+<rect x="534" y="58" width="226" height="20" rx="3" fill="#1c2333"/>
+<text x="647" y="70" font-size="9.5" fill="#8b949e" text-anchor="middle">opts: type, keywords, productIds, generateImage</text>
+
+<line x1="647" y1="78" x2="647" y2="92" class="e-blue" marker-end="url(#a3b)"/>
+
+<rect x="534" y="92" width="226" height="86" rx="3" fill="#1a2535" stroke="#58a6ff" stroke-width="1.2"/>
+<text x="647" y="106" font-size="10.5" fill="#58a6ff" text-anchor="middle" font-weight="bold">RAG: keyword/product retrieval</text>
+<text x="647" y="118" font-size="9.5" fill="#8b949e" text-anchor="middle">SELECT FROM scraped_products WHERE</text>
+<text x="647" y="130" font-size="9.5" fill="#8b949e" text-anchor="middle">to_tsvector('english') @@ plainto_tsquery($1)</text>
+<text x="647" y="142" font-size="9.5" fill="#8b949e" text-anchor="middle">OR id=ANY($productIds) â€” LIMIT 5</text>
+<text x="647" y="154" font-size="9" fill="#444">factory.ts:426-464</text>
+
+<line x1="647" y1="178" x2="647" y2="192" class="e-blue" marker-end="url(#a3b)"/>
+
+<rect x="534" y="192" width="226" height="102" rx="3" fill="#1a2535" stroke="#d29922" stroke-width="1.2"/>
+<text x="647" y="205" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">ChatPromptTemplate.pipe(LLM)</text>
+<text x="647" y="217" font-size="9.5" fill="#8b949e" text-anchor="middle">typePrompts[blog | product_guide | company_profile]</text>
+<text x="647" y="229" font-size="9.5" fill="#8b949e" text-anchor="middle">+ catalog context (retrieved products)</text>
+<text x="647" y="241" font-size="9.5" fill="#8b949e" text-anchor="middle">withRetry() Ã— 1 â†’ ContentPieceSchema</text>
+<text x="647" y="253" font-size="9" fill="#444">Detect/strip "Draft:" / planning lines</text>
+<text x="647" y="265" font-size="9" fill="#444">factory.ts:502-611</text>
+
+<line x1="647" y1="294" x2="647" y2="308" class="e-blue" marker-end="url(#a3o)"/>
+
+<rect x="534" y="308" width="226" height="20" rx="3" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="647" y="321" font-size="9.5" fill="#8b949e" text-anchor="middle">content_pieces INSERT â†’ DB</text>
+
+<rect x="534" y="328" width="226" height="56" rx="3" fill="#1a2535" stroke="#58a6ff" stroke-width="1.2"/>
+<text x="647" y="341" font-size="10" fill="#58a6ff" text-anchor="middle" font-weight="bold">imageGenerationService [optional]</text>
+<text x="647" y="353" font-size="9.5" fill="#8b949e" text-anchor="middle">generateInfographic(title, style)</text>
+<text x="647" y="365" font-size="9.5" fill="#8b949e" text-anchor="middle">30s timeout Â· image_urls â†’ content_pieces</text>
+<text x="647" y="377" font-size="9" fill="#444">factory.ts:556-577</text>
+<line x1="647" y1="308" x2="647" y2="310" stroke="#bc8cff" stroke-width="1" stroke-dasharray="3 2"/>
+
+<line x1="647" y1="384" x2="647" y2="398" class="e-blue" marker-end="url(#a3g)"/>
+
+<rect x="534" y="398" width="226" height="20" rx="3" fill="#1a2535" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="647" y="411" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">_notifyCompletion('content-creation')</text>
+
+<!-- LOOP 4: FundingPitch -->
+<rect x="778" y="32" width="306" height="400" rx="6" fill="#0d1b24" stroke="#d29922" stroke-width="1.5"/>
+<text x="931" y="50" font-size="12" font-weight="bold" fill="#d29922" text-anchor="middle">loop.fundingPitch() â€” factory.ts:616-775</text>
+
+<text x="931" y="72" font-size="9.5" fill="#8b949e" text-anchor="middle">opts: investorProfile (angel|vc|bank|gov)</text>
+<text x="931" y="84" font-size="9.5" fill="#8b949e" text-anchor="middle">companyDetails, onProgress, runId</text>
+
+<line x1="931" y1="90" x2="931" y2="106" class="e-blue" marker-end="url(#a3b)"/>
+
+<!-- STEP 1: Research -->
+<rect x="790" y="106" width="282" height="68" rx="3" fill="#1a2535" stroke="#d29922" stroke-width="1.2"/>
+<text x="931" y="119" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">ChatPromptTemplate.pipe(LLM) â€” Research</text>
+<text x="931" y="131" font-size="9.5" fill="#8b949e" text-anchor="middle">"Identify KEY CHARACTERISTICS of</text>
+<text x="931" y="142" font-size="9.5" fill="#8b949e" text-anchor="middle">{angel|vc|bank|gov} investorsâ€¦"</text>
+<text x="931" y="154" font-size="9.5" fill="#8b949e" text-anchor="middle">â†’ FundingResearchSchema JSON</text>
+<text x="790" y="103" font-size="8.5" fill="#444">factory.ts:627-659 Â· cache: 24h TTL</text>
+
+<line x1="931" y1="174" x2="931" y2="190" class="e-blue" marker-end="url(#a3b)"/>
+
+<!-- STEP 2a: Pitch -->
+<rect x="790" y="190" width="282" height="76" rx="3" fill="#1a2535" stroke="#d29922" stroke-width="1.2"/>
+<text x="931" y="203" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">ChatPromptTemplate.pipe(LLM) â€” Pitch</text>
+<text x="931" y="215" font-size="9.5" fill="#8b949e" text-anchor="middle">"Write 150-250 word pitch for a {profile}</text>
+<text x="931" y="226" font-size="9.5" fill="#8b949e" text-anchor="middle">investor about Sokogate"</text>
+<text x="931" y="238" font-size="9.5" fill="#8b949e" text-anchor="middle">Strip planning lines â†’ pitchSummary â†’</text>
+<text x="931" y="250" font-size="9" fill="#444">factory.ts:674-705</text>
+
+<line x1="931" y1="266" x2="931" y2="282" class="e-blue" marker-end="url(#a3b)"/>
+
+<!-- STEP 2b: Contacts -->
+<rect x="790" y="282" width="282" height="76" rx="3" fill="#1a2535" stroke="#d29922" stroke-width="1.2"/>
+<text x="931" y="295" font-size="10" fill="#d29922" text-anchor="middle" font-weight="bold">ChatPromptTemplate.pipe(LLM) â€” Contacts</text>
+<text x="931" y="307" font-size="9.5" fill="#8b949e" text-anchor="middle">"Suggest 3 people/firms to contactâ€¦"</text>
+<text x="931" y="319" font-size="9.5" fill="#8b949e" text-anchor="middle">â†’ JSONÂ· FundingResearchSchema / Zod</text>
+<text x="931" y="331" font-size="9.5" fill="#8b949e" text-anchor="middle">fallback: use research contacts</text>
+<text x="790" y="349" font-size="8.5" fill="#444">factory.ts:708-744</text>
+
+<line x1="931" y1="358" x2="931" y2="374" class="e-blue" marker-end="url(#a3g)"/>
+
+<rect x="790" y="374" width="282" height="20" rx="3" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/>
+<text x="931" y="387" font-size="9.5" fill="#8b949e" text-anchor="middle">investor_prospects INSERT Ã— N (ON CONFLICT DO NOTHING)</text>
+
+<line x1="931" y1="394" x2="931" y2="408" class="e-blue" marker-end="url(#a3g)"/>
+
+<rect x="790" y="408" width="282" height="20" rx="3" fill="#1a2535" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="931" y="421" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">_notifyCompletion('funding-pitch')</text>
+
+<!-- bottom: common chain info -->
+<rect x="10" y="442" width="1074" height="24" rx="4" fill="#1a2535" stroke="#30363d" stroke-width="1"/>
+<text x="547" y="458" font-size="9.5" fill="#8b949e" text-anchor="middle">Common: ChatPromptTemplate.fromMessages([['system', suppressCoT], ['human', prompt]]).pipe(chatOpenAI) â€” langchainService.withRetry(fn, maxRetries=3, baseDelay=1000) â€” parseJsonFromLLM(content, ZodSchema) â€” response-cache.service (keyed, TTLed) â€” LoopResult { steps, errors, summary, durationMs }</text>
+</svg>
+</div>
+</div>
+
+<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+     PAGE 4 â€” Data Layer (28 tables + services + config)
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+<div class="page" id="p4">
+<div class="legend">
+  <div class="leg-item"><div class="leg-swatch" style="background:#3fb950"></div>Primary write/insert</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#58a6ff"></div>Primary read/select</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#f85149"></div>Redis/Memurai :6379</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#d29922"></div>NVIDIA API</div>
+</div>
+<div class="svg-wrap">
+<svg viewBox="0 0 1100 820" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="dB" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" fill="#58a6ff"/></marker>
+  <marker id="dG" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" fill="#3fb950"/></marker>
+</defs>
+<text x="550" y="20" font-size="13.5" font-weight="bold" fill="#e6edf3" text-anchor="middle">Data Layer â€” PostgreSQL :5433 Â· Redis/Memurai :6379 (BullMQ) Â· NVIDIA API Â· agent.config.ts Â· .env</text>
+
+<!-- LEFT: All 9 Agent-specific DB Especific tables -->
+<text x="140" y="42" font-size="11" fill="#bc8cff" text-anchor="middle">Agent Tables (28 total â€” 9 agent-scoped below)</text>
+
+<text x="140" y="58" font-size="10" fill="#d29922" text-anchor="middle">â”€â”€ Core CRM (shared by all workflows) â”€â”€</text>
+
+<rect x="12" y="64" width="256" height="52" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1.2"/>
+<text x="140" y="78" font-size="10.5" fill="#3fb950" text-anchor="middle" font-weight="bold">contacts</text>
+<text x="140" y="91" font-size="9.5" fill="#8b949e" text-anchor="middle">type Â· status Â· tier Â· do_not_contact Â· emails_sent</text>
+<text x="140" y="103" font-size="9.5" fill="#8b949e" text-anchor="middle">engagement_score Â· last_contacted_at</text>
+<text x="12" y="118" font-size="8.5" fill="#444">R/W â€” all agents Â· market_leads upsert</text>
+
+<rect x="12" y="124" width="256" height="52" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1.2"/>
+<text x="140" y="138" font-size="10.5" fill="#3fb950" text-anchor="middle" font-weight="bold">conversations</text>
+<text x="140" y="151" font-size="9.5" fill="#8b949e" text-anchor="middle">contact_id Â· current_stage Â· response_count</text>
+<text x="140" y="163" font-size="9.5" fill="#8b949e" text-anchor="middle">meeting_scheduled_at Â· escalation_required</text>
+<text x="140" y="177" font-size="9.5" fill="#8b949e" text-anchor="middle">updated_at Â· created_at</text>
+<text x="12" y="188" font-size="8.5" fill="#444">See file: agent/src/database/schema.sql</text>
+
+<rect x="12" y="192" width="256" height="52" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1.2"/>
+<text x="140" y="206" font-size="10.5" fill="#3fb950" text-anchor="middle" font-weight="bold">message_history</text>
+<text x="140" y="219" font-size="9.5" fill="#8b949e" text-anchor="middle">contact_id Â· direction Â· channel Â· content</text>
+<text x="140" y="231" font-size="9.5" fill="#8b949e" text-anchor="middle">sent_at Â· received_at Â· intent_detected Â· sentiment</text>
+<text x="140" y="245" font-size="9.5" fill="#8b949e" text-anchor="middle">subject Â· template_used Â· metadata</text>
+<text x="12" y="256" font-size="8.5" fill="#444">Audit trail + metrics source: optimizer extract of all subscriber data</text>
+
+<rect x="12" y="260" width="256" height="52" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="140" y="274" font-size="10.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">scheduled_actions</text>
+<text x="140" y="287" font-size="9.5" fill="#8b949e" text-anchor="middle">contact_id Â· action_type (follow_up /</text>
+<text x="140" y="299" font-size="9.5" fill="#8b949e" text-anchor="middle">meeting_reminder) Â· scheduled_for Â· status</text>
+<text x="140" y="311" font-size="9.5" fill="#8b949e" text-anchor="middle">retry_count Â· max_retries Â· executed_at</text>
+<text x="12" y="325" font-size="8.5" fill="#444">Consumed by followup-check.job.ts + followup.workflow.ts</text>
+
+<text x="140" y="342" font-size="10" fill="#d29922" text-anchor="middle">â”€â”€ Agent-specific output tables â”€â”€</text>
+
+<rect x="12" y="348" width="256" height="40" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="140" y="361" font-size="10.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">marketing_assets</text>
+<text x="140" y="373" font-size="9.5" fill="#8b949e" text-anchor="middle">product_id Â· type (email/social/ad/landing)</text>
+<text x="140" y="385" font-size="9.5" fill="#8b949e" text-anchor="middle">content Â· created_at â€” loop.salesMarketing()</text>
+
+<rect x="12" y="392" width="256" height="40" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="140" y="405" font-size="10.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">content_pieces</text>
+<text x="140" y="417" font-size="9.5" fill="#8b949e" text-anchor="middle">typeÂ·titleÂ·bodyÂ·keywordsÂ·image_urls</text>
+<text x="140" y="429" font-size="9.5" fill="#8b949e" text-anchor="middle">created_at â€” loop.contentCreation()</text>
+
+<rect x="12" y="436" width="256" height="40" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.2"/>
+<text x="140" y="449" font-size="10.5" fill="#d29922" text-anchor="middle" font-weight="bold">investor_prospects</text>
+<text x="140" y="461" font-size="9.5" fill="#8b949e" text-anchor="middle">investor_profile Â· pitch_summary Â·</text>
+<text x="140" y="473" font-size="9.5" fill="#8b949e" text-anchor="middle">contact_name Â· contact_email Â· firm Â· role</text>
+<text x="140" y="485" font-size="9" fill="#444">loop.fundingPitch() + orchestrator.getFundingPipelineSummary()</text>
+
+<rect x="12" y="490" width="256" height="40" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="140" y="503" font-size="10.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">funding_leads</text>
+<text x="140" y="515" font-size="9.5" fill="#8b949e" text-anchor="middle">institution Â· stage Â· ticket_size Â· tenor</text>
+<text x="140" y="527" font-size="9.5" fill="#8b949e" text-anchor="middle">status Â· updated_at â€” funding CRM view</text>
+
+<rect x="12" y="432" width="256" height="52" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="140" y="446" font-size="10.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">market_leads</text>
+<text x="140" y="458" font-size="9.5" fill="#8b949e" text-anchor="middle">company Â· contact_name Â· email Â· type</text>
+<text x="140" y="470" font-size="9.5" fill="#8b949e" text-anchor="middle">enriched_data JSONB Â· contact_grade</text>
+<text x="140" y="482" font-size="9.5" fill="#8b949e" text-anchor="middle">engagement_score Â· tier Â· status</text>
+<text x="12" y="494" font-size="8.5" fill="#444">enrichContact() upserts here Â· orchestrator.ts:53-152</text>
+
+<rect x="12" y="498" width="256" height="52" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1.2"/>
+<text x="140" y="512" font-size="10.5" fill="#3fb950" text-anchor="middle" font-weight="bold">scraped_products</text>
+<text x="140" y="525" font-size="9.5" fill="#8b949e" text-anchor="middle">nameÂ·categoryÂ·descriptionÂ·price_current</text>
+<text x="140" y="537" font-size="9.5" fill="#8b949e" text-anchor="middle">enriched_data Â· enrichment_keywords</text>
+<text x="140" y="549" font-size="9.5" fill="#8b949e" text-anchor="middle">enrichment_selling_points Â· trend_score Â·</text>
+<text x="140" y="561" font-size="9.5" fill="#8b949e" text-anchor="middle">b2b_suitable Â· in_stock Â· weight_grams</text>
+<text x="12" y="573" font-size="8.5" fill="#444">bulk-sourcing loop Â· agent-loop.factory.ts:108-116</text>
+
+<text x="340" y="42" font-size="11" fill="#d29922" text-anchor="middle">â”€â”€ Metrics / Tracking tables â”€â”€</text>
+
+<rect x="322" y="52" width="256" height="40" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.2"/>
+<text x="450" y="65" font-size="10.5" fill="#d29922" text-anchor="middle" font-weight="bold">agent_metrics</text>
+<text x="450" y="78" font-size="9.5" fill="#8b949e" text-anchor="middle">metric_type Â· metric_value Â· metadata</text>
+<text x="322" y="90" font-size="8.5" fill="#444">metrics-sync.job.ts:191-203 Â· metrics tracked daily</text>
+
+<rect x="322" y="96" width="256" height="40" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.2"/>
+<text x="450" y="109" font-size="10.5" fill="#d29922" text-anchor="middle" font-weight="bold">sub_agent_runs</text>
+<text x="450" y="122" font-size="9.5" fill="#8b949e" text-anchor="middle">agent_name Â· triggered_by Â· status</text>
+<text x="450" y="134" font-size="9.5" fill="#8b949e" text-anchor="middle">duration_ms Â· output_summary Â· error_message</text>
+<text x="322" y="146" font-size="8.5" fill="#444">Inserted by master-switch.ts runAgent():284-289</text>
+
+<rect x="322" y="152" width="256" height="40" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.2"/>
+<text x="450" y="165" font-size="10.5" fill="#d29922" text-anchor="middle" font-weight="bold">agent_jobs</text>
+<text x="450" y="178" font-size="9.5" fill="#8b949e" text-anchor="middle">queue_name Â· job_name Â· status</text>
+<text x="450" y="190" font-size="9.5" fill="#8b949e" text-anchor="middle">started_at Â· finished_at Â· result Â· error</text>
+<text x="322" y="202" font-size="8.5" fill="#444">BullMQ CIQ Queue Pool track of agent runs</text>
+
+<rect x="322" y="240" width="256" height="40" rx="4" fill="#1c2333" stroke="#d29922" stroke-width="1.2"/>
+<text x="450" y="253" font-size="10.5" fill="#d29922" text-anchor="middle" font-weight="bold">scrape_runs</text>
+<text x="450" y="266" font-size="9.5" fill="#8b949e" text-anchor="middle">status Â· started_at Â· completed_at</text>
+<text x="450" y="278" font-size="9.5" fill="#8b949e" text-anchor="middle">products_scraped Â· run_mode Â· base_url</text>
+<text x="322" y="289" font-size="8.5" fill="#444">See file: infra/docker/002_add_scraper_tables.sql</text>
+
+<!-- MIDDLE: config + LLM -->
+<text x="610" y="42" font-size="11" fill="#d29922" text-anchor="middle">â”€â”€ Config &amp; LLM Layer â”€â”€</text>
+
+<rect x="588" y="50" width="224" height="28" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="700" y="64" font-size="10.5" fill="#bc8cff" text-anchor="middle" font-weight="bold">agent.config.ts singleton</text>
+<text x="588" y="82" font-size="9" fill="#8b949e">features{} Â· rateLimits{} Â· ai{ model Â· apiKey Â· baseUrl } Â· masterSwitch{sequential}</text>
+<text x="588" y="94" font-size="8.5" fill="#444">bulkSourcing / salesMarketing / contentCreation / funding sub-configs</text>
+
+<rect x="588" y="104" width="224" height="48" rx="4" fill="#1a2535" stroke="#d29922" stroke-width="1.2"/>
+<text x="700" y="118" font-size="10.5" fill="#d29922" text-anchor="middle" font-weight="bold">langchainService Â· langchain.service.ts</text>
+<text x="700" y="131" font-size="9.5" fill="#8b949e" text-anchor="middle">ChatOpenAI NVIDIA Nemotron (singleton)</text>
+<text x="700" y="143" font-size="9.5" fill="#8b949e" text-anchor="middle">withRetry(fn, maxRetries=3, baseDelay=1s)</text>
+<text x="700" y="156" font-size="9.5" fill="#8b949e" text-anchor="middle">parseJsonFromLLM() Â· Zod schemas Â· getLLM()</text>
+
+<text x="610" y="165" font-size="10" fill="#d29922" text-anchor="middle">ZodSchemas in langchain.service.ts</text>
+<rect x="592" y="170" width="226" height="90" rx="3" fill="#1a2535" stroke="#d29922" stroke-width="1"/>
+<text x="709" y="183" font-size="9.5" fill="#8b949e" text-anchor="middle">IntentSchema Â· SendabilitySchema</text>
+<text x="709" y="196" font-size="9.5" fill="#8b949e" text-anchor="middle">EnrichmentSchema Â· FundingResearchSchema</text>
+<text x="709" y="208" font-size="9.5" fill="#8b949e" text-anchor="middle">FundingPitchSchema Â· MarketingAssetSchema</text>
+<text x="709" y="220" font-size="9.5" fill="#8b949e" text-anchor="middle">ContentPieceSchema</text>
+<text x="709" y="232" font-size="9.5" fill="#8b949e" text-anchor="middle">parseJsonFromLLM(raw, schema) â†’ T | null</text>
+
+<!-- RIGHT: Redis + services -->
+<text x="920" y="42" font-size="11" fill="#f85149" text-anchor="middle">â”€â”€ Redis / Memurai :6379 â”€â”€</text>
+
+<rect x="870" y="52" width="212" height="68" rx="4" fill="#1a2535" stroke="#f85149" stroke-width="1.2"/>
+
+<text x="976" y="66" font-size="10.5" fill="#f85149" text-anchor="middle" font-weight="bold">BullMQ â€” 3 repeating Job Queues</text>
+<text x="976" y="79" font-size="9.5" fill="#8b949e" text-anchor="middle">daily-outreach â†’ '0 6 * * *' (9 AM EAT)</text>
+<text x="976" y="91" font-size="9.5" fill="#8b949e" text-anchor="middle">followup-check â†’ '0 * * * *' + '*/30 * * * *'</text>
+<text x="976" y="103" font-size="9.5" fill="#8b949e" text-anchor="middle">metrics-sync   â†’ '0 21 * * *' (midn. EAT)</text>
+<text x="870" y="117" font-size="8.5" fill="#444">queue.manager.ts â€” addRepeatingJob(), concurrency: default=5</text>
+
+<rect x="870" y="128" width="212" height="42" rx="4" fill="#1a2535" stroke="#f85149" stroke-width="1.2"/>
+<text x="976" y="142" font-size="10" fill="#f85149" text-anchor="middle" font-weight="bold">agent-runs queue â€” BullMQ Worker Pool</text>
+<text x="976" y="155" font-size="9.5" fill="#8b949e" text-anchor="middle">4 agent types: bulk-sourcing, sales-marketing,</text>
+<text x="976" y="167" font-size="9.5" fill="#8b949e" text-anchor="middle">content-creation, funding (concurrency: 2)</text>
+<text x="870" y="179" text-anchor="middle" font-size="8" fill="#444">agent-run-queue.ts:86-150 â€” startAgentWorker()</text>
+
+<!-- WebSocket -->
+<rect x="870" y="190" width="212" height="42" rx="4" fill="#1a2535" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="976" y="204" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">WebSocket Â· wsServer.ts</text>
+<text x="976" y="217" font-size="9.5" fill="#8b949e" text-anchor="middle">broadcastAgentEvent() â€” attached to</text>
+<text x="976" y="229" font-size="9.5" fill="#8b949e" text-anchor="middle">same HTTP listener on :3002</text>
+
+<!-- Notification hub -->
+<rect x="870" y="240" width="212" height="66" rx="4" fill="#1c2333" stroke="#bc8cff" stroke-width="1.2"/>
+<text x="976" y="253" font-size="10" fill="#bc8cff" text-anchor="middle" font-weight="bold">notificationHub Â· notification-hub.ts</text>
+<text x="976" y="266" font-size="9" fill="#8b949e" text-anchor="middle">pub/sub event bus Â· queueMicrotask fan-out</text>
+<text x="976" y="277" font-size="9" fill="#8b949e" text-anchor="middle">TO_AGENT Â· ESCALATE Â· TO_USER Â· INTERNAL</text>
+<text x="976" y="289" font-size="9" fill="#8b949e" text-anchor="middle">nodemailer email subscriber + logger</text>
+<text x="976" y="301" font-size="9" fill="#8b949e" text-anchor="middle">Escalation email: agentConfig.escalation.email</text>
+<text x="870" y="312" font-size="8.5" fill="#444" text-anchor="middle">Every agent fires a typed event; hub fans to Nodemailer + in-process + escalation handler</text>
+
+<!-- nodemailer -->
+<rect x="870" y="324" width="212" height="42" rx="4" fill="#1a2535" stroke="#f85149" stroke-width="1.2"/>
+<text x="976" y="338" font-size="10" fill="#f85149" text-anchor="middle" font-weight="bold">nodemailerService Â· nodemailer.service.ts</text>
+<text x="976" y="351" font-size="9.5" fill="#8b949e" text-anchor="middle">transport: SMTP (SMTP_*) Â· Ethereal-dev</text>
+<text x="976" y="363" font-size="9.5" fill="#8b949e" text-anchor="middle">Â· console-blackhole | retry + backoff</text>
+<rect x="870" y="372" width="212" height="96" rx="4" fill="#1c2333" stroke="#3fb950" stroke-width="1.2"/>
+<text x="976" y="386" font-size="10" fill="#3fb950" text-anchor="middle" font-weight="bold">personalizationService Â· agents/personalization</text>
+<text x="976" y="399" font-size="9" fill="#8b949e" text-anchor="middle">generateMessage(contact, context)</text>
+<text x="976" y="411" font-size="9" fill="#8b949e" text-anchor="middle">generateResponse(intent, contact)</text>
+<text x="976" y="423" font-size="9" fill="#8b949e" text-anchor="middle">analyzeIntent(message, contact) â€” LangChain</text>
+<text x="976" y="435" font-size="9" fill="#8b949e" text-anchor="middle">buildMessageContext() Â· IntentSchema</text>
+<text x="976" y="447" font-size="9" fill="#8b949e" text-anchor="middle">buildPrompt() â€” ContactType-specific prompts</text>
+<text x="976" y="459" font-size="9" fill="#8b949e" text-anchor="middle">getDefaultSubject() by type</text>
+
+<!-- Config section -->
+<text x="610" y="360" font-size="11" fill="#d29922" text-anchor="middle">â”€â”€ Startup Sequence (SalesAgent.start() â€” index.ts:797-868) â”€â”€</text>
+<rect x="12" y="376" width="838" height="136" rx="6" fill="#0d1b24" stroke="#d29922" stroke-width="1.2"/>
+<text x="482" y="395" font-size="10.5" font-weight="bold" fill="#d29922" text-anchor="middle">SalesAgent.start() â€” 10-step async startup</text>
+<text x="330" y="414" font-size="9.5" fill="#58a6ff">â‘  createServer(this.app) â€” Express</text>
+<text x="330" y="427" font-size="9.5" fill="#58a6ff">â‘¡ httpServer.listen(:3002) â€” port from agentConfig.port</text>
+<text x="330" y="440" font-size="9.5" fill="#3fb950">â‘¢ startWSServer(httpServer) â€” wsServer.ts</text>
+<text x="330" y="453" font-size="9.5" fill="#bc8cff">â‘£ initializeDailyOutreachJob() â€” queue.manager.ts init</text>
+<text x="632" y="414" font-size="9.5" fill="#bc8cff">â‘¤ initializeFollowUpCheckJob() â€” queue.manager.ts init</text>
+<text x="632" y="427" font-size="9.5" fill="#f85149" text-anchor="middle">â‘¥ initializeMetricsSyncJob() â€” queue.manager.ts init</text>
+<text x="632" y="440" font-size="9.5" fill="#bc8cff">â‘¦ startAgentWorker() â€” 4-type CIQ queue, concurrency 2</text>
+<text x="482" y="458" font-size="9.5" fill="#f85149" text-anchor="middle">â‘§ initializeDatabase() â€” async bg (db.initialize Â· healthCheck)</text>
+<text x="482" y="471" font-size="9.5" fill="#8b949e" text-anchor="middle">â‘¨ route registration Â· CORs origin array Â· helmet middleware</text>
+<text x="482" y="484" font-size="9.5" fill="#8b949e" text-anchor="middle">â‘© process.on(SIGTERM/SIGINT) â†’ shutdown() â†’ db.close() exit 0</text>
+
+<!-- Feature Flags block -->
+<text x="610" y="364" font-size="10.5" fill="#d29922" text-anchor="middle">â”€â”€ Feature Flags (agent.config.ts :35-60) â”€â”€</text>
+<rect x="588" y="532" width="224" height="130" rx="6" fill="#0f1419" stroke="#30363d" stroke-width="1"/>
+<text x="700" y="550" font-size="9.5" fill="#e6edf3" text-anchor="middle" font-weight="bold">agentConfig.features (all enabled by default)</text>
+<text x="700" y="563" font-size="8.5" fill="#8b949e" text-anchor="middle">email Â· autoFollowup Â· autoScheduling Â·</text>
+<text x="700" y="575" font-size="8.5" fill="#8b949e" text-anchor="middle">sentimentAnalysis Â· objectionHandling</text>
+<text x="700" y="587" font-size="8.5" fill="#8b949e" text-anchor="middle">salesOutreach Â· investorOutreach Â· fundingOutreach</text>
+<text x="700" y="599" font-size="8.5" fill="#8b949e" text-anchor="middle">partnershipOutreach Â· productSourcing</text>
+<text x="700" y="611" font-size="8.5" fill="#8b949e" text-anchor="middle">agentsEnabled Â· fundingDigest</text>
+<text x="700" y="623" font-size="8.5" fill="#8b949e" text-anchor="middle">semanticSearch Â· memorySummaries</text>
+<text x="700" y="635" font-size="8.5" fill="#8b949e" text-anchor="middle">bulkSourcing Â· marketingAgent Â· contentAgent</text>
+<text x="700" y="647" font-size="8.5" fill="#8b949e" text-anchor="middle">fundingPitch Â· searchTool</text>
+<text x="588" y="660" font-size="8.5" fill="#444" text-anchor="middle">ENV vars begin with ENABLE_ Â· default='true' Â· set 'false' to disable</text>
+
+<!-- API Endpoints -->
+<text x="610" y="682" font-size="11" fill="#d29922" text-anchor="middle">â”€â”€ API Endpoints â”€â”€</text>
+<rect x="318" y="692" width="908" height="110" rx="6" fill="#0f1419" stroke="#30363d" stroke-width="1"/>
+<text x="340" y="710" font-size="8.5" fill="#8b949e">GET  /api/health                                         health-check getHealthStatus()</text>
+<text x="340" y="722" font-size="8.5" fill="#8b949e">GET  /api/status                                         enabled Â· dryRun Â· features Â· uptime</text>
+<text x="340" y="734" font-size="8.5" fill="#8b949e">GET  /api/contacts?type=&search=&stage=&page=              paginated Contact list</text>
+<text x="340" y="746" font-size="8.5" fill="#f85149">POST /api/outreach/send  { contactId }                    fire-and-forget â†’ orchestrator</text>
+<text x="340" y="758" font-size="8.5" fill="#f85149">POST /api/generate-content { productId }                   â†’ marketingAgent.run() 4 types</text>
+<text x="540" y="710" font-size="8.5" fill="#f85149">POST /api/agents/loops/bulk-sourcing {pages, enrichWithAI}   langchain factory bulk-sourcing loop</text>
+  <!-- ④ REST Agent Loop Endpoints (right col, rows 7-9) -->
+  <text x="540" y="734" font-size="8.5" fill="#f85149">POST /api/agents/loops/sales-marketing  {productIds, targetChannel}  4 asset types × N products</text>
+  <text x="540" y="746" font-size="8.5" fill="#f85149">POST /api/agents/loops/content-creation {type, keywords, productIds}    RAG loop → content_pieces</text>
+  <text x="540" y="758" font-size="8.5" fill="#f85149">POST /api/agents/loops/funding-pitch   {investorProfile, companyDetails} → investor_prospects + outreach</text>
+  <text x="540" y="770" font-size="8.5" fill="#8b949e">All loops accept stream: Accept: text/event-stream, return LoopResult { steps errors summary durationMs }</text>
+</svg>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PAGE 5 — Runtime Config (actual values from agent.config.ts + .env)
+═══════════════════════════════════════════════════════════════════ -->
+<div class="page" id="p5">
+<div class="legend">
+  <div class="leg-item"><div class="leg-swatch" style="background:#3fb950"></div>ENV / default</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#58a6ff"></div>Runtime value</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#d29922"></div>NVIDIA / AI</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:#bc8cff"></div>Config key</div>
+</div>
+<div class="svg-wrap">
+<svg viewBox="0 0 1100 860" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="rcB" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" fill="#58a6ff"/></marker>
+  <marker id="rcG" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" fill="#3fb950"/></marker>
+  <marker id="rcO" markerW="7" markerH="7" refX="6" refY="3" orient="auto"><polygon points="0,0 7,3.5 0,7" fill="#d29922"/></marker>
+</defs>
+<text x="550" y="20" font-size="13" font-weight="bold" fill="#e6edf3" text-anchor="middle">⑤ Runtime Config — agent.config.ts · agent/.env · actual active values</text>
+
+<!-- Row 1: Agent Runtime | AI / NVIDIA -->
+<rect x="10" y="30" width="348" height="184" rx="6" fill="#0d1b24" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="184" y="48" font-size="11.5" font-weight="bold" fill="#58a6ff" text-anchor="middle">Agent Runtime · agent.config.ts :7-16</text>
+<rect x="22" y="58" width="322" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/><text x="110" y="72" font-size="9.5" fill="#bc8cff" text-anchor="middle">AGENT_ENABLED</text><text x="240" y="72" font-size="9.5" fill="#3fb950" text-anchor="middle">true</text>
+<rect x="22" y="80" width="162" height="20" rx="3" fill="#1c2333" stroke="#f85149" stroke-width="1"/><text x="103" y="94" font-size="9.5" fill="#bc8cff" text-anchor="middle">AGENT_DRY_RUN</text><text x="136" y="94" font-size="9.5" fill="#f85149" text-anchor="middle">false</text>
+<rect x="188" y="80" width="156" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/><text x="266" y="94" font-size="9.5" fill="#bc8cff" text-anchor="middle">AGENT_PORT</text><text x="298" y="94" font-size="9.5" fill="#3fb950" text-anchor="middle">3002</text>
+<rect x="22" y="102" width="322" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/><text x="110" y="116" font-size="9.5" fill="#bc8cff" text-anchor="middle">dailyOutreachTime</text><text x="200" y="116" font-size="9.5" fill="#3fb950" text-anchor="middle">09:00 EAT (0 6 * * *)</text>
+<rect x="22" y="124" width="322" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/><text x="110" y="138" font-size="9.5" fill="#bc8cff" text-anchor="middle">followupCheckInterval</text><text x="232" y="138" font-size="9.5" fill="#3fb950" text-anchor="middle">6h (0 * * * : + */30 * * *)</text>
+<rect x="22" y="146" width="322" height="20" rx="3" fill="#1c2333" stroke="#3fb950" stroke-width="1"/><text x="110" y="160" font-size="9.5" fill="#bc8cff" text-anchor="middle">metricsSyncInterval</text><text x="216" y="160" font-size="9.5" fill="#3fb950" text-anchor="middle">1h (0 21 * * : midn. EAT)</text>
+<rect x="22" y="168" width="322" height="20" rx="3" fill="#1c2333" stroke="#bc8cff" stroke-width="1"/><text x="110" y="182" font-size="9.5" fill="#bc8cff" text-anchor="middle">masterSwitch.sequential</text><text x="244" y="182" font-size="9.5" fill="#3fb950" text-anchor="middle">true</text>
+
+<text x="184" y="210" font-size="10.5" fill="#d29922" text-anchor="middle">── Outreach Quotas (per day) ──</text>
+<text x="44" y="228" font-size="9" fill="#8b949e">sales</text><text x="100" y="228" font-size="9.5" fill="#3fb950" text-anchor="middle">20</text>
+<text x="140" y="228" font-size="9" fill="#8b949e">investor</text><text x="200" y="228" font-size="9.5" fill="#3fb950" text-anchor="middle">8</text>
+<text x="260" y="228" font-size="9" fill="#8b949e">funding</text><text x="310" y="228" font-size="9.5" fill="#3fb950" text-anchor="middle">10</text>
+<text x="56" y="247" font-size="9" fill="#8b949e">partnership</text><text x="118" y="247" font-size="9.5" fill="#3fb950" text-anchor="middle">5</text>
+
+<text x="184" y="268" font-size="10.5" fill="#d29922" text-anchor="middle">── Rate Limits ──</text>
+<text x="44" y="286" font-size="9" fill="#8b949e">EMAIL_RATE_LIMIT_PER_DAY</text><text x="210" y="286" font-size="9.5" fill="#3fb950" text-anchor="middle">1000</text>
+<text x="44" y="304" font-size="9" fill="#8b949e">EMAIL_RATE_LIMIT_PER_HOUR</text><text x="210" y="304" font-size="9.5" fill="#3fb950" text-anchor="middle">100</text>
+
+<!-- AI / NVIDIA -->
+<rect x="372" y="30" width="348" height="184" rx="6" fill="#0d1b24" stroke="#d29922" stroke-width="1.5"/>
+<text x="546" y="48" font-size="11.5" font-weight="bold" fill="#d29922" text-anchor="middle">AI / NVIDIA · agent.config.ts :96-101</text>
+<rect x="384" y="58" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="72" font-size="9.5" fill="#8b949e" text-anchor="middle">NVIDIA_API_KEY</text><text x="678" y="72" font-size="9.5" fill="#bc8cff" text-anchor="middle">nvapi-czk_8…(hidden)</text>
+<rect x="384" y="80" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="94" font-size="9.5" fill="#8b949e" text-anchor="middle">NVIDIA_MODEL</text><text x="678" y="94" font-size="9.5" fill="#3fb950" text-anchor="middle">nvidia/nemotron-3-super-120b-a12b</text>
+<rect x="384" y="102" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="116" font-size="9.5" fill="#8b949e" text-anchor="middle">NVIDIA_BASE_URL</text><text x="678" y="116" font-size="9.5" fill="#3fb950" text-anchor="middle">https://integrate.api.nvidia.com/v1</text>
+<rect x="384" y="124" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="138" font-size="9.5" fill="#8b949e" text-anchor="middle">NVIDIA_MAX_TOKENS</text><text x="678" y="138" font-size="9.5" fill="#3fb950" text-anchor="middle">1024</text>
+<rect x="384" y="146" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="160" font-size="9.5" fill="#8b949e" text-anchor="middle">NVIDIA_IMAGE_MODEL</text><text x="678" y="160" font-size="9.5" fill="#3fb950" text-anchor="middle">nvidia/flux.1-schnell</text>
+<rect x="384" y="168" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="182" font-size="9.5" fill="#8b949e" text-anchor="middle">SEARCH_API_KEY status</text><text x="678" y="182" font-size="9.5" fill="#3fb950" text-anchor="middle">not set</text>
+
+<!-- Email / SMTP Config -->
+<rect x="372" y="216" width="348" height="112" rx="6" fill="#0d1b24" stroke="#f85149" stroke-width="1.5"/>
+<text x="546" y="234" font-size="11.5" font-weight="bold" fill="#f85149" text-anchor="middle">Email / SMTP · agent/.env :9-23</text>
+<rect x="384" y="244" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="258" font-size="9.5" fill="#8b949e" text-anchor="middle">EMAIL_DEV_MODE</text><text x="656" y="258" font-size="9.5" fill="#3fb950" text-anchor="middle">true (Ethereal fake-SMTP)</text>
+<rect x="384" y="264" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="278" font-size="9.5" fill="#8b949e" text-anchor="middle">RESEND_API_KEY</text><text x="632" y="278" font-size="9.5" fill="#bc8cff" text-anchor="middle">set (hidden)</text>
+<rect x="384" y="284" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="298" font-size="9.5" fill="#8b949e" text-anchor="middle">RESEND_FROM_EMAIL</text><text x="654" y="298" font-size="9.5" fill="#3fb950" text-anchor="middle">bangali@sokogate.com</text>
+<rect x="384" y="304" width="324" height="20" rx="3" fill="#1c2333"/><text x="546" y="318" font-size="9.5" fill="#8b949e" text-anchor="middle">SMTP_FROM_NAME</text><text x="650" y="318" font-size="9.5" fill="#3fb950" text-anchor="middle">Sokogate Sales Team</text>
+
+<!-- Database / PostgreSQL -->
+<rect x="10" y="216" width="348" height="112" rx="6" fill="#0d1b24" stroke="#3fb950" stroke-width="1.5"/>
+<text x="184" y="234" font-size="11.5" font-weight="bold" fill="#3fb950" text-anchor="middle">PostgreSQL :5433 · agent/.env :48-59</text>
+<rect x="22" y="244" width="324" height="20" rx="3" fill="#1c2333"/><text x="184" y="258" font-size="9.5" fill="#8b949e" text-anchor="middle">DATABASE_URL</text><text x="280" y="258" font-size="9.5" fill="#bc8cff" text-anchor="middle">postgresql://sokogate:*@127.0.0.1:5433/sokogate</text>
+<rect x="22" y="264" width="324" height="20" rx="3" fill="#1c2333"/><text x="184" y="278" font-size="9.5" fill="#8b949e" text-anchor="middle">DATABASE_POOL_MIN / MAX</text><text x="310" y="278" font-size="9.5" fill="#3fb950" text-anchor="middle">2 / 10</text>
+
+<!-- Redis / Queue -->
+<rect x="734" y="330" width="356" height="112" rx="6" fill="#0d1b24" stroke="#f85149" stroke-width="1.5"/>
+<text x="912" y="348" font-size="11.5" font-weight="bold" fill="#f85149" text-anchor="middle">Redis / BullMQ · agent/.env :66-88</text>
+<rect x="746" y="358" width="332" height="20" rx="3" fill="#1c2333"/><text x="912" y="372" font-size="9.5" fill="#8b949e" text-anchor="middle">REDIS_URL</text><text x="986" y="372" font-size="9.5" fill="#3fb950" text-anchor="middle">redis://localhost:6379</text>
+<rect x="746" y="380" width="332" height="20" rx="3" fill="#1c2333"/><text x="912" y="394" font-size="9.5" fill="#8b949e" text-anchor="middle">QUEUE_CONCURRENCY</text><text x="1020" y="394" font-size="9.5" fill="#3fb950" text-anchor="middle">5</text>
+<rect x="746" y="400" width="332" height="20" rx="3" fill="#1c2333"/><text x="912" y="414" font-size="9.5" fill="#8b949e" text-anchor="middle">QUEUE_MAX_RETRIES / DELAY</text><text x="1038" y="414" font-size="9.5" fill="#3fb950" text-anchor="middle">3 / 60000 ms</text>
+
+<!-- Sokogate Scraper Config -->
+<rect x="734" y="444" width="356" height="112" rx="6" fill="#0d1b24" stroke="#d29922" stroke-width="1.5"/>
+<text x="912" y="462" font-size="11.5" font-weight="bold" fill="#d29922" text-anchor="middle">Sokogate Scraper · agent.config.ts :155-163</text>
+<rect x="746" y="472" width="332" height="20" rx="3" fill="#1c2333"/><text x="912" y="486" font-size="9.5" fill="#8b949e" text-anchor="middle">SOKOGATE_BASE_URL</text><text x="1036" y="486" font-size="9.5" fill="#3fb950" text-anchor="middle">https://sokogate.com</text>
+<rect x="746" y="494" width="332" height="20" rx="3" fill="#1c2333"/><text x="912" y="508" font-size="9.5" fill="#8b949e" text-anchor="middle">SCRAPER_MAX_PAGES / MAX_PRODUCTS</text><text x="1062" y="508" font-size="9.5" fill="#3fb950" text-anchor="middle">10 / 50</text>
+<rect x="746" y="516" width="332" height="20" rx="3" fill="#1c2333"/><text x="912" y="530" font-size="9.5" fill="#8b949e" text-anchor="middle">SCRAPER_REQUEST_DELAY_MS</text><text x="1073" y="530" font-size="9.5" fill="#3fb950" text-anchor="middle">800 ms</text>
+<rect x="746" y="536" width="332" height="20" rx="3" fill="#1c2333"/><text x="912" y="550" font-size="9.5" fill="#8b949e" text-anchor="middle">AUTO_SOURCE_INTERVAL_HOURS</text><text x="1058" y="550" font-size="9.5" fill="#3fb950" text-anchor="middle">24 h</text>
+
+<!-- Cron schedule banner -->
+<rect x="10" y="560" width="1080" height="44" rx="6" fill="#0e2137" stroke="#58a6ff" stroke-width="1.5"/>
+<text x="550" y="579" font-size="9.5" fill="#58a6ff" text-anchor="middle" font-weight="bold">CRON SCHEDULES · UTC                    EAT (UTC+3)</text>
+<text x="70" y="596" font-size="9" fill="#8b949e">① daily-outreach   0 6 * * *</text><text x="262" y="596" font-size="9.5" fill="#3fb950" text-anchor="middle">→ 09:00 EAT</text>
+<text x="400" y="596" font-size="9" fill="#8b949e">② followup-check  0 * * * * + */30 * * * *</text><text x="706" y="596" font-size="9.5" fill="#3fb950" text-anchor="middle">→ Hourly + 30-min</text>
+<text x="796" y="596" font-size="9" fill="#8b949e">③ metrics-sync    0 21 * * *</text><text x="980" y="596" font-size="9.5" fill="#3fb950" text-anchor="middle">→ 00:00 EAT</text>
+<text x="550" y="611" font-size="8.5" fill="#8b949e" text-anchor="middle">BullMQ Redis :6379 · queue.manager.ts addRepeatingJob() · concurrency default=5</text>
+
+<!-- WebSocket + Hub callout -->
+<rect x="10" y="606" width="534" height="46" rx="6" fill="#0d1b24" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="277" y="625" font-size="10.5" font-weight="bold" fill="#bc8cff" text-anchor="middle">WebSocket · wsServer.ts — port 3002</text>
+<text x="277" y="642" font-size="9" fill="#8b949e" text-anchor="middle">broadcastAgentEvent(event) attaches to same HTTP listener :3002</text>
+
+<rect x="560" y="606" width="534" height="46" rx="6" fill="#0d1b24" stroke="#bc8cff" stroke-width="1.5"/>
+<text x="827" y="625" font-size="10.5" font-weight="bold" fill="#bc8cff" text-anchor="middle">notificationHub · notification-hub.ts — pub/sub bus</text>
+<text x="827" y="642" font-size="9" fill="#8b949e" text-anchor="middle">TO_AGENT · ESCALATE · TO_USER · INTERNAL · Nodemailer + in-process + escalation</text>
+</svg>
+</div>
+</div>
+
+</body>
+</html>

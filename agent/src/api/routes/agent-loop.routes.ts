@@ -152,10 +152,10 @@ router.post('/sales-marketing', async (req: Request, res: Response) => {
   }
 
   try {
-    const { productIds, targetChannel } = req.body ?? {};
-    if (!Array.isArray(productIds) || productIds.length === 0) {
-      if (isSSE) { sendSSE(res, 'error', { message: 'productIds required', ssId }); res.end(); }
-      else return res.status(400).json({ success: false, error: 'productIds required' });
+    const { productIds = [], targetChannel } = req.body ?? {};
+    if (!Array.isArray(productIds)) {
+      if (isSSE) { sendSSE(res, 'error', { message: 'productIds must be an array', ssId }); res.end(); }
+      else return res.status(400).json({ success: false, error: 'productIds must be an array' });
     }
 
     const result = await runSalesMarketingLoop({
@@ -170,6 +170,7 @@ router.post('/sales-marketing', async (req: Request, res: Response) => {
       success:            result.success,
       assetsCreated:      result.summary.assetsCreated,
       productsProcessed:  result.summary.productsProcessed,
+      assets:             result.summary.assets || [],
       errors:             result.errors,
       durationMs:         result.durationMs,
       steps:              result.steps,
@@ -230,9 +231,11 @@ router.post('/content-creation', async (req: Request, res: Response) => {
     const summary = {
       success:     result.success,
       title:       (result.summary.title as string) ?? '',
+      body:        (result.summary.body as string) ?? '',
+      type:        (result.summary.type as string) ?? type,
       bodyLength:  (result.summary.bodyLength as number) ?? 0,
       keywords:    result.summary.keywords      as number ?? keywords.length,
-      imageUrls:   result.summary.imageUrls     as string[] ?? [],
+      imageUrls:   (result.summary.imageUrls as string[]) ?? [],
       errors:      result.errors,
       durationMs:  result.durationMs,
       steps:       result.steps,

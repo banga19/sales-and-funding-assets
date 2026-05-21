@@ -68,19 +68,24 @@ export class FollowUpWorkflow {
 
   /**
    * Get follow-ups due for execution
+   * Includes: plain follow_up, post-meeting follow-up, and meeting_suggested follow-up
    */
   private async getDueFollowUps(): Promise<any[]> {
     const query = `
       SELECT sa.*, c.*, conv.current_stage as conversation_stage
       FROM scheduled_actions sa
       JOIN contacts c ON sa.contact_id = c.id
-      LEFT JOIN conversations conv ON c.id::uuid = conv.contact_id
+      LEFT JOIN conversations conv ON c.id = conv.contact_id
       WHERE 
-        sa.action_type = 'follow_up'
+        sa.action_type IN ('follow_up', 'post_meeting_follow_up', 'meeting_followup')
         AND sa.status = 'pending'
         AND sa.scheduled_for <= NOW()
         AND c.do_not_contact = false
-      ORDER BY sa.scheduled_for ASC
+      ORDER BY 
+        CASE sa.action_type  WHEN 'meeting_followup' THEN 0
+                             WHEN 'post_meeting_follow_up' THEN 1
+                             ELSE 2 END,
+        sa.scheduled_for ASC
       LIMIT 100
     `;
 
@@ -91,32 +96,37 @@ export class FollowUpWorkflow {
   /**
    * Execute a follow-up action
    */
-  private async executeFollowUp(action: any): Promise<void> {
-    logger.info('Executing follow-up', {
-      action_id: action.id,
-      contact_id: action.contact_id,
-      stage: action.conversation_stage,
-    });
+    private async executeFollowUp(action: any): Promise<void> {
+     logger.info('Executing follow-up', {
+       action_id: action.id,
+       contact_id: action.contact_id,
+       stage: action.conversation_stage,
+     });
 
-    // Validate action object is well-formed
-    const action_: {
-      id: string; contact_id: string;
-      contact_type: string; action_type: string;
-      scheduled_for: Date; status: string;
-      preferred_channel?: string; email?: string;
-      conversation_stage?: string;
-    } = ((): any => {
-      if (!action || typeof action !== 'object') throw new Error('Invalid action object');
-      const { id, contact_id, contact_type, action_type, scheduled_for, status } = action;
-      if (!id) throw new Error('Action missing id');
-      if (!contact_id) throw new Error('Action missing contact_id');
-      if (contact_type !== 'follow_up') throw new Error(`Unexpected action_type: ${action_type}`);
-      if (status !== 'pending') return null; // silently skip non-pending
-      return action;
-    })();
-    if (!action_) return; // skip if not pending
+     // Validate action object is well-formed
+     const action_: {
+       id: string; contact_id: string;
+       contact_type: string; action_type: string;
+       scheduled_for: Date; status: string;
+       preferred_channel?: string; email?: string;
+       conversation_stage?: string;
+     } = ((): any => {
+       if (!action || typeof action !== 'object') throw new Error('Invalid action object');
+       const { id, contact_id, contact_type, action_type, scheduled_for, status } = action;
+       if (!id) throw new Error('Action missing id');
+       if (!contact_id) throw new Error('Action missing contact_id');
+       if (!['follow_up', 'post_meeting_follow_up', 'meeting_followup'].includes(action_type)) {
+         throw new Error(`Unexpected action_type: ${action_type}`);
+       }
+       if (status !== 'pending') return null; // silently skip non-pending
+       return action;
+     })();
+     if (!action_) return; // skip if not pending
 
-    // Get conversation history
+     // Build follow-up label for context
+     const isMeetingFollowUp = action_.action_type === 'meeting_followup' || action_.action_type === 'post_meeting_follow_up';
+
+     // Get conversation history
     const messages = await this.getMessageHistory(action_.contact_id);
 
     // ── Fetch full Contact record ────────────────────────────────────────────────
@@ -166,11 +176,13 @@ export class FollowUpWorkflow {
       urgency:                        contact.urgency,
       contact_person_title:           contact.contact_person_title,
       // ── Success / nurture context ──
-      previous_messages: messages.map((m: any) => ({
-        role: m.direction === 'outbound' ? 'assistant' : 'user',
-        content: m.content,
-      })),
-    };
+       previous_messages: messages.map((m: any) => ({
+         role: m.direction === 'outbound' ? 'assistant' : 'user',
+         content: m.content,
+       })),
+       // ── Post-meeting follow-up context ──
+       isMeetingFollowUp,
+     };
 
     const generated = await personalizationService.generateMessage(contact, context);
 
@@ -192,26 +204,23 @@ export class FollowUpWorkflow {
     }
 
     // Log the message
-    await db.query(
-      `INSERT INTO message_history (
-        contact_id, direction, channel, content, sent_at
-      ) VALUES ($1, $2, $3, $4, NOW())`,
-      [action_.contact_id, 'outbound', preferredChannel, generated.body]
-    );
+     await db.query(
+       `INSERT INTO message_history (
+         contact_id, direction, channel, content, sent_at
+       ) VALUES ($1, $2, $3, $4, NOW())`,
+       [action_.contact_id, 'outbound', preferredChannel, generated.body]
+     );
 
-    // Update conversation
-    await db.query(
-      `UPDATE conversations 
-        SET last_message_at = NOW(),
-            message_count = COALESCE(message_count, 0) + 1,
-            updated_at = NOW()
-        WHERE contact_id = $1`,
-      [action_.contact_id]
-    );
-
-    // Schedule next follow-up if no response
-    await this.scheduleNextFollowUp(action_.contact_id, action_.conversation_stage);
-  }
+     // Schedule next step based on action type
+     if (action_.action_type === 'post_meeting_follow_up') {
+       // No further recurrence — meeting loop exhausted
+       logger.info('Post-meeting follow-up sent — no further recurrence', {
+         contact_id: action_.contact_id,
+       });
+     } else {
+       await this.scheduleNextFollowUp(action_.contact_id, action_.conversation_stage);
+     }
+   }
 
   /**
    * Get message history for a contact
@@ -232,19 +241,22 @@ export class FollowUpWorkflow {
   /**
    * Schedule next follow-up
    */
-  private async scheduleNextFollowUp(
-    contactId: string,
-    currentStage: string
-  ): Promise<void> {
-    // Determine follow-up interval based on stage
-    const intervals: Record<string, number> = {
-      initial_sent: 3, // 3 days
-      follow_up: 5, // 5 days
-      engaged: 7, // 7 days
-      objection: 7, // 7 days
-    };
-
-    const daysToAdd = intervals[currentStage] || 5;
+    private async scheduleNextFollowUp(
+     contactId: string,
+     currentStage: string
+   ): Promise<void> {
+      // Use configurable delays from agent.config.ts (all 8 stages)
+      const delays = agentConfig.followUpDelays || {
+        initial_sent:     3,
+        follow_up:        5,
+        engaged:          7,
+        objection:        7,
+        meeting_suggested: 2,
+        meeting_scheduled: 1,
+        meeting_completed: 14,
+        out_of_office:    7,
+      };
+      const daysToAdd = delays[currentStage] ?? 5;
     const scheduledFor = new Date();
     scheduledFor.setDate(scheduledFor.getDate() + daysToAdd);
 

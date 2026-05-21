@@ -18,9 +18,16 @@ export default function MarketingModal({ open, onClose, onRun }: Props) {
   useEffect(() => {
     if (open) {
       setLoading(true);
-      fetch('/api/products')
+      fetch('/api/products?pageSize=50')
         .then((res) => res.json())
-        .then((data: any) => setProducts(data?.data ?? []))
+        .then((data: any) => {
+          const productList = data?.data ?? data?.products ?? [];
+          setProducts(productList);
+          // Auto-select first 3 products if none selected
+          if (productList.length > 0 && selected.length === 0) {
+            setSelected(productList.slice(0, 3).map((p: any) => p.id));
+          }
+        })
         .catch(() => setProducts([]))
         .finally(() => setLoading(false));
     }
@@ -73,11 +80,14 @@ export default function MarketingModal({ open, onClose, onRun }: Props) {
           </>
         )}
         <button
-          onClick={() => onRun({ productIds: selected, targetChannel: channel })}
-          disabled={loading || products.length === 0 || selected.length === 0}
+          onClick={() => {
+            // If no products selected, send empty array to trigger fallback (uses recent products)
+            onRun({ productIds: selected.length > 0 ? selected : [], targetChannel: channel });
+          }}
+          disabled={loading || products.length === 0}
           className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50"
         >
-          Generate Campaign
+          Generate Campaign{selected.length > 0 ? ` (${selected.length} product${selected.length !== 1 ? 's' : ''})` : ' (Recent Products)'}
         </button>
       </div>
     </Modal>

@@ -79,10 +79,23 @@ export const agentConfig = {
      maxKeywords:  parseInt(process.env.CONTENT_CREATION_MAX_KEYWORDS   || '10', 10),
    },
    funding: {
-     investorProfiles: ['angel', 'vc', 'bank', 'government'] as const,
+      investorProfiles: ['angel', 'vc', 'bank', 'government'] as const,
    },
-  
-  // Escalation Settings
+
+   // ── Follow-up delays (days) keyed by conversation stage ──────────────────────
+   // These are also the meeting-reminder fallback delay (in days) for out-of-office.
+   followUpDelays: {
+      initial_sent:         parseInt(process.env.FOLLOWUP_DELAY_INITIAL_SENT        || '3',  10),
+      follow_up:            parseInt(process.env.FOLLOWUP_DELAY_FOLLOW_UP           || '5',  10),
+      engaged:              parseInt(process.env.FOLLOWUP_DELAY_ENGAGED             || '7',  10),
+      objection:            parseInt(process.env.FOLLOWUP_DELAY_OBJECTION           || '7',  10),
+      meeting_suggested:    parseInt(process.env.FOLLOWUP_DELAY_MEETING_SUGGESTED    || '2',  10),
+      meeting_scheduled:    parseInt(process.env.FOLLOWUP_DELAY_MEETING_SCHEDULED    || '1',  10),
+      meeting_completed:    parseInt(process.env.FOLLOWUP_DELAY_MEETING_COMPLETED    || '14', 10),
+      out_of_office:        parseInt(process.env.FOLLOWUP_DELAY_OUT_OF_OFFICE        || '7',  10),
+   },
+   
+   // Escalation Settings
   escalation: {
     email: process.env.ESCALATION_EMAIL || 'founder@sokogate.com',
     webhook: process.env.ESCALATION_WEBHOOK,
@@ -175,11 +188,19 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
     errors.push('EMAIL_API_KEY or SMTP_PASS is required when email is enabled and not in dev mode');
   }
   
-  if (!agentConfig.database.url) {
-    errors.push('DATABASE_URL is required');
-  }
+    if (!agentConfig.database.url) {
+      errors.push('DATABASE_URL is required');
+    }
 
-  return {
+    // Follow-up delay range check
+    const delayChecks: [string, number][] = Object.entries(agentConfig.followUpDelays || {});
+    for (const [stage, days] of delayChecks) {
+      if (typeof days !== 'number' || days < 0 || days > 180) {
+        errors.push(`Invalid follow-up delay for stage "${stage}": ${days} days (must be 0-180)`);
+      }
+    }
+
+    return {
     valid: errors.length === 0,
     errors,
   };

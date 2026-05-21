@@ -417,8 +417,10 @@ export function loadCsvEnrichment(
   const startIdx = skipHeaderRow && lines.length > 0 ? 1 : 0;
 
   for (let i = startIdx; i < lines.length; i++) {
-    // Basic TSV split (tracker files are consistently TSV)
-    const cols = lines[i].split('\t');
+    // Trackers are comma-separated (CSV), not tab-separated
+    // The NOTES column (last) may contain internal commas, so we split
+    // by comma and rejoin trailing parts for the notes column.
+    const cols = lines[i].split(',');
     if (cols.length < 2) continue;
 
     let nameCol: string;
@@ -428,18 +430,26 @@ export function loadCsvEnrichment(
     let notesCol: string;
 
     if (category === 'investor') {
-      nameCol   = cols[0]?.trim() ?? '';
-      tierCol   = cols[2]?.trim() ?? '';
-      emailCol  = cols[7]?.trim() ?? '';
-      statusCol = cols[11]?.trim() ?? '';
-      notesCol  = cols[cols.length - 1]?.trim() ?? '';
+      // Columns: INVESTOR, FUND_NAME, TIER, TICKET_SIZE_USD, GEOGRAPHIC_FOCUS,
+      //          INVESTMENT_THESIS, CONTACT_NAME, EMAIL, PHONE,
+      //          DECISION_TIMELINE_WEEKS, FIRST_CONTACT_DATE, STATUS,
+      //          MEETINGS, LAST_UPDATE, TERM_SHEET_DATE, NOTES (col 15)
+      nameCol   = (cols[1] ?? '').trim();    // FUND_NAME
+      tierCol   = (cols[2] ?? '').trim();    // TIER
+      emailCol  = (cols[7] ?? '').trim();    // EMAIL
+      statusCol = (cols[11] ?? '').trim();   // STATUS
+      notesCol  = cols.slice(15).join(',').trim(); // NOTES onwards (may contain commas)
     } else {
-      // PARTNER: PARTNER, COMPANY_NAME, COUNTRY, TIER, CONTACT_NAME, TITLE, EMAIL, PHONE, CAPABILITY, INTEREST_LEVEL, FIRST_CONTACT_DATE, STATUS, ...
-      nameCol   = cols[0]?.trim() ?? '';
-      tierCol   = cols[3]?.trim() ?? '';
-      emailCol  = cols[6]?.trim() ?? '';
-      statusCol = cols[11]?.trim() ?? '';
-      notesCol  = cols[cols.length - 1]?.trim() ?? '';
+      // PARTNER: PARTNER, COMPANY_NAME, COUNTRY, TIER, CONTACT_NAME, TITLE,
+      //          EMAIL, PHONE, CAPABILITY, INTEREST_LEVEL, FIRST_CONTACT_DATE,
+      //          STATUS, DISCOVERY_CALL_DATE, PROPOSAL_SENT_DATE,
+      //          PROPOSAL_SIGNED_DATE, PILOT_START_DATE, REVENUE_MODEL,
+      //          MONTHLY_REVENUE_POTENTIAL, NOTES (col 18)
+      nameCol   = (cols[1] ?? '').trim();    // COMPANY_NAME
+      tierCol   = (cols[3] ?? '').trim();    // TIER
+      emailCol  = (cols[6] ?? '').trim();    // EMAIL
+      statusCol = (cols[11] ?? '').trim();   // STATUS
+      notesCol  = cols.slice(18).join(',').trim(); // NOTES onwards (may contain commas)
     }
 
     if (!nameCol) continue;
@@ -462,11 +472,17 @@ export function loadCsvEnrichment(
       /NOT\s+RECOMMENDED\s+FOR\s+DIRECT\s+PITCH/i,
     ];
 
-    if (badPatterns.some((p) => p.test(norm(unwrapTokens(notesCol))) || p.test(notesCol))) {
-      doNotSend = true;
+    // Positive signal override: if notes confirm a corrected/verified email,
+    // do NOT mark as doNotSend even if old/wrong-entity appears in context.
+    const hasCorrectionSignal = /(EMAIL\s+CORRECTED|CORRECTED\s+FROM|CONFIRMED\s+FROM|verified\s+via)/i.test(notesCol);
+
+    if (!hasCorrectionSignal) {
+      if (badPatterns.some((p) => p.test(norm(unwrapTokens(notesCol))) || p.test(notesCol))) {
+        doNotSend = true;
+      }
     }
     // STATUS column can carry verdict signals
-    if (/NOT\s+STARTED/i.test(statusCol) && /domain/i.test(notesLower)) {
+    if (!hasCorrectionSignal && /NOT\s+STARTED/i.test(statusCol) && /domain/i.test(notesLower)) {
       // Some entries say STATUS = "Not Started" but the notes flag the domain
       doNotSend = true;
     }
@@ -688,7 +704,10 @@ export async function sendBatch(options: {
   };
 
   // ── Step 6: Send ─────────────────────────────────────────────────────────
-  const stopOnQuarantine = blocked > 0 && !overrideNhod; // auto-pause if nhod present
+  // Only auto-pause if ALL entries are blocked (nothing sendable).
+  // If there are sendable entries, send those; the NHOD ones are filtered
+  // out by buildSendTimeline and will just be skipped.
+  const stopOnQuarantine = blocked > 0 && sendable === 0 && !overrideNhod;
   const sendTargets = stopOnQuarantine ? [] : timeline;
 
   const results: BatchSendResult['results'] = [];

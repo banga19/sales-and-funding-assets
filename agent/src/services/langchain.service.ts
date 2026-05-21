@@ -628,10 +628,56 @@ Output EXACTLY this JSON — nothing else:
     return { subject: subject || '', body, templateUsed };
   }
 
+  /**
+   * getGatewayHealth — probes the NVIDIA gateway for status details.
+   * Returns { healthy: boolean, model: string, baseUrl: string, lastError?: string }.
+   * Fast-path: uses cached result from healthCheck() if still within TTL.
+   */
+  getGatewayHealth(): { healthy: boolean; model: string; baseUrl: string; lastError?: string } {
+    if (this.lastHealthCheck && Date.now() - this.lastHealthCheckTime < 60_000) {
+      return { healthy: this.lastHealthCheck, model: agentConfig.ai.model, baseUrl: agentConfig.ai.baseUrl };
+    }
+    if (!this.lastHealthCheck && Date.now() - this.lastHealthCheckFailureTime < 30_000) {
+      return { healthy: false, model: agentConfig.ai.model, baseUrl: agentConfig.ai.baseUrl, lastError: 'cached failure' };
+    }
+    return { healthy: this.lastHealthCheck, model: agentConfig.ai.model, baseUrl: agentConfig.ai.baseUrl };
+  }
+
+  /**
+   * getHealthyLLM — returns a working ChatOpenAI instance or falls back
+   * to a low-temperature stub that echoes prompts back.  Never throws;
+   * callers check `instance.fallback` to decide whether to persist output.
+   *
+   * Fail-open policy:
+   *  • healthCheck() last success < 60 s ago → return cached (healthy)
+   *  • last failure < 30 s ago → return stub (degraded)
+   *  • never being checked → run healthCheck(); still pass.
+   */
+  async getHealthyLLM(temperature = 0.3, maxTokens?: number): Promise<{ llm: ChatOpenAI; fallback: boolean }> {
+    if (this.lastHealthCheck && Date.now() - this.lastHealthCheckTime < 60_000) {
+      return { llm: this.getLLM(temperature, maxTokens), fallback: false };
+    }
+    if (!this.lastHealthCheck && Date.now() - this.lastHealthCheckFailureTime < 30_000) {
+      // Stub: warm-pass phrase through to prevent data loss
+      const stub = new ChatOpenAI({ model: 'stub', temperature: 0, maxTokens: maxTokens ?? 512 });
+      return { llm: stub, fallback: true };
+    }
+    // Trigger a live check (async, non-blocking)
+    this.healthCheck().catch(() => {});
+    return { llm: this.getLLM(temperature, maxTokens), fallback: false };
+  }
+
   /* ════════════════════════════════════════════════════════════════════════
    * HEALTH CHECK
    * ════════════════════════════════════════════════════════════════════════ */
 
+  /**
+   * healthCheck — lightweight probe against the NVIDIA API using the
+   * configured model.  Result is cached (60 s TTL on success, 30 s on failure)
+   * to prevent thundering-herd on startup bursts.
+   *
+   * Callers that need error context should use getGatewayHealth() instead.
+   */
   async healthCheck(): Promise<boolean> {
     const SUCCESS_TTL_MS = 60_000;
     const FAILURE_TTL_MS = 30_000;

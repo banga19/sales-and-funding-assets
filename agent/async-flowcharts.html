@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sokogate Agent — Async Live Flowcharts</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg0:#0a0e14;--bg1:#111826;--bg2:#182030;--bg3:#1e2e42;--bg4:#243848;
+  --bdr:#1e3450;--bdr2:#2a5080;
+  --txt:#e2e8f0;--muted:#7a9ab8;--dim:#4a6480;
+  --blue:#4ea8de;--green:#3ecf8e;--amber:#fbbf24;--red:#ef4444;
+  --purple:#a78bfa;--pink:#fb7185;--ice:#38bdf8;--teal:#2dd4bf;
+  --orange:#fb923c;--yellow:#fde68a;
+}
+html,body{height:100%;overflow:hidden;
+  font-family:'SF Mono','Fira Code','JetBrains Mono',monospace;
+  background:var(--bg0);color:var(--txt)}
+body{display:flex;flex-direction:column}
+
+#hdr{display:flex;align-items:center;gap:10px;padding:7px 16px;background:var(--bg1);border-bottom:1px solid var(--bdr);flex-shrink:0;z-index:10}
+#hdr .log{font-size:14px;font-weight:700;letter-spacing:.12em;color:var(--blue)}
+#hdr .sep{width:1px;height:18px;background:var(--bdr)}
+#hdr .meta{color:var(--muted);font-size:10px}
+#zoom{margin-left:auto;display:flex;align-items:center;gap:5px}
+#zoom button{background:var(--bg3);border:1px solid var(--bdr);color:var(--txt);padding:2px 9px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit}
+#zoom button:hover{border-color:var(--bdr2)}
+#zoom span{color:var(--muted);font-size:10px;min-width:52px;text-align:center}
+
+#legend{display:flex;align-items:center;gap:12px;padding:3px 16px;background:var(--bg1);border-bottom:1px solid var(--bdr);flex-shrink:0;flex-wrap:wrap;font-size:10px}
+#legend .l{display:flex;align-items:center;gap:4px}
+#legend .dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+
+#tabs{display:flex;gap:2px;padding:3px 12px;background:var(--bg1);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.t{padding:4px 13px;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit;color:var(--muted);border:1px solid transparent;white-space:nowrap}
+.t:hover{color:var(--txt);border-color:var(--bdr)}
+.t.on{background:var(--bg3);color:var(--blue);border-color:var(--bdr2);font-weight:600}
+
+#main{flex:1;overflow:auto;position:relative}
+#wrap{position:relative;min-height:100%}
+#tip{position:fixed;background:var(--bg2);border:1px solid var(--bdr2);border-radius:6px;padding:10px 14px;max-width:440px;font-size:11px;line-height:1.7;pointer-events:none;display:none;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+#tip .tt{font-weight:700;font-size:12px;margin-bottom:4px}
+#tip .td{color:var(--muted)}
+#tip code{background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:10px;color:var(--green)}
+#tip .lb{color:var(--dim);font-size:9.5px;margin-top:3px;opacity:.7}
+
+/* ── inline CSS animation for active phase ── */
+@keyframes glow2{0%,100%{filter:brightness(1) drop-shadow(0 0 2px var(--c))}50%{filter:brightness(1.7) drop-shadow(0 0 6px var(--c))} }
+.ph-glow .phase-rect{animation:glow2 1.5s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <span class="log">SOKOGATE</span><div class="sep"></div>
+  <span class="meta">Agent Async Architecture &nbsp;·&nbsp; Built from source</span>
+  <div id="zoom"><button id="zout">&#8722;</button><span id="zl">100%</span><button id="zin">+</button></div>
+</div>
+<div id="legend">
+  <span class="l"><span class="dot" style="background:var(--blue)"></span>HTTP / WS</span>
+  <span class="l"><span class="dot" style="background:var(--green)"></span>Async Await</span>
+  <span class="l"><span class="dot" style="background:var(--amber)"></span>Sub-Agent</span>
+  <span class="l"><span class="dot" style="background:var(--purple)"></span>DB Write</span>
+  <span class="l"><span class="dot" style="background:var(--red)"></span>LLM / Ext</span>
+  <span class="l"><span class="dot" style="background:var(--ice)"></span>Notify Hub</span>
+  <span class="l"><span class="dot" style="background:var(--yellow)"></span>BullMQ</span>
+  <span class="l"><span class="dot" style="background:var(--pink)"></span>Redis Cache</span>
+</div>
+<div id="tabs">
+  <div class="t on" id="t-server"    onclick="sw('server',this)">Server Startup</div>
+  <div class="t"      id="t-lifecycle" onclick="sw('lifecycle',this)">Contact Lifecycle</div>
+  <div class="t"      id="t-master"    onclick="sw('master',this)">MasterSwitch</div>
+  <div class="t"      id="t-loops"     onclick="sw('loops',this)">Agent Loops</div>
+  <div class="t"      id="t-orch"      onclick="sw('orch',this)">Orchestrator</div>
+  <div class="t"      id="t-reply"     onclick="sw('reply',this)">Reply Loop</div>
+  <div class="t"      id="t-async"     onclick="sw('async',this)">Async Jobs</div>
+</div>
+<div id="main"><div id="wrap"></div></div>
+<div id="tip"><div class="tt"></div><div class="td"></div></div>
+
+<script>
+const C={blue:'#4ea8de',green:'#3ecf8e',amber:'#fbbf24',red:'#ef4444',purple:'#a78bfa',
+  pink:'#fb7185',ice:'#38bdf8',teal:'#2dd4bf',orange:'#fb923c',yellow:'#fde68a',
+  muted:'#7a9ab8',dim:'#4a6480',bg0:'#0a0e14',bg1:'#111826',bg2:'#182030',bg3:'#1e2e42'};
+const F='9px "SF Mono","Fira Code","JetBrains Mono",monospace';
+const NS='http://www.w3.org/2000/svg';
+
+function mkDefs(){return`<defs>
+  <marker id="a"  viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.muted}"/></marker>
+  <marker id="ag" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.green}"/></marker>
+  <marker id="ab" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.blue}"/></marker>
+  <marker id="aa" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.amber}"/></marker>
+  <marker id="ar" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.red}"/></marker>
+  <marker id="ap" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.purple}"/></marker>
+  <marker id="ai" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.ice}"/></marker>
+  <marker id="ay" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.yellow}"/></marker>
+  <marker id="ao" viewBox="0 0 8 5" refX="8" refY="2.5" markerWidth="5" markerHeight="3.5" orient="auto"><polygon points="0 0,8 2.5,0 5" fill="${C.orange}"/></marker>
+  <linearGradient id="gbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${C.bg2}"/><stop offset="100%" stop-color="${C.bg1}"/></linearGradient>
+  </defs>`;}
+
+let _n=0;
+function N(id,lb,dt,x,y,w,h,fi,st){
+  fi=fi||C.bg3; st=st||C.muted;
+  _n++;
+  const e=(dt||'').replace(/"/g,'&quot;').replace(/'/g,"&#39;").replace(/\n/g,'|');
+  return`<g id="n${_n}" data-lb="${lb.replace(/"/g,'&quot;')}" data-dt="${e}"
+    onmouseenter="showTip(evt,'${lb.replace(/'/g,"\\'")}','${dt||lb}')" onmouseleave="hideTip()">
+    <rect x="${x-w/2}" y="${y}" width="${w}" height="${h}" rx="3" ry="3" fill="${fi}" stroke="${st}" stroke-width="1.4"/>
+    <text x="${x}" y="${y+h/2-4}" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="11" font-family="${F}">${lb}</text>
+    <text x="${x}" y="${y+h/2+11}" text-anchor="middle" dominant-baseline="middle" fill="${C.muted}" font-size="7.5" font-family="${F}">${e}</text>
+  </g>`;
+}
+function sec(x,y,w,t,c,op){
+  op=op||'.12';
+  return`<g><rect x="${x}" y="${y}" width="${w}" height="20" rx="10" fill="${c}" opacity="${op}"/>
+  <text x="${x+12}" y="${y+15}" font-size="10" font-weight="700" fill="${c}" font-family="${F}">${t}</text></g>`;
+}
+function eL(x1,y1,x2,y2,col,ar,lbl,lx){
+  const a=ar||'a';
+  const L=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="1.4" opacity=".42" marker-end="url(#${a})"/>`;
+  if(!lbl)return L;
+  const mx=(x1+x2)/2,my=(y1+y2)/2;
+  return L+`<text x="${mx+lx}" y="${my-4}" text-anchor="middle" font-size="7" fill="${C.dim}" font-family="${F}">${lbl}</text>`;
+}
+function eC(x1,y1,x2,y2,off,col,ar,lbl,op){
+  op=op||'.38';
+  const mx=(x1+x2)/2+off*.5,my=(y1+y2)/2+off*.3;
+  const d=`M${x1},${y1} C${x1+(x2-x1)*.5},${y1-off*.25} ${mx},${my} ${x2},${y2}`;
+  let r=`<path d="${d}" fill="none" stroke="${col}" stroke-width="1.3" opacity="${op}" marker-end="url(#${ar||''})"/>`;
+  if(lbl)r+=`<text x="${mx}" y="${my-6}" text-anchor="middle" font-size="7" fill="${C.dim}" font-family="${F}">${lbl}</text>`;
+  return r;
+}
+function loopLabel(x,y,lb,col,lbl){
+  return`<text x="${x}" y="${y}" text-anchor="middle" font-size="16" font-weight="800" fill="${col}" opacity=".12" font-family="${F}">${lb}</text>`;
+}
+function actBox(x,y,w,h,col){
+  return`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="url(#gbg)" stroke="${col}" stroke-width="1.3" stroke-dasharray="4,2" opacity=".55"/>`;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 1 — SERVER STARTUP
+   async: index.ts start() → DB init + BullMQ schedulers (parallel, non-blocking)
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderServer(){
+  let W=1400,H=900;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>
+<defs><pattern id="pg" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0v36" fill="none" stroke="#0f1920" stroke-width=".6"/></pattern></defs>
+<rect width="${W}" height="${H}" fill="url(#pg)"/>`;
+
+  let n=0;
+  const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y,w,h,fi,st)};
+
+  s+=sec(16,18,580,'SERVER STARTUP  — agent/src/index.ts:797-921',C.blue);
+
+  /* col 1: Express + Routes */
+  const c1=200, ry1=70;
+  s+=`<text x="${c1}" y="52" text-anchor="middle" font-size="9" fill="${C.dim}" font-family="${F}">EXPRESS SETUP</text>`;
+  s+=_N('s1','new SalesAgent()','constructor: setupMiddleware() + setupRoutes()',c1,ry1,220,40,C.bg2,C.blue);
+  s+=eL(c1,ry1+40,c1,ry1+72,'',C.blue,'ag');
+  s+=_N('s2','setupMiddleware()','helmet / cors / correlationMiddleware / body-parsers',c1,ry1+72,220,40,C.bg3,C.muted);
+  s+=eL(c1,ry1+112,c1,ry1+132,'',C.muted);
+  s+=_N('s3','setupRoutes()','register all /api/* route maps (see table below)',c1,ry1+144,220,52,C.bg3,C.blue);
+
+  const routes=[
+    ['GET  ','/api/health',             'getHealthStatus() → 200/503'],
+    ['GET  ','/api/status',             'features + rateLimits + uptime'],
+    ['POST ','/api/agent/email/test',   'emailService.send() dry-run or live'],
+    ['POST ','/api/agent/email/send',   'raw send to external to/subject'],
+    ['PUT  ','/api/agent/dry-run',      'agentConfig.dryRun toggle'],
+    ['GET  ','/api/agent/logs',         'in-memory log buffer (200 entries)'],
+    ['GET  ','/api/logs',               'simplified log shape for frontend'],
+    ['GET  ','/api/products',           'paginated scraped_products catalogue'],
+    ['GET  ','/api/products/:id',       'single product detail'],
+    ['GET  ','/api/products/stats',     'aggregate stats (count, trending, trending…)'],
+    ['POST ','/api/products/scrape',    'sourceProductData() — synchronous scrape'],
+    ['GET  ','/api/products/scrape/status','last scrape run status'],
+    ['POST ','/api/contacts',           'upsert by contact_email'],
+    ['GET  ','/api/contacts/:id',       'single contact by uuid'],
+    ['POST ','/api/outreach/send',      '202 Accepted → orchestrator.sendQuickPersonalized() bg'],
+    ['POST ','/api/outreach/logs',      'SELECT FROM email_logs ORDER BY sent_at DESC'],
+    ['POST ','/api/agent/funding/digest','GET → orchestrator.getFundingPipelineSummary()'],
+    ['POST ','/api/generate-content',   'marketingAgent.run() for single productId'],
+    ['WS   ','/* (startWSServer)',      'live-ops push — same HTTP listener'],
+  ];
+  routes.forEach((r,i)=>{
+    const rY=ry1+196+i*30;
+    s+=_N('rt'+i,`${r[0]} ${r[1]}`,r[2],c1,rY,220,28,i<8?C.bg2:i<12?C.bg3:C.bg4,i<8?C.blue:i<12?C.muted:C.dim,false);
+  });
+
+  /* col 2: createServer + listen */
+  const c2=600, ry2=76;
+  s+=`<text x="${c2}" y="52" text-anchor="middle" font-size="9" fill="${C.dim}" font-family="${F}">SERVER BIND</text>`;
+  s+=_N('sv1','createServer(this.app)`,`Express + WS share one port 3002`,c2,ry2,220,40,C.bg2,C.green);
+  s+=eL(c2,ry2+40,c2,ry2+72,'',C.green,'ag');
+  s+=_N('sv2','httpServer.listen(3002)',`callback: server ready\nattaches WebSocket server`,c2,ry2+72,220,50,C.bg3,C.green);
+  // arrow down to background tasks
+  s+=`<path d="M${c2},${ry2+122} L${c2},${ry2+150}" fill="none" stroke="${C.green}" stroke-width="1.2" opacity=".35" stroke-dasharray="3,3"/>`;
+
+  /* col 3: non-blocking background tasks (in try/catch — never crash) */
+  const c3=950, ry3=140;
+  s+=`<text x="${c3}" y="52" text-anchor="middle" font-size="9" fill="${C.dim}" font-family="${F}">BACKGROUND (try/catch)</text>`;
+  const bgNodes=[
+    ['bg1','initializeDatabase()','initializeDatabase() + db.healthCheck()\nport 5433 · non-fatal if down',C.purple],
+    ['bg2','initializeDailyOutreachJob()','BullMQ + cron — daily at 09:00 EAT\n→ outreachWorkflow.executeDailyBatch()',C.amber],
+    ['bg3','initializeFollowUpCheckJob()','every 60 min: processScheduledFollowUps()\nevery 30 min: processMeetingReminders()',C.teal],
+    ['bg4','initializeMetricsSyncJob()','BullMQ + cron — daily at 00:00 EAT\n→ triggerManualMetricsSync()',C.pink],
+    ['bg5','startAgentWorker()','agent-run-queue BullMQ worker\ndequenes AI job items',S.yellow],
+  ];
+  bgNodes.forEach((b,i)=>{
+    const bY=ry3+i*58;
+    s+=_N(b[0],b[1],b[2],c3,bY,240,48,C.bg3,b[3]);
+    // all connect to server.listen above
+    s+=eC(c3,bY+24,c2+40,ry2+124,22,C.green,'ag',i===0?'seq':'','');
+  });
+  s+=eL(c2,ry2+122,c3-120,ry3+24,false,'','non-blocking','',8);
+
+  /* col 4: post-bind flow */
+  const c4=1340, ry4=76;
+  s+=`<text x="${c4}" y="52" text-anchor="middle" font-size="9" fill="${C.dim}" font-family="${F}">POST-START</text>`;
+  s+=_N('ps1','process.on(SIGTERM/SIGINT)','shutdown(): db.close() → process.exit(0) — graceful',c4,ry4,200,40,C.bg3,S.purple);
+  s+=eL(c4,ry4+40,c4,ry4+72,'',S.purple,'ap');
+  s+=_N('ps2','GET /api/health — always on','even if DB not connected yet\neven if BullMQ not loaded',c4,ry4+72,200,40,C.bg2,C.ice);
+
+  /* arrow: c2 → c4 */
+  s+=eL(c2+110,ry2+24,c4-110,ry4+20,false,'',C.green,'health keepalive',6);
+
+  /* connector: all bgNodes → vertical → ps2 */
+  for(let i=0;i<bgNodes.length;i++){
+    s+=eL(c3+120,ry3+i*58+24,c4-110,ry4+90,'',C.purple,'ap','',8);
+  }
+  // vertical line ps1→ps2
+  s+=eL(c4,ry4+40,c4,ry4+72,'',S.purple);
+
+  /* sidebar: DB + env connections */
+  const sx=W-240,sy=80;
+  s+=sec(sx,sy-20,220,'SOCKET CONNECTIONS',C.ice);
+  s+=_N('sc1','pg Pool','port 5433 · db=sokogate · user=sokogate',sx+60,sy+24,200,36,C.bg2,S.muted,false);
+  s+=_N('sc2','Redis/Memurai','port 6379 · BullMQ job queues',sx+60,sy+68,200,36,C.bg3,C.amber,false);
+  s+=_N('sc3','NVIDIA API','port ${PROXY_PORT} · ChatOpenAI via langchainService',sx+60,sy+112,200,36,C.bg2,C.red,false);
+  s+=_N('sc4','Nodemailer SMTP','SMTP_HOST/PORT/USER/PASS from .env · fallback stub',sx+60,sy+156,200,36,C.bg3,C.ice,false);
+
+  // vertical connect between sideline + c4
+  s+=_N('sigline','','',sx-40,ry4+200,1,800,C.bg3,S.dim,false);
+
+  s+='</svg>';
+  return [s,W,H];
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 2 — CONTACT LIFECYCLE
+   full async pipeline: intake → daily batch → rich send → log → schedule followup → meeting loop
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderLifecycle(){
+  let W=3600,H=1580;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>
+<defs><pattern id="g2" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0v36" fill="none" stroke="#0f1a24" stroke-width=".5"/></pattern></defs>
+<rect width="${W}" height="${H}" fill="url(#g2)"/>`;
+
+  _n=0; const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y||52,w||210,h||38,fi||C.bg3,st||C.muted)};
+  const G=52; // gap
+
+  s+=sec(16,18,W-32,'ASYNC CONTACT LIFECYCLE — Full End-to-End Pipeline (DB → NVIDIA → email → schedule)',C.green);
+  s+=`<text x="${W/2}" y="42" text-anchor="middle" font-size="11" font-weight="700" fill="${C.green}" font-family="${F}">Every async step is non-blocking; a failed DB query or LLM call never crashes the loop</text>`;
+
+  /* ── LANE 1: CONTACT INTAKE ── */
+  const lx1=130,lw1=244;
+  s+=sec(lx1-10,70,lw1,'1 — CONTACT INTAKE',C.blue);
+  s+=_N('ct1','POST /api/contacts','name, email, phone, company, type, tier',lx1+60,118,200,38,C.bg2,C.blue);
+  s+=eL(lx1+60,156,lx1+60,194,'',C.blue,'ab','UPSERT');
+  s+=_N('ct2','INSERT INTO contacts\n(ON CONFLICT (email) DO UPDATE)','status=Not Started\ntier → T1/T2/T3\nemails_sent=0',lx1+60,206,200,50,C.bg3,C.purple);
+  s+=eL(lx1+60,256,lx1+60,294,'',C.purple,'ap');
+  s+=_N('ct3','INSERT INTO conversations\n(contact_id,stage=not_started)','stage = not_started → "never touched"',lx1+60,306,200,44,C.bg3,S.purple);
+  s+=_N('ct4','scheduled_actions — INSERT\n(action_type=follow_up, 3 days)','created by processInitialOutreach for 1st follow-up',lx1+60,362,200,44,C.bg3,C.teal);
+
+  /* ── LANE 2: DAILY OUTREACH BATCH ── */
+  const lx2=450,lw2=260;
+  s+=sec(lx2-10,70,lw2,'2 — DAILY OUTREACH BATCH',C.amber);
+  s+=_N('ob1','BullMQ Repeating Job\ndaily 09:00 EAT','daily-outreach.job.ts\nrunAgent('dailyOutreach')',lx2+80,116,200,50,C.bg3,C.yellow);
+  s+=_N('ob2','outreachWorkflow\nexecuteDailyBatch()','/outreach.workflow.ts:16-69\nreturns {processed,successful,failed}',lx2+80,174,200,44,C.bg3,C.amber);
+  s+=eL(lx2+80,216,lx2+80,256,'',C.amber);
+  s+=_N('ob3','getContactsForOutreach()',`SELECT c.* FROM contacts
+LEFT JOIN conversations ON c.id=conv.contact_id
+WHERE status IN(Not Started,Contacted)
+AND do_not_contact=false
+AND emails_sent < 50
+AND conv.id IS NULL
+ORDER BY engagement_score DESC
+LIMIT $1`,lx2+100,268,220,96,C.bg2,S.purple,false);
+  s+=eL(lx2+80,364,lx2+80,420,'',C.amber);
+  s+=_N('ob4','loop: for contact ∈ contacts','await 2s between sends\norchestrator.processInitialOutreach(contact)',lx2+80,432,200,50,C.bg3,C.amber);
+  s+=eL(lx2+80,482,lx2+80,524,'',C.green);
+  s+=_N('ob5','markContactAsContacted()','UPDATE contacts SET\nemails_sent=emails_sent+1,\nlast_contacted_at=NOW()',lx2+80,536,200,50,C.bg3,S.purple);
+  s+=_N('ob6','logOutreachFailure()','INSERT agent_metrics(type=outreach_failure)\nif processInitialOutreach returned false',lx2+80,594,200,50,C.bg2,C.red);
+
+  /* ── LANE 3: ORCHESTRATOR → enrich + LLM send ── */
+  const lx3=790,lw3=300;
+  s+=sec(lx3-10,70,lw3,'3 — ORCHESTRATOR RICH EMAIL SEND',C.orange);
+  s+=_N('en1','enrichContact(contact)','orchestrator.ts:53-152\nalways fire-and-forget background\ndoes not await initial outreach',lx3+100,118,220,50,C.bg2,C.orange);
+  s+=eL(lx3+100,168,lx3+100,212,'',C.orange,'aa','');
+  s+=_N('en2','ChatOpenAI.invoke()','langchainService.getLLM(0.3,600)\nwithRetry() 3× — system: "… NEVER SSR"',lx3+100,224,220,50,C.bg2,C.red);
+  s+=eL(lx3+100,274,lx3+100,316,'',C.orange);
+  s+=_N('en3','UPDATE market_leads\nSET enriched_data = $1',`{role, industry, pain_points[],\nengagement_hook, confidence}\nnon-fatal catch{} `,lx3+100,328,220,56,C.bg3,S.purple);
+  s+=_N('en4','SELECT id,name,price,category\nFROM scraped_products\nWHERE category ILIKE $1\nORDER BY last_scraped_at DESC\nLIMIT 5','context product list for LLM',lx3+100,396,220,72,C.bg2,S.purple,false);
+  s+=eL(lx3+100,436,lx3+100,478,'');
+  s+=_N('en5','buildMessageContext(contact,research)',`perspectiveType + engagement_hook + pain_points → context record.contactName`,lx3+100,490,220,50,C.bg3,S.purple,false);
+  s+=eL(lx3+100,540,lx3+100,578,'',C.green);
+  s+=_N('en6','personalizationService.\ngenerateMessage(contact,ctx)',`ChatPromptTemplate.pipe(ChatOpenAI)\n→ {subject,body}`,lx3+100,590,220,50,C.bg3,C.green);
+  s+=eL(lx3+100,640,lx3+100,680,'',C.ice);
+  s+=_N('en7','emailService.send()',`to=contact.email\nhtml=body | subject=subject|ai\nRETURNS {success, message_id}`,lx3+100,692,220,50,C.bg3,C.ice);
+  s+=eL(lx3+100,742,lx3+100,782,'');
+  s+=_N('en8','INSERT INTO message_history',`contact_id, direction=outbound\nchannel=email, content=body,\nsent_at=NOW()`,lx3+100,794,220,50,C.bg3,S.purple);
+  s+=_N('en9','UPDATE conversations\nSET stage=contacted,\nlast_message_at=NOW(),message_count+1','',lx3+100,852,220,50,C.bg3,S.purple);
+
+  /* ── LANE 4: SCHEDULE FOLLOW-UP ── */
+  const lx4=1172,lw4=244;
+  s+=sec(lx4-10,70,lw4,'4 — SCHEDULE + PERSIST',C.teal);
+  const intMap=[[32,'+3 days','initial_sent'],[-5,'+5 days','follow_up'],[-7,'+7 days','engaged'],[-7,'+7 days','objection']];
+  for(let i=0;i<intMap.length;i++){
+    const ltx=lx4+60, lty=128+50*i;
+    s+=_N('fu'+i,`scheduleFollowUp(${intMap[i][0]}d)//a\nconversation=${intMap[i][2]}`,i===0?`3-day gentle reminder via\nINSERT INTO scheduled_actions...`:`For stage="${intMap[i][2]}" → insert 2nd, 3rd, 4...`,ltx,lty,200,36+(i>2?12:0),i===3?C.bg2:C.bg3,C.teal);
+    if(i>0)s+=eL(ltx,128+24+50*(i-1)-12,ltx,lty,false,'',C.teal);
+  }
+  s+=_N('fu4','scheduleAction()','+1d retry on failure\n(max_retries=3, retry_count=0)',lx4+60,332,200,36,C.bg3,C.yellow,false);
+  s+=_N('fu5','cancelScheduledActions()','MARK all pending scheduled_actions\nfor this contact as cancelled',lx4+60,388,200,36,C.bg3,S.red);
+  s+=eL(lx4+60,390,lx4+60,432,'',S.red);
+
+  /* ── LANE 5: FOLLOW-UP EXECUTION (async job) ── */
+  const lx5=1492,lw5=260;
+  s+=sec(lx5-10,70,lw5,'5 — FOLLOW-UP EXECUTION',C.ice);
+  s+=_N('fj1','BullMQ every 60 min\n(initializeFollowUpCheckJob)','followup-check.job.ts\ncalls followUpWorkflow.processScheduledFollowUps()',lx5+80,126,200,56,C.bg3,C.yellow);
+  s+=eL(lx5+80,182,lx5+80,222,'',C.yellow,'ay');
+  s+=_N('fj2','getDueFollowUps()','SELECT sa.*,c.*,conv.current_stage\nFROM scheduled_actions sa\nJOIN contacts c ON sa.contact_id=c.id\nWHERE action_type=follow_up AND status=pending\nAND scheduled_for<=NOW()\nORDER BY scheduled_for ASC LIMIT 100',lx5+100,234,200,102,C.bg2,S.purple,false);
+  s+=eL(lx5+80,336,lx5+80,378,'',C.teal);
+  s+=_N('fj3','buildMessageContext(contact,messages)',`map contact record → MessageContext\n(all tier/type-specific fields, previous_messages[])`,lx5+100,390,200,72,C.bg3,S.purple);
+  s+=eL(lx5+80,464,lx5+80,502,'',C.green);
+  s+=_N('fj4','generateMessage(contact,context)','ChatPromptTemplate.pipe(getLLM())\n→ {subject,body}',lx5+100,514,200,50,C.bg3,C.green);
+  s+=eL(lx5+80,564,lx5+80,606,'',C.ice);
+  s+=_N('fj5','emailService.send()|preferred_channel','to=contact.email\nsubject=generated.subject',lx5+100,618,200,50,C.bg3,C.ice);
+  s+=_N('fj6','UPDATE conversations\nSET last_message_at, message_count+1',`after sent`,lx5+100,676,200,38,C.bg3,S.purple);
+  s+=eL(lx5+80,666,lx5+80,714,'',C.purple,'ap');
+  s+=_N('fj7','scheduleNextFollowUp(contact_id,stage)','INSERT INTO scheduled_actions\n+interval_days (3/5/7 days)',lx5+100,726,200,44,C.bg3,C.teal);
+  s+=_N('fj8','markActionCompleted(failed)','UPDATE scheduled_actions\nSET status=completed,failed',lx5+100,784,200,44,C.bg3,S.red);
+
+  /* LANE 6: MEETING WORKFLOW */
+  const lx6=1822,lw6=244;
+  s+=sec(lx6-10,70,lw6,'6 — MEETING WORKFLOW',C.purple);
+  s+=_N('mt0','suggestMeeting(contactId)','getContact() → generateMeetingInvitation()\n→ emailService.send() → stage=meeting_suggested',lx6+60,126,200,72,C.bg2,C.purple);
+  s+=_N('mt1','generateMeetingInvitation(contact)','Calendly link = CALENDLY_SCHEDULING_URL\nor https://calendly.com/sokogate',lx6+60,208,200,50,C.bg3,C.amber);
+  s+=eL(lx6+60,206,lx6+60,272,'',C.amber);
+  s+=_N('mt2','scheduleFollowUpReminder(+2d)','INSERT INTO scheduled_actions\n(meeting_followup, +2 days)',lx6+60,284,200,44,C.bg3,C.teal);
+  s+=_N('mt3','confirmMeeting(contactId,details)','generateMeetingConfirmation(details)\n→ UPDATE stage=meeting_scheduled',lx6+60,340,200,50,C.bg2,S.purple);
+  s+=_N('mt4','scheduleMeetingReminders()','INSERT meeting_reminder_24h\nINSERT meeting_reminder_1h',lx6+60,402,200,50,C.bg2,C.yellow);
+  s+=_N('mt5','sendMeetingReminder(contactId)','every 30 min (followup-check.job.ts)\n→ generateMeetingReminder() → emailService.send()',lx6+60,464,200,62,C.bg3,C.ice);
+  s+=_N('mt6','processMeetingReminders()','getDueReminders()\nmeeting_reminder_24h OR meeting_reminder_1h\nstatus=pending scheduled_for<=NOW()',lx6+60,538,200,74,C.bg3,S.purple,false);
+
+  /* NOTIFICATION HUB callout */
+  s+=_N('nhcall','NotificationHub — pub/sub bus','notification-hub.ts: entire event-driven pub/sub event bus. fired at end of every sub-agent run',W-180,160,340,60,C.bg3,C.ice);
+
+  /* HORIZONTAL CONNECTORS  (6 key lifecycle events) */
+  [[174,452,lx1+120],[318,452,lx2+80],[566,452,lx3+100],[742,452,lx4+60],[848,452,lx5+80],[936,452,lx6+60]].forEach(([y,tx]=>{})=>{
+    // hand-drawn simplified
+  });
+
+  s+='</svg>';
+  return[s,W,H];
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 7 — ASYNC JOBS  (BullMQ queues, cron schedules, all schedulers)
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderAsync(){
+  let W=3200,H=2000;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>`;
+  _n=0; const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y,w,h,fi,st)};
+
+  s+=sec(16,18,900,'ASYNC JOB ARCHITECTURE — BullMQ Queues + Cron Schedules',C.yellow);
+  s+=`<text x="${W/2}" y="40" text-anchor="middle" font-size="10.5" font-weight="700" fill="${C.yellow}" font-family="${F}">
+  All 5 scheduled jobs run asynchronously in background — server start() never awaits them — try/catch protects each</text>`;
+
+  /* ── QUEUE DEFINITIONS ── */
+  const qx=300;
+  s+=sec(qx-10,56,560,'BULLMQ QUEUES (Memurai Redis :6379)',C.yellow);
+  const queues=[
+    ['q1','outreach-queue','BullMQ Queue','delegates outreach-batch bronze SQ: best-effort non-critical batch',C.amber],
+    ['q2','followup-queue','BullMQ Queue','delegates followup-check — every 60 min',C.ice],
+    ['q3','metrics-queue','BullMQ Queue','delegates metrics-sync — daily at midnight',C.pink],
+    ['q4','agent-run-queue','BullMQ Queue','startAgentWorker() — dequeues AI job items',C.orange],
+  ];
+  queues.forEach((q,i)=>{
+    const qY=90+i*42;
+    s+=_N(q[0],q[1],q[2],qx+80,qY,380,34,C.bg3,q[3]);
+  });
+
+  /* ── JOB DEFINITIONS ── */
+  const jx=950;
+  s+=sec(jx-10,56,560,'SCHEDULED JOBS (Cron / Interval)',C.amber);
+  const jobs=[
+    ['j1','daily-outreach.job.ts',
+`initializeDailyOutreachJob()
+Bulgarian(init) runs ONCE at startup time in worker:start
+schedules repeating BullMQ job at 09:00 EAT daily
+→ outreachWorkflow.executeDailyBatch()
+→ processes contacts ready for outreach (status=Not Started/Contacted)
+→ orchestrator.processInitialOutreach(contact) per contact
+→ run stats: {processed,successful,failed}`,'09:00 EAT daily',S.amber],
+    ['j2','followup-check.job.ts',
+`initializeFollowUpCheckJob()
+schedules TWO repeating jobs:
+  Job A: every 60 min → followUpWorkflow.processScheduledFollowUps()
+  Job B: every 30 min → meetingWorkflow.processMeetingReminders()
+runAll: {processed,successful,failed} per sub-routine`, 'A: 60 min | B: 30 min',C.ice],
+    ['j3','metrics-sync.job.ts',
+`initializeMetricsSyncJob()
+schedules repeating BullMQ job at 00:00 EAT daily
+→ triggerManualMetricsSync()
+→ aggregates all agent_metrics for dashboard charts`, '00:00 EAT daily',C.pink],
+  ];
+  jobs.forEach((j,i)=>{
+    const jY=90+i*70;
+    const lns=j[2].split('\n');
+    s+=_N(j[0],j[1],j[2],jx+80,jY,480,lns.length*12+22,C.bg3,j[3]);
+  });
+
+  /* ── EXECUTION ORDER ── */
+  s+=sec(qx-10,328,560,'EXECUTION ORDER (all in parallel, non-blocking)',S.green);
+  s+=`<g>
+  <rect x="${qx}" y="${350}" width="520" height="50" rx="5" fill="${C.bg3}" stroke="${C.green}" stroke-width="1.5" opacity=".9"/>
+  <text x="${qx+260}" y="${367}" text-anchor="middle" font-size="9" fill="${C.green}" font-family="${F}">1. Express HTTP / WS server bind (port 3002)</text>
+  <text x="${qx+260}" y="${381}" text-anchor="middle" font-size="8" fill="${C.muted}" font-family="${F}">listens immediately — health endpoint always available</text>
+  </g>`;
+  s+=`<line x1="${qx+260}" y1="${350+50+4}" x2="${qx+260}" y2="${410}" stroke="${C.green}" stroke-width="1.4" opacity=".5"/>`;
+  s+=`<g>
+  <rect x="${qx}" y="${414}" width="520" height="56" rx="5" fill="${C.bg3}" stroke="${C.purple}" stroke-width="1.5" opacity=".9"/>
+  <text x="${qx+260}" y="${430}" text-anchor="middle" font-size="9" fill="${C.purple}" font-family="${F}">2. DB connection initialized in background (non-blocking)</text>
+  <text x="${qx+260}" y="${442}" text-anchor="middle" font-size="8" fill="${C.muted}" font-family="${F}">initializeDatabase() + healthCheck() — if DB down, server stays up, returns 503 on DB endpoints</text>
+  </g>`;
+  s+=`<line x1="${qx+260}" y1="${440}" x2="${qx+260}" y2="${492}" stroke="${C.purple}" stroke-width="1.4" opacity=".5"/>`;
+  s+=`<g>
+  <rect x="${qx}" y="${496}" width="520" height="74" rx="5" fill="${C.bg3}" stroke="${C.yellow}" stroke-width="1.5" opacity=".9"/>
+  <text x="${qx+260}" y="${512}" text-anchor="middle" font-size="9" fill="${C.yellow}" font-family="${F}">3. BullMQ schedulers initialized (try/catch — never crash)</text>
+  <text x="${qx+260}" y="${525}" text-anchor="middle" font-size="8" fill="${C.muted}" font-family="${F}">initializeDailyOutreachJob()    |  initializeFollowUpCheckJob()</text>
+  <text x="${qx+260}" y="${537}" text-anchor="middle" font-size="8" fill="${C.muted}" font-family="${F}">initializeMetricsSyncJob()      |  startAgentWorker()</text>
+  </g>`;
+  s+=`<line x1="${qx+260}" y1="${488}" x2="${qx+260}" y2="${496}" stroke="${C.yellow}" stroke-width="1.4" opacity=".5"/>`;
+
+  s+=`<g>
+  <rect x="${qx}" y="${582}" width="520" height="42" rx="5" fill="${C.bg2}" stroke="${C.green}" stroke-width="2" opacity=".9"/>
+  <text x="${qx+260}" y="${601}" text-anchor="middle" font-size="10" font-weight="700" fill="${C.green}" font-family="${F}">4. Server READY — all schedulers running in background</text>
+  </g>`;
+
+  /* ── HORIZONTAL FLOW  ── */
+  [350,400,450,500].forEach((y0,i)=>{
+    s+=eL(qx,y0+34,jx+60,y0+34,false,'','',C.amber,8);
+  });
+
+ /* ── JOB 1 expanded ── */
+  const ejx=1600;
+  s+=sec(ejx-10,56,560,'DAILY OUTREACH JOB — Expanded',S.amber);
+  s+=_N('ej0','BullMQ repeating job create\nat 09:00 EAT daily','daily-outreach.job.ts',ejx+80,90,340,44,C.bg3,S.yellow);
+  s+=eL(ejx+80,134,ejx+80,176,'',S.yellow,'ay');
+  s+=_N('ej1','outreachWorkflow.',`executeDailyBatch()\n/outreach.workflow.ts`,ejx+80,188,340,38,C.bg3,S.amber);
+  s+=eL(ejx+80,226,ejx+80,266,'','',S.amber);
+  s+=_N('ej2','SELECT from contacts\nstatus IN (Not Started,Contacted)\nAND conv.id IS NULL\nAND do_not_contact=false\nLIMIT agent.perDay=50',S.purple);
+  s+=eL(ejx+80,312,ejx+80,354,'','',S.amber);
+  s+=_N('ej3','orchestrator.processInitialOutreach(contact)','async per contact — 2s delay between sends',S.orange);
+  s+=eL(ejx+80,394,ejx+80,436,'','',S.amber);
+  s+=_N('ej4','markContactAsContacted(contactId)','UPDATE contacts SET emails_sent++\nlast_contacted_at=NOW(), updated_at',S.purple);
+  s+=eL(ejx+80,476,ejx+80,518,'','',S.amber);
+  s+=_N('ej5','_notifyCompletion → NotificationHub','runCompleted {processed,successful,failed}',S.ice);
+
+  /* ── JOB 2 expanded ── */
+  const fjx=2220;
+  s+=sec(fjx-10,56,560,'FOLLOW-UP + MEETING JOBS — Expanded',C.ice);
+  s+=_N('fj0','BullMQ A: every 60 min\nBullMQ B: every 30 min','followup-check.job.ts',fjx+80,90,280,44,C.bg3,C.yellow);
+  s+=eL(fjx+80,134,fjx+80,178,false,S.yellow,'ay');
+  s+=_N('fj1','followUWorkflow.processScheduledFollowUps()',`select sa.*,c.* FROM scheduled_actions\njoin contacts, convs ON contact_id=sa.contact_id\nWHERE action_type=follow_up AND status=pending\nAND scheduled_for<=NOW()\nLIMIT 100`,C.ice);
+  s+=eL(fjx+80,262,fjx+80,300,S.teal,'');
+  s+=_N('fj2','buildMessageContext(contact,messages)','ALL contact fields + previous_messages array\nused for personalizationService.generateMessage()',C.purple);
+
+  const fjx2=fjx+340;
+  s+=_N('fj3','meetingWorkflow.processMeetingReminders()','every 30 min\nfollowup-check.job.ts line 33',fjx2,90,280,38,C.bg3,S.purple);
+  s+=eL(fjx+80,148,fjx2,108,'',S.purple,'ay');
+  s+=_N('fj4','getDueReminders()','FROM scheduled_actions\nmeeting_reminder_24h OR meeting_reminder_1h\nstatus=pending AND scheduled_for<=NOW()\nLIMIT 50',fjx2,148,330,64,C.bg3,S.muted,false);
+
+  s+=eL(fjx+240,340,fjx2+60,310,S.teal,'','','');
+
+  /* ── Timeline of a day ── */
+  const tx=300,ty=900;
+  s+=sec(tx,ty-20,1800,'24-HOUR CYCLE — what fires when',C.teal);
+
+  s+=_N('t0','00:00 EAT — metricsSync job','metrics-sync.job.ts\n triggerManualMetricsSync() aggregates agent_metrics\nto generate dashboard charts — DB writes in aggregate',tx+400,ty+36,280,50,C.bg2,S.pink);
+  s+=eL(tx+200,ty+72,tx+400,ty+62,'',S.pink,'ay',0,4);
+
+  s+=_N('t1','09:00 EAT — dailyOutreach job','daily-outreach.job.ts\noutreachWorkflow.executeDailyBatch()\n→ processInitialOutreach() per contact\nemails till daily-limit=50 reached',tx+400,ty+112,320,50,C.bg2,S.amber);
+  s+=eL(tx+400,ty+112,tx+400,ty+160,'',S.amber,'ay');
+  s+=eL(tx+400,ty+160-10,tx+400,ty+200,'',S.amber,'','');
+
+  s+=_N('t2','every 30 min — meetingReminder job','followup-check.job.ts\ngetDueReminders() → generateMeetingReminder()\n→ emailService.send() → markReminderSent()',tx+720,ty+112,280,50,C.bg3,S.purple);
+  s+=_N('t3','every 60 min — followUpCheck job',`followup-check.job.ts
+getDueFollowUps() → executeFollowUp(action)
+→ generateMessage() → email → log → scheduleNextFollowUp()`,tx+720,ty+176,320,70,C.bg3,C.ice);
+
+  /* timeline axis */
+  s+=`<line x1="${tx+200}" y1="${ty+56}" x2="${tx+1800}" y2="${ty+56}" stroke="${C.dim}" stroke-width="1.3" stroke-dasharray="6,3" opacity=".5"/>`;
+  [''].forEach((h,i)=>{});
+
+  /* ── Graceful shutdown ── */
+  const shX=W-340, shY=ty+120;
+  s+=sec(shX-16,shY-18,300,'GRACEFUL SHUTDOWN',S.red);
+  s+=_N('sh0','process.on(SIGTERM | SIGINT)','index.ts:862-863\n this.shutdown()',shX,shY,220,38,C.bg2,C.red);
+  s+=eL(shX,shY+38,shX,shY+84,'',C.red);
+  s+=_N('sh1','db.close()','close all pg connections gracefully',shX,shY+96,220,38,C.bg2,S.purple);
+  s+=eL(shX,shY+134,shX,shY+176,'',C.purple);
+  s+=_N('sh2','process.exit(0)','clean exit — no force kill',shX,shY+188,220,38,C.bg2,S.green);
+
+  s+='</svg>';
+  return[s,W,H];
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB SWITCHER  +  PAN/ZOOM  +  TOOLTIP
+═══════════════════════════════════════════════════════════════════════════════ */
+var _Z=1,_Px=0,_Py=0,_drag=false,_lx=0,_ly=0;
+
+function sw(id,el){
+  document.querySelectorAll('.t').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.view').forEach(v=>v.remove());
+  el.classList.add('on');
+  const wrap=document.getElementById('wrap');
+  wrap.innerHTML='';
+  const fns={server:renderServer,lifecycle:renderLifecycle,master:renderMaster,
+             loops:renderLoops,orch:renderOrchestrator,reply:renderReply,async:renderAsync};
+  const fn=fns[id];
+  if(!fn)return;
+  const [svg,W,H]=fn();
+  const view=document.createElementNS(NS,'svg');
+  view.setAttribute('xmlns',NS);
+  view.setAttribute('width',W);
+  view.setAttribute('height',H);
+  view.setAttribute('viewBox','0 0 '+W+' '+H);
+  view.innerHTML=svg;
+  wrap.appendChild(view);
+  wrap.style.minWidth=W+'px';
+  wrap.style.minHeight=H+'px';
+  _Z=1;_Px=0;_Py=0;
+  applyT();
+}
+
+function applyT(){
+  const w=document.getElementById('wrap').querySelector('svg');
+  if(w) w.style.transform='translate('+_Px+'px,'+_Py+'px) scale('+_Z+')';
+}
+
+document.getElementById('zin').onclick=function(){
+  _Z=Math.min(2.5,_Z+0.12);
+  document.getElementById('zl').textContent=Math.round(_Z*100)+'%';applyT();
+};
+document.getElementById('zout').onclick=function(){
+  _Z=Math.max(0.35,_Z-0.12);
+  document.getElementById('zl').textContent=Math.round(_Z*100)+'%';applyT();
+};
+
+document.getElementById('wrap').addEventListener('mousedown',function(e){
+  _drag=true;_lx=e.clientX;_ly=e.clientY;document.body.style.cursor='grabbing';
+});
+document.addEventListener('mousemove',function(e){
+  if(!_drag)return;
+  _Px+=e.clientX-_lx;_Py+=e.clientY-_ly;_lx=e.clientX;_ly=e.clientY;
+  applyT();
+});
+document.addEventListener('mouseup',function(){_drag=false;document.body.style.cursor='';});
+
+document.getElementById('wrap').addEventListener('wheel',function(e){
+  e.preventDefault();
+  _Z=Math.max(0.35,Math.min(2.5,_Z+(e.deltaY<0?0.12:-0.12)));
+  document.getElementById('zl').textContent=Math.round(_Z*100)+'%';applyT();
+},{passive:false});
+
+function showTip(evt,lb,dt){
+  var t=document.getElementById('tip');
+  t.querySelector('.tt').textContent=lb;
+  var d=dt.replace(/'/g,"&#39;");
+  t.querySelector('.td').innerHTML=d.replace(/\n/g,'<br>');
+  t.style.display='block';
+  t.style.left=Math.min(evt.clientX+14,innerWidth-450)+'px';
+  t.style.top=Math.min(evt.clientY+14,innerHeight-200)+'px';
+}
+function hideTip(){ document.getElementById('tip').style.display='none';document.getElementById('tip').style.left='-9999px'; }
+
+sw('server',document.getElementById('t-server'));
+</script>
+</body>
+</html>
+
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 3 — MASTERSWITCH
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderMaster(){
+  let W=1400,H=1080;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>`;
+  _n=0;
+  const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y,w,h,fi,st)};
+
+  s+=sec(16,18,800,'MASTER SWITCH — master-switch.ts:72-384 — Gated Autonomous Dispatcher',C.purple);
+  s+=`<text x="${W/2}" y="42" text-anchor="middle" font-size="10" fill="${C.muted}" font-family="${F}">Singleton — runAgent(name) →     gate1: featureFlag check → gate2: cooldown check  →  run()  →  DB log in sub_agent_runs</text>`;
+
+  /* top: singleton + core run() */
+  const MAIN=700, MY=86;
+  s+=_N('ms0','MasterSwitchSingleton',`master-switch.ts:72-83\ngetInstance() — lazy init`,MAIN,MY,340,46,C.bg4,S.purple);
+  s+=eL(MAIN,132,MAIN,172,'',S.purple,'ap');
+  s+=_N('ms1','runAgent(name) / runAllEnabled()',`master-switch.ts:243-358
+gate1: Boolean(agentConfig.features[featureFlag])
+gate2: Date.now() - lastRunAt < cooldownMs → return secsRemaining
+run()   → update sub_agent_runs status + durationMs`,MAIN,184,340,70,C.bg3,S.purple);
+
+  /* gate label */
+  s+=`<g><rect x="${MAIN-230}" y="280" width="460" height="44" rx="4" fill="${C.bg2}" stroke="${C.amber}" stroke-width="1.5" stroke-dasharray="5,3" opacity=".8"/>
+  <text x="${MAIN}" y="297" text-anchor="middle" font-size="9" fill="${C.amber}" font-family="${F}">&#9888;  GATE 1 — Boolean(agentConfig.features[x])    GATE 2 — cooldownMs remaining</text>
+  <text x="${MAIN}" y="${315}" text-anchor="middle" font-size="8" fill="${C.muted}" font-family="${F}">Both gates pass → gate3: run() in try/catch → DB log result</text></g>`;
+
+  /* AGENT GRID */
+  const ax=MAIN-360, ay=376, agW=220, agG=52;
+  const agents=[
+    ['ag0','bulkSourcing',    'productSourcing',   '1h',      S.amber,'bulk-sourcing.agent.ts'],
+    ['ag1','salesMarketing',  'salesOutreach',     '10min',   S.orange,'marketing.agent.ts'],
+    ['ag2','contentCreation', 'contentAgent',      '1h',      S.teal,'content.agent.ts'],
+    ['ag3','fundingPitch',    'fundingOutreach',   '15min',   S.teal,'funding.agent.ts'],
+    ['ag4','dailyOutreach',   'investorOutreach',  '4h',      S.green,'orchestrator.runInvestorOutreach()'],
+    ['ag5','followupCheck',   'autoFollowup',      '1h',      S.ice,'followup.workflow.ts'],
+    ['ag6','metricsSync',     'agentsEnabled',     '1h',      S.pink,'metrics-sync.job.ts'],
+  ];
+  agents.forEach((ag,i)=>{
+    const ay2=ay+i*agG;
+    const blocked='<text x="'+(ax+agW+8)+'" y="'+(ay2+26)+'" text-anchor="start" font-size="9" fill="'+S.purple+'" font-family="'+F+'">→ ms.runAgent("'+ag[1].slice(0,6)+'")</text>';
+    s+=_N(ag[0],ag[1],`flag: ${ag[2]}  |  cooldown: ${ag[3]}\nlast agent: ${ag[0].slice(0,-1)}`,ax,ay2,agW,38,C.bg3,ag[4]);
+    if(i>0)s+=eL(ax+agW/2,ay+(i-1)*agG+38,ax+agW/2,ay2,false,'',agents[i][4]);
+  });
+
+  s+=eL(MAIN,MAIN-220,ax+agW/2,ay+agG,true,S.purple,'coalesce run()');
+  for(let i=0;i<3;i++){
+    s+=eL(ax+agW/2,ay+(i+0.5)*agG,ax+agW/2,ay+(i+2.5)*agG,false,S.purple,'');
+  }
+
+  /* run → ACTUALLY CALL files on the right */
+  s+=sec(ax+agW+20,ay-20,760,'run() CALLS — dynamic import of service file',C.green);
+  const runFns=[
+    ['rf0','bulkSourcingAgent.run(pages,enrich)','/services/bulk-sourcing.agent.ts → agent-loop.factory.runBulkSourcingLoop()'],
+    ['rf1','marketingAgent.run(productIds,channel)','/services/marketing.agent.ts → runSalesMarketingLoop()'],
+    ['rf2','contentAgent.run(type,kws,productIds)','/services/content.agent.ts → runContentCreationLoop()'],
+    ['rf3','fundingPitchAgent.run(profile,details)','/services/funding.agent.ts → runFundingPitchLoop()'],
+    ['rf4','orchestrator.runInvestorOutreach(15)','/agents/orchestrator.ts:808-836'],
+    ['rf5','followUpWorkflow.processScheduledFollowUps()','/workflows/followup.workflow.ts:17-67'],
+    ['rf6','triggerManualMetricsSync()','/jobs/metrics-sync.job.ts — manual trigger fn'],
+  ];
+  runFns.forEach((fn,i)=>{
+    const fnY=ay+i*agG;
+    s+=_N(fn[0],fn[1],fn[2],ax+agW+180,fnY,560,38,C.bg3,i<3?S.green:C.amber,false);
+    s+=eL(ax+agW,fnY+19,ax+agW+180,fnY+19,true,',',S.purple);
+  });
+
+  /* note: all run() results → DB + notify */
+  s+=`<g><rect x="${ax}" y="${ay+agents.length*agG+20}" width="${agW+960}" height="44" rx="4" fill="${C.bg3}" stroke="${C.ice}" stroke-width="1.5" opacity=".8"/>
+  <text x="${W/2}" y="${ay+agents.length*agG+36}" text-anchor="middle" font-size="9" fill="${C.ice}" font-family="${F}">
+    &#8627;  After each run(): INSERT INTO sub_agent_runs (status, finished_at, duration_ms, output/error summary)  &nbsp;→ &nbsp;notify() to notification-hub.ts
+  </text></g>`;
+
+  /* Gate 2: Esclation if "" */
+  for(let i=3; i<agents.length; i++){
+    s+=`<text x="${ax-18}" y="${ay+i*agG+26}" text-anchor="end" font-size="8.5" fill="${C.red}" font-family="${F}">ams &#10007;
+      if (cooldown active → return "Cooldown active — retry in ${remainingSec}s"`+`</text>`;
+  }
+
+  s+='</svg>';
+  return [s,W,H];
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 4 — AGENT LOOPS  (all 4 factory pipelines, side by side)
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderLoops(){
+  let W=3600,H=1640;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>`;
+  _n=0;
+  const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y,w,h,fi,st)};
+  const G=56;
+
+  s+=sec(16,18,1100,'AGENT LOOP FACTORY — agent-loop.factory.ts  —  All 4 loops return a single LoopResult',S.green);
+  s+=`<text x="${W/2}" y="40" text-anchor="middle" font-size="10.5" fill="${C.muted}" font-family="${F}">
+  each loop runs asynchronously — errors per-step are pushed to errors[] — loop completes &amp; fires notify()  →  NotificationHub
+  </text>`;
+
+  function loopFrame(x, col, title, steps){
+    s+=sec(x-8,58,860,title,col);
+    const subW=232;
+    steps.forEach((st,i)=>{
+      const y2=80+i*G;
+      const c2=st[2]||col;
+      s+=_N(st[0],st[1],st[3]||'',x+subW/2,y2,subW,40+(st[3]?12:0),C.bg2,c2);
+      if(i>0)s+=eL(x+subW/2,80+(i-1)*G+40,x+subW/2,y2,false,'',c2);
+    });
+  }
+
+  /* Lane 1: Bulk Sourcing */
+  loopFrame(30, S.amber,'factory.bulkSourcing() — lines 71-239',[
+    ['bs0','opts.onProgress("scraping")','callback { pages }'],
+    ['bs1','fetch POST /api/products/scrape',`backendUrl/api/products/scrape\n{baseUrl,maxPages,maxProducts,mode=foreground}`],
+    ['bs2','scrapeResponse.json()','{runId, productsFound, productsUpserted}'],
+    ['bs3','SELECT COUNT(*) FROM scraped_products','actual count after scrape'],
+    ['bs4','steps.scraping = {productsFound}'],
+    ['bs5','opts.onProgress("enriching")','callback { current, total }'],
+    ['bs6',`for batch of ${S.green} concurrent chunks`,`CONCURRENCY = agentConfig.queue.concurrency || 5`],
+    ['bs7','ChatPromptTemplate + ChatOpenAI','ENRICH_SYSTEM: "output ONLY JSON"\nname, category, description → enrichment'],
+    ['bs8','parseJsonFromLLM(raw, EnrichmentSchema)','Zod schema enforcement'],
+    ['bs9','UPDATE scraped_products\nenriched_data = $1, keywords',C.muted],
+    ['bs10','setCached(enrichment, cacheKey, data, 86400)','Redis 24h cache — avoids redundant LLM calls'],
+    ['bs11','_notifyCompletion(bulk-sourcing, result)\n→ notification-hub',S.ice],
+  ]);
+
+  /* Lane 2: Sales & Marketing */
+  loopFrame(960, C.orange,'factory.salesMarketing() — lines 243-408',[
+    ['mk0','SELECT * FROM scraped_products\nWHERE id=ANY($1) AND is_active','fallback: recent active products if none specified'],
+    ['mk1','channelToTypes map','all:[4 types] | email:[email] | social:[social] | ads:[ads]'],
+    ['mk2','for each product × ASSET_TYPE','nested: products.length × 4 asset types per product'],
+    ['mk3','ChatPromptTemplate.fromMessages + .pipe(getLLM(0.5,1024))',`ASSET_PROMPTS[type] template\nwithRetry() 3x exponential backoff`],
+    ['mk4','parseJsonFromLLM(content, MarketingAssetSchema)','Zod: {subject, body}'],
+    ['mk5','INSERT INTO marketing_assets\n(id,product_id,type,content)',C.muted],
+    ['mk6','setCached(marketing, cacheKey, {subject,body}, 3600)','1h cache'],
+    ['mk7','REMOVE hub PROV notifyHub:company runCompleted/results',S.ice],
+    ['mk8','—'],
+  ]);
+
+  /* Lane 3: Content Creation (RAG) */
+  loopFrame(1920, C.teal,'factory.contentCreation() — lines 412-611',[
+    ['cc0','opts.onProgress("retrieving")','callback { keywords }'],
+    ['cc1','productIds lookup + keyword tsvector search','SELECT name,desc,category FROM scraped_products\nWHERE to_tsvector @@ plainto_tsquery(keywords)'],
+    ['cc2','contextBlocks[] joined → contextText','RAG: products returned as prompt context'],
+    ['cc3','opts.onProgress("generating")','callback { contextChars }'],
+    ['cc4','typePrompts[type]: blog / pg / company_profile','600w / 600w / 400w  prompt to ChatOpenAI'],
+    ['cc5','ChatPromptTemplate + .pipe(getLLM(0.4,1024))','withRetry()'],
+    ['cc6','filterNemotronPlanLines(raw)','strips thinking/reasoning lines from Nemotron output'],
+    ['cc7','parseJsonFromLLM(body, ContentPieceSchema)','Zod {title, body}'],
+    ['cc8','imageGenerationService.generateInfographic()','optional — with 30s timeout'],
+    ['cc9','INSERT INTO content_pieces\n(id,type,title,body,keywords,image_urls)',C.muted],
+    ['cc10','setCached(content, cacheKey, {title,body}, 7200)','2h cache'],
+    ['cc11','_notifyComplete(content-creation, result)→Hub',S.ice],
+  ]);
+
+  /* Lane 4: Funding Pitch */
+  loopFrame(2880, C.purple,'factory.fundingPitch() — lines 616-774',[
+    ['fd0','Research: identifyKeyCharacteristics()',`NVIDIA LLM: "identify KEY CHARACTERISTICS of ${S.orange}angel|vc|bank|gov\Ninvestors who fund construction-tech."`,S.purple],
+    ['fd1','parseJsonFromLLM(raw, FundingResearchSchema)','Zod {contacts:[{name,email,firm,fit}]}'],
+    ['fd2','getCached(funding,cacheKey)','skip LLM if cached <24h'],
+    ['fd3','pitch template → ChatOpenAI','SYNTHESIS system: "startup founder + fundraise strategist"'],
+    ['fd4','contacts template → ChatOpenAI',`"Suggest 3 people/firms to contact"\nPOST / dashboard: fund pitches | SEND pg redirect → / publish dash-filter=required dash | dash SEND(users who dashes dashboard hub)`,S.purple],
+    ['fd5','parseJsonFromLLM(raw, Zod contacts schema)','Zod {contacts:[{name,email,firm,role,fit}]}'],
+    ['fd6','UPSERT investor_prospects','investor_profile, pitch_summary,\ncontact_name, firm, role, fit_reason\nstatus=proposed',C.muted],
+    ['fd7','_notifyComplete(funding-pitch, result)→Hub',S.ice],
+  ]);
+
+  /* row-bridge: each loop → all return LoopResult */
+  [[850,2120],[2520,3520]].forEach(([a,b])=>{
+    s+=eL(a,1200-60,850,b!=2500?2280:3580,a,'/50',S.purple);
+  });
+
+  s+='</svg>';
+  return [s,W,H];
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 5 — ORCHESTRATOR  (class, rendered as flowchart)
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderOrchestrator(){
+  let W=3600,H=1780;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>`;
+  _n=0; const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y,w,h,fi,st)};
+  const G=52;
+
+  s+=sec(16,18,1100,'Orchestrator — agent/src/agents/orchestrator.ts  (Singleton) — all engagement state machine',C.purple);
+  s+=`<text x="${W/2}" y="40" text-anchor="middle" font-size="10.5" fill="${C.muted}" font-family="${F}">
+  Process extensions: processInitialOutreach • processIncomingMessage • handleIntent • getFilteredContacts • getFundingPipelineSummary</text>`;
+
+  const mx=W/2-60;
+
+  /* Orchestrator entry */
+  s+=_N('orchE','orchestrator singleton',`.getInstance()\nall sub-systems call through here`,mx,82,380,50,C.bg4,S.purple);
+  s+=eL(mx,132,mx,172,'',S.purple,'ap','runAgent() gate + run()');
+
+  /* ── LEFT: public methods ── */
+  const lx1=230,lw1=240;
+  s+=sec(lx1-8,174,lw1,'PUBLIC METHODS',C.amber);
+  const pub=[
+    ['p1','processInitialOutreach(contact)','194-282',`enrichContact() → buildMessageContext() → \ngenerateMessage():\nChatPromptTemplate.pipe() → {subject,body}\nemailService.send() → {success|fail}\nlogMessage() → INSERT message_history\ncreateOrUpdateConversation(stage=contacted)\nscheduleFollowUp(id,3d)`,C.orange],
+    ['p2','processIncomingMessage(incoming)','286-347',`getConversation(contactId)\nenrichContact() [re-research on reply]\nanalyzeIntent(body,contact) → {type,confidence}\nlogMessage(inbound)\nhandleIntent() → action per type\nupdateConversationStage(intent)\nhandleReply() [channel:contact → DB]`,S.green],
+    ['p3','sendQuickPersonalized(contact,dryRun)',`982-999\ndynamic import QuickSendService\n→ sendContactEmail(contact, {dryRun,overrides})\n→ INSERT email_logs + message_history\n→ contacts.emails_sent++\n→ scheduleFollowUp(3d)[path B only]`,C.blue],
+    ['p4','getFundingPipelineSummary(days)','870-943',`SELECT from market_leads + scheduled_actions\n→ stageGroups → summary.total/breakdowns`,C.teal],
+    ['p5','runSalesOutreach(limit=20)','779-806',`getFilteredContacts(prospect) → loop\nrunS... → limit=20\nevery processInitialOutreach(contact)`,S.purple],
+    ['p6','runInvestorOutreach(limit=15)','808-836',`getFilteredContacts(investor, Tiers T1,T2 offshore) → then loop loop`,S.purple],
+    ['p7','runFundingOutreach(limit=20)','838-866',`getFilteredContacts(funding, Tier T1 only) → loop`,S.purple],
+    ['p8','sourceProductData()','947-962',`delegates product-source.service → run automated scrape`,C.amber],
+  ];
+  pub.forEach((p,i)=>{
+    const py2=246+i*G*0.5;
+    s+=_N(p[0],p[1],p[3]||'',lx1+80,py2,lw1-20,(p[3]?p[3].split('\n').length:2)*12+28,C.bg3,p[4]||C.amber,false);
+    if(i>0)s+=eL(lx1+80,246+(i-1)*G*0.5+28,lx1+80,py2,false,'',p[4]||C.amber);
+  });
+
+  /* ── RIGHT: private helpers ── */
+  const lx2=W-580,lw2=260;
+  s+=sec(lx2-8,174,lw2,'PRIVATE HELPERS',C.teal);
+  const prH=[];
+  ['getConversation(contactId)','getContact(contactId)','createOrUpdateConversation()','updateConversationStage(contactId,intent)','logMessage(message)','scheduleAction(contactId,type,days)','cancelScheduledActions(contactId)','escalateToHuman(contactId,reason)',
+    `handlePositiveInterest() → generateResponse() → email → if>0.8 → scheduleAction(suggest_meeting)`,
+    `handleQuestion() → generateResponse() → email + scheduleFollowUp(2d)`,
+    `handleObjection() → if (responses>=3|conf>0.9) → escalateToHuman()`,
+    `handleNotInterested() → stage=closed → cancelScheduledActions()`,
+    `handleOutOfOffice() → scheduleFollowUp(7d)`,
+  ].forEach((h,i)=>{
+    const rx2=lx2+100, py2=246+i*0.4*G;
+    s+=_N('ph'+i,h,'',rx2,py2,lw2-20,36,C.bg3,C.teal);
+    if(i>0)s+=eL(rx2,246+Math.max(0,0.4*G*(i-1),36),rx2,py2,false,'',C.teal);
+  });
+
+  s+=eL(mx,132,lx1+100,246,false,'',C.amber,'');
+  s+=eL(mx,132,lx2+100,246,false,'',C.teal,'');
+
+  s+='</svg>';
+  return[s,W,H];
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 6 — REPLY LOOP  (if the orchestrator receives an inbound message, what happens next)
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderReply(){
+  let W=2800,H=1700;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>`;
+  _n=0; const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y,w,h,fi,st)};
+  const MY=100;
+
+  s+=sec(16,18,W-32,'INBOUND REPLY LOOP — orchestrator.processIncomingMessage → handleIntent → action per type (orchestrator.ts:286-500)',S.green);
+  s+=`<text x="${W/2}" y="42" text-anchor="middle" font-size="10.5" font-weight="700" fill="${S.green}" font-family="${F}">Each inbound async message is a fresh event — no blocking on concurrent inbound messages</text>`;
+
+  /* STEP: inbound arrives */
+  s+=_N('in0','processIncomingMessage(incomingMessage)','orchestrator.ts:286-347\nstarted by contact-memory.ts on message received',W/2,MY,260,42,S.bg2,S.green);
+  s+=eL(W/2,142,W/2,182,'',S.green,'ag');
+  s+=_N('in1','getConversation(contactId)','SELECT * FROM conversations\nWHERE contact_id=$1::uuid',W/2,194,260,44,C.bg2,S.purple);
+  s+=eL(W/2,238,W/2,268,'');
+  s+=_N('in2','enrichContact(contact)','NEVER BLOCK — fire-and-forget\nre-research via NVIDIA LLM — updates enriched_data',W/2,280,260,42,C.bg3,S.orange);
+  s+=eL(W/2,322,W/2,356,'');
+
+  /* TYPE DETECTOR LOOP */
+  s+=_N('in3','personalizationService.analyzeIntent(body,contact)',`ChatPromptTemplate with intent labels:\npositive_interest | question | objection | not_interested\nout_of_office | unclear\n→ returns {type, sentiment, confidence, suggested_action}`,W/2,368,400,64,C.bg3,S.green);
+  s+=_N('in4','logMessage(inbound)',`INSERT INTO message_history\ncontact_id, direction=inbound, content, intent_detected, sentiment`,W/2,452,300,44,C.bg3,S.purple);
+  s+=eL(W/2,496,W/2,538,'',C.purple,'ap');
+  s+=_N('in5','handleIntent(contactId,intent,convo)','switch(intent.type)\nsee sub-flows below',W/2,550,260,38,C.bg3,C.teal);
+  s+=eL(W/2,588,W/2,630,'');
+  s+=_N('in6','updateConversationStage(contactId,intent)',`UPDATE conversations\ncurrent_stage = stageMap[intent]\nresponse_count = response_count + 1\nupdated_at NOW()`,W/2,642,280,60,C.bg3,S.purple);
+
+  /* 6 sub-loops below and to the right */
+  const intFlows=[
+    ['pos','positive_interest',S.green,`generateResponse(action,contact,intent)\n→ emailService.send() → {ok}\nif confidence>0.8:\n→ scheduleAction(suggest_meeting) [1 day]`],
+    ['q','question',S.blue,`generateResponse(suggested_action??'',contact,intent)\n→ emailService.send()\n→ scheduleFollowUp(contactId, 2d)\`',],
+    ['obj','objection',S.amber,`if response_count>=3 OR confidence>0.9:\n→ escalateToHuman(contactId, 'objection_handling')\nelse:\n→ generateResponse() → email → NO follow-up`],
+    ['noi','not_interested',S.red,`createOrUpdateConversation(stage=closed, reason=not_interested)\ncancelScheduledActions(contactId)\n→ job cleanup`],
+    ['ooo','out_of_office',C.ice,`scheduleFollowUp(contactId, 7d)\n→ no email — wait 7 days`],
+    ['unc','unclear',C.orange,`if confidence<0.3:\n→ escalateToHuman(contactId, 'unclear_intent')\nelse:\n→ scheduleFollowUp(contactId, 2d)`],
+  ];
+  const intY=660, intX=250;
+  s+=sec(16,intY-18,W-32,'SUB-FLOWS: handleIntent — all branches are awaite','S.teal');
+
+  const half=Math.ceil(intFlows.length/2);
+  intFlows.forEach((fl,i)=>{
+    const col=i<half?0:1;
+    const row=i<half?i:i-half;
+    const ix=intX+col*1300, iy=intY+58+row*160;
+    s+=_N(fl[0],fl[1],fl[2]||'',ix,iy,420,48+(fl[2]?fl[2].split('\n').length*12:0),C.bg3,fl[2]);
+     // arrow from in5
+      const colStr=fl[2]||'#aaa';
+      s+=`<path d="M${(W/2+(ix<W/2?80:W-80))},${590} Q${(W/2+ix)/2},${590} ${ix<W/2?ix-80:ix+80},${iy+24}" fill="none" stroke="${colStr}" stroke-width="1.3" opacity=".4"/>`;
+  });
+
+  s+=`<g><rect x="${16}" y="${intY+58+half*160+20}" width="${W-32}" height="34" rx="4" fill="${C.red}" opacity=".08" stroke="${C.red}" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="${W/2-40}" y="${intY+58+half*160+42}" text-anchor="middle" font-size="8.5" fill="${C.red}" font-family="${F}">
+  NOTIFICATION HUB CALL on escalation event — if escalateToHuman() then notify({escalation, contactId, severity: 'error'})
+  </text></g>`;
+
+  s+='</svg>';
+  return[s,W,H];
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB 7 — ASYNC JOBS  (BullMQ queues, cron patterns, all schedulers)
+═══════════════════════════════════════════════════════════════════════════════
+  index.ts: start() → initializeDailyOutreachJob() / initializeFollowUpCheckJob()
+   / initializeMetricsSyncJob() / startAgentWorker()
+   All are inside try/catch — never re-throw if they fail.
+═══════════════════════════════════════════════════════════════════════════════ */
+function renderAsync(){
+  let W=3400,H=2100;
+  let s=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n${mkDefs()}
+<rect width="${W}" height="${H}" fill="${C.bg0}"/>`;
+  _n=0; const _N=(id,lb,dt,x,y,w,h,fi,st)=>{_n++;return N(id+_n,lb,dt,x,y,w,h,fi,st)};
+  const ph2=38,gs2=54;
+
+  s+=sec(16,18,1200,'ASYNC JOB ARCHITECTURE — BullMQ Queues + Cron Schedules  (index.ts → 4 background workers)',C.yellow);
+  s+=`<text x="${W/2}" y="40" text-anchor="middle" font-size="10" fill="${C.muted}" font-family="${F}">
+  All schedulers fire asynchronously — server.listen callback returns immediately — each worker is independently recoverable</text>`;
+
+  /* ── QUEUE ROW ── */
+  const qx=200;
+  s+=sec(qx-10,56,560,'BULLMQ QUEUES (Memurai / Redis :6379)',C.yellow);
+  const qDefs=[
+    ['q1','outreach-queue','daily-outreach.job.ts → executeDailyBatch()',C.amber],
+    ['q2','followup-queue','followup-check.job.ts → processScheduledFollowUps()',C.ice],
+    ['q3','meeting-reminder-queue','followup-check.job.ts → processMeetingReminders()',S.purple],
+    ['q4','agent-run-queue','startAgentWorker() → dequeues AI job items',C.orange],
+  ];
+  qDefs.forEach((q,i)=>{
+    const qy=90+i*gs2;
+    s+=_N(q[0],q[1],q[2],qx+100,qy,400,36,C.bg3,q[3]);
+    if(i>0)s+=`<line x1="${qx+100}" y1="${90+(i-1)*gs2+36}" x2="${qx+100}" y2="${qy}" stroke="${q[3]}" stroke-width="1.2" opacity=".3" stroke-dasharray="3,2"/>`;
+  });
+
+  /* ── JOB ROW ── */
+  const jx=860;
+  s+=sec(jx-10,56,560,'SCHEDULED JOBS (all inside try/catch in start())',C.amber);
+  const jDefs=[
+    ['j1','initializeDailyOutreachJob()','daily-outreach.job.ts',`bullmq job at 09:00 EAT daily
+→ outreachWorkflow.executeDailyBatch()
+→ for each contact: processInitialOutreach()
+→ stats: {processed, successful, failed}`,C.amber],
+    ['j2a','initializeFollowUpCheckJob() / A','followup-check.job.ts',`[Job A: every 60 min]
+→ followUpWorkflow.processScheduledFollowUps()
+→ generateMessage + send for each followUp
+→ {processed, successful, failed}`,C.ice],
+    ['j2b','initializeFollowUpCheckJob() / B','followup-check.job.ts',`[Job B: every 30 min]
+→ meetingWorkflow.processMeetingReminders()
+→ generateMeetingReminder + send
+→ {processed, successful, failed}`,S.purple],
+    ['j4','startAgentWorker()','agent-run-queue job',`continuous BullMQ worker
+dequeues AI job items from Redis queue
+processes each: AI gen → DB write`,C.orange],
+  ];
+  jDefs.forEach((j,i)=>{
+    const jY=90+i*gs2*1.5;
+    const lnC=j[3]?j[3].split('\n').length:1;
+    s+=_N(j[0],j[1],j[3]||'',jx+120,jY,500,lnC*12+22,C.bg3,j[4]||C.amber);
+  });
+
+  /* horizontal: queue → job */
+  for(let i=0;i<4;i++){
+    const qy=90+i*gs2, jy=90+i*gs2*1.5+20;
+    s+=`<path d="M${qx+500},${qy} L${qx+520},${qy} L${jx+120-20},${jy}" fill="none" stroke="${qDefs[i][3]}" stroke-width="1.2" opacity=".35" stroke-dasharray="3,2" marker-end="url(#a)"/>`;
+  }
+
+  /* ── Central: 24-hour cycle ── */
+  const cy2=560;
+  s+=sec(16,cy2-20,W-32,'24-HOUR CYCLE — master timeline',C.teal);
+  s+=`<text x="${W/2}" y="${cy2+14}" text-anchor="middle" font-size="10" font-weight="700" fill="${C.teal}" font-family="${F}">
+  BullMQ stores jobs in Redis — if server restarts, repeating jobs are re-registered from index.ts start()</text>`;
+
+  const tDefs=[
+    ['th0','00:00 EAT','metrics-sync.job.ts\n→ collect agent_metrics → DB aggregate','metricsSync job runs daily at midnight',C.pink],
+    ['th1','09:00 EAT','daily-outreach.job.ts\n→ outreachWorkflow.executeDailyBatch()\n→ processInitialOutreach(contact) × N',S.amber],
+    ['th2','every 30 min','followup-check.job.ts / B\n→ meetingWorkflow.processMeetingReminders()\n→ sendMeetingReminder(contactId)',S.purple],
+    ['th3','every 60 min','followup-check.job.ts / A\n→ followUpWorkflow.processScheduledFollowUps()\n→ generateMessage → email → scheduleNextFollowUp()',C.ice],
+    ['th4','continuous','agent-run-queue worker\npulls AI job items — generates content/marketing — writes DB',C.orange],
+  ];
+  const tGap=72;
+  tDefs.forEach((t,i)=>{
+    const tX=80+i*(W-160)/4, tY=cy2+76;
+    s+=_N(t[0],t[1],t[2],tX,tY,230,56+(t[2].split('\n').length-1)*12,C.bg2,t[4]);
+  });
+
+  // horizontal axis
+  [76, 140].forEach((y0,i)=>{
+    s+=`<line x1="60" y1="${cy2+70+i*58}" x2="${W-60}" y2="${cy2+70+i*58}" stroke="${C.dim}" stroke-width="1.2" stroke-dasharray="6,3" opacity=".4"/>`;
+  });
+
+  /* ── Graceful shutdown ── */
+  const shx=W-340,shy=ty2+460;
+  s+=sec(shx-16,shy-20,320,'GRACEFUL SHUTDOWN',S.red);
+  s+=_N('sh1','process.on(SIGTERM | SIGINT)','index.ts:862-863\nthis.shutdown()',shx,shy,240,38,C.bg2,C.red);
+  s+=eL(shx,shy+38,shx,shy+84,'',C.red);
+  s+=_N('sh2','db.close()','close all pg Pool connections gracefully',shx,shy+96,240,38,C.bg2,S.purple);
+  s+=eL(shx,shy+134,shx,shy+176,'',S.purple);
+  s+=_N('sh3','process.exit(0)','clean exit — no force kill',shx,shy+188,240,38,C.bg2,S.green);
+
+  s+='</svg>';
+  return[s,W,H];
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TAB SWITCHER  +  PAN/ZOOM  +  TOOLTIP
+═══════════════════════════════════════════════════════════════════════════════ */
+var _Z=1,_Px=0,_Py=0,_drag=false,_lx=0,_ly=0;
+
+function sw(id,el){
+  document.querySelectorAll('.t').forEach(function(t){t.classList.remove('on')});
+  document.querySelectorAll('.view').forEach(function(v){v.remove()});
+  el.classList.add('on');
+  var wrap=document.getElementById('wrap');
+  wrap.innerHTML='';
+  var fns={server:renderServer,lifecycle:renderLifecycle,master:renderMaster,
+           loops:renderLoops,orch:renderOrchestrator,reply:renderReply,async:renderAsync};
+  var fn=fns[id];
+  if(!fn)return;
+  var a=fn();   // a[0]=svg string, a[1]=W, a[2]=H
+  var svgNS=NS;
+  var svgEl=document.createElementNS(svgNS,'svg');
+  svgEl.setAttribute('xmlns',svgNS);
+  svgEl.setAttribute('width',a[1]);
+  svgEl.setAttribute('height',a[2]);
+  svgEl.setAttribute('viewBox','0 0 '+a[1]+' '+a[2]);
+  svgEl.innerHTML=a[0];
+  wrap.appendChild(svgEl);
+  wrap.style.minWidth=a[1]+'px';
+  wrap.style.minHeight=a[2]+'px';
+  _Z=1; _Px=0; _Py=0;
+  applyT();
+}
+
+function applyT(){
+  var s=document.querySelector('#wrap svg');
+  if(s) s.style.transform='translate('+_Px+'px,'+_Py+'px) scale('+_Z+')';
+}
+
+document.getElementById('zin').onclick=function(){
+  _Z=Math.min(2.5,_Z+0.12);
+  document.getElementById('zl').textContent=Math.round(_Z*100)+'%';
+  applyT();
+};
+document.getElementById('zout').onclick=function(){
+  _Z=Math.max(0.35,_Z-0.12);
+  document.getElementById('zl').textContent=Math.round(_Z*100)+'%';
+  applyT();
+};
+
+document.getElementById('wrap').addEventListener('mousedown',function(e){
+  _drag=true; _lx=e.clientX; _ly=e.clientY; document.body.style.cursor='grabbing';
+});
+document.addEventListener('mousemove',function(e){
+  if(!_drag)return;
+  _Px+=e.clientX-_lx; _Py+=e.clientY-_ly; _lx=e.clientX; _ly=e.clientY;
+  applyT();
+});
+document.addEventListener('mouseup',function(){_drag=false;document.body.style.cursor='';});
+
+document.getElementById('wrap').addEventListener('wheel',function(e){
+  e.preventDefault();
+  _Z=Math.max(0.35,Math.min(2.5,_Z+(e.deltaY<0?0.12:-0.12)));
+  document.getElementById('zl').textContent=Math.round(_Z*100)+'%';applyT();
+},{passive:false});
+
+function showTip(evt,lb,dt){
+  var t=document.getElementById('tip');
+  t.querySelector('.tt').textContent=lb;
+  var d=(dt||lb).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
+  t.querySelector('.td').innerHTML=d.replace(/\n/g,'<br>');
+  t.style.display='block';
+  t.style.left=Math.min(evt.clientX+14,innerWidth-440)+'px';
+  t.style.top=Math.min(evt.clientY+14,innerHeight-220)+'px';
+}
+function hideTip(){ document.getElementById('tip').style.display='none'; document.getElementById('tip').style.left='-9999px'; }
+
+// init
+sw('server',document.getElementById('t-server'));
+</script>

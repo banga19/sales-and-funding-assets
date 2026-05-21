@@ -25,6 +25,7 @@ import { notify, type NotificationEvent, type NotificationRunEvent } from './not
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
 import { langchainService } from './langchain.service';
+import { imageGenerationService } from './image-generation.service';
 import { db } from '../database/db.client';
 import { getCached, setCached } from './response-cache.service';
 import { z } from 'zod';
@@ -250,18 +251,29 @@ Return ONLY valid JSON — no code fences, no preamble:
     const steps:  Record<string, Record<string, any>> = {};
     let assetsCreated = 0;
 
-    const { rows: products } = await db.query(
+    let { rows: products } = await db.query(
       `SELECT id, name, description, category FROM scraped_products WHERE id = ANY($1::uuid[]) AND is_active = TRUE LIMIT $2`,
       [opts.productIds, agentConfig.salesMarketing.maxProducts],
     );
 
     if (products.length === 0) {
-      const r: LoopResult = {
-        success: false, agentName: 'sales-marketing', durationMs: Date.now() - start,
-        steps, errors: ['No active products in catalog'], summary: { assetsCreated: 0 },
-      };
-      this._notifyCompletion('sales-marketing', r);
-      return r;
+      // If no specific IDs provided, get recent products
+      const { rows: fallbackProducts } = await db.query(
+        `SELECT id, name, description, category FROM scraped_products WHERE is_active = TRUE ORDER BY created_at DESC LIMIT $1`,
+        [agentConfig.salesMarketing.maxProducts],
+      );
+      
+      if (fallbackProducts.length === 0) {
+        const r: LoopResult = {
+          success: false, agentName: 'sales-marketing', durationMs: Date.now() - start,
+          steps, errors: ['No active products in catalog. Run Bulk Sourcing first.'], summary: { assetsCreated: 0 },
+        };
+        this._notifyCompletion('sales-marketing', r);
+        return r;
+      }
+      
+      products = fallbackProducts;
+      logger.info('[sales-marketing] using fallback products', { count: products.length });
     }
 
     const ASSET_TYPES = ['email_sequence', 'social_post', 'ad_copy', 'landing_page'] as const;
@@ -295,8 +307,17 @@ Write a landing-page hero section with H1, 3 benefit bullets, and CTA.`,
       const product = products[pi];
       const desc = (product as any).description ?? '';
 
+      // Map targetChannel to asset types
+      const channelToTypes: Record<string, string[]> = {
+        all: ['email_sequence', 'social_post', 'ad_copy', 'landing_page'],
+        email: ['email_sequence'],
+        social: ['social_post'],
+        ads: ['ad_copy'],
+      };
+      const allowedTypes = channelToTypes[opts.targetChannel] || channelToTypes.all;
+
       for (const type of ASSET_TYPES) {
-        if (opts.targetChannel !== 'all' && opts.targetChannel !== type) continue;
+        if (!allowedTypes.includes(type)) continue;
 
         try {
           const cacheKey = `loop:marketing:${product.id}:${type}`;
@@ -350,13 +371,36 @@ Write a landing-page hero section with H1, 3 benefit bullets, and CTA.`,
     }
 
     const durationMs = Date.now() - start;
+
+    // Fetch created assets for response (only from this run)
+    let assets: any[] = [];
+    try {
+      const assetQuery = `
+        SELECT ma.id, ma.product_id, ma.type, ma.content, sp.name as product_name
+        FROM marketing_assets ma
+        LEFT JOIN scraped_products sp ON ma.product_id = sp.id
+        WHERE ma.created_at > NOW() - INTERVAL '2 minutes'
+        ORDER BY ma.created_at DESC
+        LIMIT 50
+      `;
+      const assetResult = await db.query(assetQuery);
+      assets = assetResult.rows.map((r: any) => ({
+        id: r.id,
+        product: r.product_name || 'Unknown',
+        type: r.type,
+        content: r.content?.substring(0, 200) || '',
+      }));
+    } catch (err: any) {
+      logger.warn('[sales-marketing] failed to fetch assets', { error: err.message });
+    }
+
     const result: LoopResult = {
       success:   errors.length === 0,
       agentName: 'sales-marketing',
       durationMs,
       steps,
       errors,
-      summary: { assetsCreated, productsProcessed: products.length },
+      summary: { assetsCreated: assetsCreated > 0 ? assetsCreated : assets.length, productsProcessed: products.length, assets },
     };
 
     this._notifyCompletion('sales-marketing', result);
@@ -421,13 +465,13 @@ Write a landing-page hero section with H1, 3 benefit bullets, and CTA.`,
     opts.onProgress?.('generating', { contextChars: contextText.length });
 
     const cacheKey = `loop:content:${opts.type}:${opts.keywords.join(',')}:${(opts.productIds || []).join(',')}`;
-    const cached = await getCached<{ title: string; body: string }>('content', cacheKey);
+    const cached = await getCached<{ title: string; body: string; imageUrls: string[] }>('content', cacheKey);
     if (cached) {
       steps.generation = { title: cached.title, chars: cached.body.length, cacheHit: true };
       steps.persist = { ok: true };
       const result: LoopResult = {
         success: true, agentName: 'content-creation', durationMs: Date.now() - start,
-        steps, errors, summary: { title: cached.title, bodyLength: cached.body.length },
+        steps, errors, summary: { title: cached.title, body: cached.body, type: opts.type, bodyLength: cached.body.length, imageUrls: cached.imageUrls || [] },
       };
       this._notifyCompletion('content-creation', result);
       return result;
@@ -436,25 +480,70 @@ Write a landing-page hero section with H1, 3 benefit bullets, and CTA.`,
     const typePrompts: Record<string, string> = {
       blog: `Write a 600-word SEO-optimised blog article for Sokogate / Ultimo Trading Company Limited.
 Audience: B2B procurement managers in East and West Africa.
-Include: intro, 2-3 body sections with sub-headings, data-driven arguments, CTA to sokogate.com.`,
+Include: intro, 2-3 body sections with sub-headings, data-driven arguments, CTA to sokogate.com.
+Use the context below to make the content specific and relevant.`,
 
       product_guide: `Write a 600-word B2B product buying guide for procurement teams in Kenya and Nigeria.
-Structure: intro, section per product (material properties, MOQ, lead times, certifications), FAQ, CTA.`,
+Structure: intro, section per product mentioned in context (material properties, MOQ, lead times, certifications), FAQ, CTA.
+If no specific products are mentioned in context, write a general guide about sourcing construction materials in East Africa.
+Use the context below to make the content specific and relevant.`,
 
       company_profile: `Write a 400-word professional company profile for "Ultimo Trading Company Limited" trading as Sokogate.
-Cover: founding story, product range, markets, key metrics ($600K+ ARR, 10K+ customers), competitive advantages.`,
+Cover: founding story, product range, markets, key metrics ($600K+ ARR, 10K+ customers), competitive advantages.
+Use the context below to make the content specific and relevant.`,
     };
 
-    const fullPrompt = `${typePrompts[opts.type]}\n\n---\n\n${contextText}`;
+    const contextSection = contextBlocks.length > 0
+      ? `Context:\n${contextText}`
+      : 'Context: No specific products found. Write general content about B2B procurement and construction materials sourcing in East and West Africa through sokogate.com.';
+
+    const fullPrompt = `${typePrompts[opts.type]}\n\n---\n\n${contextSection}`;
 
     try {
       const chain = ChatPromptTemplate.fromMessages([
         ['system', CONTENT_SYSTEM],
         ['human',  fullPrompt],
-      ]).pipe(langchainService.getLLM(0.4, 2048));
+      ]).pipe(langchainService.getLLM(0.4, 1024));
 
       const res   = await langchainService.withRetry(() => chain.invoke({}));
-      const body  = (res as BaseMessage).content?.toString().trim() || '[no content returned]';
+      let rawBody  = (res as BaseMessage).content?.toString().trim() || '[no content returned]';
+
+      // Remove planning/thinking lines from NVIDIA Nemotron outputs
+      let body = rawBody;
+      
+      // Try to find content after "Draft:" marker
+      const draftIdx = rawBody.indexOf('Draft:');
+      if (draftIdx !== -1) {
+        body = rawBody.substring(draftIdx + 6).trim();
+        // Remove leading quotes if present
+        if (body.startsWith('"') || body.startsWith('"')) {
+          body = body.substring(1);
+        }
+        // Remove trailing planning lines (after closing quote or "Now count")
+        const endMarkers = ['\n\nNow count', '\n\nLet\'s count', '\n\nWord count', '\n\nDraft:', '\n\n"Ultimo(1)'];
+        for (const marker of endMarkers) {
+          const endIdx = body.indexOf(marker);
+          if (endIdx !== -1) {
+            body = body.substring(0, endIdx).trim();
+            break;
+          }
+        }
+        // Remove trailing quote if present
+        if (body.endsWith('"') || body.endsWith('"')) {
+          body = body.substring(0, body.length - 1).trim();
+        }
+      } else {
+        // Fallback: filter out planning lines
+        const bodyLines = rawBody.split('\n').filter(l => {
+          const t = l.trim();
+          if (!t) return false;
+          if (/^(we need|let's|let |count|draft|ensure|must|should|likely|around|word|now|first|second|third|step|note|actually|ok|okay|write|craft|approx|manual|safe|avoid|output|return|generate|create|produce|safer|aim|exact|probably|maybe|i'll|i will|we'll|we will|use context|no specific|reference)/i.test(t)) return false;
+          if (t.includes('We need to produce') || t.includes('We must output') || t.includes('Must cover')) return false;
+          if (t.length < 30) return false;
+          return true;
+        });
+        body = bodyLines.join('\n').trim() || rawBody;
+      }
 
       const parsed = parseJsonFromLLM(body, ContentPieceSchema);
       const fallbackTitle = body.split('\n').find(l => l.replace(/^#+\s*/, '').trim().length >= 30);
@@ -463,13 +552,37 @@ Cover: founding story, product range, markets, key metrics ($600K+ ARR, 10K+ cus
 
       steps.generation = { title: title.slice(0, 80), chars: finalBody.length };
 
+      // Generate images if requested (with timeout to avoid blocking)
+      const imageUrls: string[] = [];
+      if (opts.generateImage) {
+        opts.onProgress?.('generating_images', { style: opts.imageStyle });
+        logger.info('[content-loop] generating images', { type: opts.type, style: opts.imageStyle });
+
+        try {
+          // Generate infographic based on content topic with 30s timeout
+          const infographicResult = await imageGenerationService.generateInfographic(
+            title.replace(/\*\*/g, '').slice(0, 100),
+            opts.imageStyle || 'modern',
+          );
+          
+          if (infographicResult.success && infographicResult.imageUrl) {
+            imageUrls.push(infographicResult.imageUrl);
+            logger.info('[content-loop] infographic generated', { url: infographicResult.imageUrl });
+          }
+        } catch (err: any) {
+          logger.warn('[content-loop] infographic generation failed', { error: err.message });
+        }
+
+        steps.imageGeneration = { generated: imageUrls.length };
+      }
+
       try {
         await db.query(
           `INSERT INTO content_pieces (id, type, title, body, keywords, image_urls, created_at)
              VALUES (gen_random_uuid()::text, $1, $2, $3, $4::jsonb, $5::jsonb, NOW())`,
-          [opts.type, title.slice(0, 150), finalBody, JSON.stringify(opts.keywords), JSON.stringify([])],
+          [opts.type, title.slice(0, 150), finalBody, JSON.stringify(opts.keywords), JSON.stringify(imageUrls)],
         );
-        await setCached('content', cacheKey, { title, body: finalBody, imageUrls: [] }, 7200);
+        await setCached('content', cacheKey, { title, body: finalBody, imageUrls }, 7200);
         steps.persist = { ok: true };
       } catch (err: any) {
         steps.persist = { ok: false, error: err.message };
@@ -482,7 +595,7 @@ Cover: founding story, product range, markets, key metrics ($600K+ ARR, 10K+ cus
         durationMs,
         steps,
         errors,
-        summary: { title, bodyLength: finalBody.length, keywordCount: opts.keywords.length, imageUrls: [] },
+        summary: { title, body: finalBody, type: opts.type, bodyLength: finalBody.length, keywordCount: opts.keywords.length, imageUrls },
       };
 
       this._notifyCompletion('content-creation', result);

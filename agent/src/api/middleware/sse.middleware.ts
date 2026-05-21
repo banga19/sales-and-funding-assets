@@ -9,8 +9,9 @@
 import { Request, Response, NextFunction } from 'express';
 
 export interface SSEStream {
-  sendEvent: (event: string, data: unknown) => void;
+  sendEvent:   (event: string, data: unknown) => void;
   sendComment: (comment: string) => void;
+  sendError:   (message: string, code?: string) => void;
   close: () => void;
 }
 
@@ -25,35 +26,46 @@ export function sseMiddleware(req: Request, res: Response, next: NextFunction): 
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Retry', '3000');
     res.flushHeaders?.();
+
+    let closed = false;
 
     res.locals.sse = {
       sendEvent: (event: string, data: unknown) => {
-        if (!res.writableEnded) {
+        if (!res.writableEnded && !closed) {
           res.write(`event: ${event}\n`);
           res.write(`data: ${JSON.stringify(data)}\n\n`);
         }
       },
       sendComment: (comment: string) => {
-        if (!res.writableEnded) {
+        if (!res.writableEnded && !closed) {
           res.write(`: ${comment}\n\n`);
         }
       },
+      sendError: (message: string, code?: string) => {
+        if (!res.writableEnded && !closed) {
+          res.write(`event: error\n`);
+          res.write(`data: ${JSON.stringify({ message, code, ts: new Date().toISOString() })}\n\n`);
+        }
+      },
       close: () => {
+        closed = true;
         res.end();
       },
     } as SSEStream;
 
-    // Keep-alive ping every 30s
+    // Keep-alive heartbeat every 30 s
     const ping = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(': ping\n\n');
+      if (!res.writableEnded && !closed) {
+        res.write(': heartbeat\n\n');
       } else {
         clearInterval(ping);
       }
     }, 30_000);
 
-    res.on('close', () => clearInterval(ping));
+    res.on('close',  () => { closed = true; clearInterval(ping); });
+    res.on('finish', () => { closed = true; clearInterval(ping); });
   } else {
     res.locals.sse = null;
   }
@@ -62,6 +74,7 @@ export function sseMiddleware(req: Request, res: Response, next: NextFunction): 
 
 /**
  * Helper to send an SSE event directly on a response.
+ * Also used inside agent-loop routes when `sse` locals are unavailable.
  */
 export function sendSSE(res: Response, event: string, data: unknown): void {
   if (!res.writableEnded) {

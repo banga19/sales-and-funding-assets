@@ -1,7 +1,7 @@
 WEEK_NUMBER,WEEK_DATE_RANGE,METRIC_NAME,TARGET_VALUE,ACTUAL_VALUE,STATUS,NOTES
 1,May 12-17,Sales emails sent,10,"",Pending,"Tier 1 & 2 prospects from TRACKER-PROSPECTS.csv"
-1,May 12-17,Partnership intro emails sent,5,"",Pending,"Tier 1 partners: Meridian, Jospong, DHL, GNPC, Traders' Warehouse"
-1,May 12-17,Investor cold emails sent,10,"",Pending,"Tier 1-2 from INVESTOR-OUTREACH-BATCH.md"
+1,May 12-17,Partnership intro emails sent,5,3,In Progress,Meridian, DHL, GNPC sent 2026-05-21, Jospong, DHL, GNPC, Traders' Warehouse"
+1,May 12-17,Investor cold emails sent,10,10,In Progress,10 investors sent via batch 2026-05-21
 1,May 12-17,LinkedIn connections sent,5,"",Pending,"Procurement Directors / Heads of Commercial"
 1,May 12-17,Email responses received,3,"",Pending,"Target: ≥30% response rate across all outreach"
 1,May 12-17,Discovery calls scheduled,3,"",Pending,"Sales calls via Calendly — 15-min slots"
