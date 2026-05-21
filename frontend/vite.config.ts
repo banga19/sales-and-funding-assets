@@ -5,7 +5,7 @@ import path from 'path';
 // Vite loads .env*, .env.local, .env.[mode] before building the config object.
 // process.env.VITE_* is therefore already available at config evaluation time.
 const VITE_API_BASE_URL  = process.env.VITE_API_BASE_URL  || '/api';
-const VITE_API_TIMEOUT   = process.env.VITE_API_TIMEOUT   || '10000';
+const VITE_API_TIMEOUT   = process.env.VITE_API_TIMEOUT   || '30000';
 const API_TARGET          = process.env.VITE_API_TARGET   || 'http://localhost:3002';
 const BACKEND_TARGET      = process.env.VITE_BACKEND_TARGET || 'http://localhost:3000';
 
