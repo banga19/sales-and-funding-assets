@@ -378,17 +378,29 @@ export default function OutreachPanel() {
             </div>
           ) : (
             <div className="space-y-1">
-              {logList.map((log: any) => (
-                <div key={log.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100">
-                  <div>
-                    <p className="font-medium text-sm text-gray-800">{log.subject}</p>
-                    <p className="text-xs text-gray-400">To: {log.to} · {new Date(log.sentAt || log.sentat).toLocaleDateString()}</p>
+              {logList.map((log: any) => {
+                const previewUrl = log.metadata?.previewUrl || log.previewUrl;
+                return (
+                  <div key={log.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100">
+                    <div>
+                      <p className="font-medium text-sm text-gray-800">{log.subject}</p>
+                      <p className="text-xs text-gray-400">To: {log.to} · {new Date(log.sentAt || log.sentat).toLocaleDateString()}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {previewUrl && (
+                        <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-xs font-medium px-2 py-0.5 rounded-full"
+                          style={{ background: '#DBEAFE', color: '#1D4ED8' }}>
+                          Preview
+                        </a>
+                      )}
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${log.status === 'sent' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                        {log.status}
+                      </span>
+                    </div>
                   </div>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${log.status === 'sent' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                    {log.status}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )
           }
