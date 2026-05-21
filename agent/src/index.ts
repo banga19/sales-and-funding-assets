@@ -341,21 +341,22 @@ class SalesAgent {
      });
 
      this.app.get('/api/outreach/logs', async (_req: Request, res: Response) => {
-       try {
-         const { rows } = await db.query(
-           `SELECT id, contact_id AS contactId, contact_type AS contactType,
-                   to_email AS "to", subject, body_preview AS body,
-                   status, error_message AS error, sent_at AS sentAt
-              FROM email_logs
-             ORDER BY sent_at DESC
-             LIMIT 200`,
-         );
-         res.json(rows);
-       } catch (err: any) {
-         logger.warn('[outreach/logs] failed — returning empty', { error: err.message });
-         res.json([]);
-       }
-     });
+        try {
+          const { rows } = await db.query(
+            `SELECT id, contact_id AS contactId, contact_type AS contactType,
+                    to_email AS "to", subject, body_preview AS body,
+                    status, error_message AS error, sent_at AS sentAt,
+                    metadata
+               FROM email_logs
+              ORDER BY sent_at DESC
+              LIMIT 200`,
+          );
+          res.json(rows);
+        } catch (err: any) {
+          logger.warn('[outreach/logs] failed — returning empty', { error: err.message });
+          res.json([]);
+        }
+      });
 
     this.app.post('/api/outreach/send', async (req: Request, res: Response) => {
       try {
