@@ -1,8 +1,9 @@
 /**
  * Content Creation Agent — POST /api/agents/content-creation
  *
- * Creates blog articles, product guides, or company profiles using NVIDIA AI.
+ * Creates blog articles, product guides, or company profiles using LangChain AI.
  * Generated content is persisted in the `content_pieces` table.
+ * Returns immediately (202) and processes in background to avoid HTTP timeout.
  */
 
 import { Router, Request, Response } from 'express';
@@ -36,13 +37,25 @@ router.post('/content-creation', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'productIds are required when type is "product_guide"' });
     }
 
-    // ── Delegate to ContentAgent (LangChain RAG pipeline) ─────────────────────
-    const opts: ContentRunOptions = { type: type as any, keywords, productIds: productIds as string[] };
+    const opts: ContentRunOptions = {
+      type: type as any,
+      keywords,
+      productIds: productIds as string[],
+      generateImage: req.body?.generateImage === true,
+      imageStyle: req.body?.imageStyle || 'modern',
+    };
 
-    const result = await contentAgent.run(opts);
+    // Return immediately — process in background
+    res.json({ success: true, status: 'queued', message: `Content generation started for ${type}. Check content pieces table when complete.` });
 
-    logger.info('Content piece created', { type, title: result.title });
-    res.json({ success: true, type, title: result.title, body: result.body, keywords });
+    (async () => {
+      try {
+        const result = await contentAgent.run(opts);
+        logger.info('[content-creation] background complete', { type, title: result.title, durationMs: result.durationMs });
+      } catch (err: any) {
+        logger.error('[content-creation] background failed', { error: err.message });
+      }
+    })();
   } catch (err: any) {
     if (err?.message?.includes('getaddrinfo')) {
       res.status(503).json({ success: false, error: 'LLM service unavailable — check NVIDIA proxy' });
@@ -54,5 +67,3 @@ router.post('/content-creation', async (req: Request, res: Response) => {
 });
 
 export default router;
-
-// Made with Bob

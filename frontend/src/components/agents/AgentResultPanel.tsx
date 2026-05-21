@@ -73,22 +73,28 @@ function ErrorMessage({ message, onRetry }: { message: string; onRetry?: () => v
 }
 
 function BulkResult({ data }: { data: any }) {
+  const productsSaved = data.productsUpserted ?? data.productsSaved ?? data.count ?? 0;
+  const pagesCrawled = data.pagesCrawled ?? data.steps?.scraping?.pages ?? 0;
+  const enriched = data.enrichedCount ?? data.enriched ?? 0;
   return (
     <div className="text-sm text-gray-600 space-y-1">
       <p>
         <span className="font-medium text-gray-700">Products Saved:</span>{' '}
-        {data.productsSaved ?? data.count ?? 0}
+        {productsSaved}
       </p>
-      {data.enriched !== undefined && (
+      {enriched > 0 && (
         <p>
           <span className="font-medium text-gray-700">AI Enrichment:</span>{' '}
-          {data.enriched ? 'Yes' : 'No'}
+          {enriched} products
         </p>
       )}
-      {data.pagesCrawled !== undefined && (
+      {pagesCrawled > 0 && (
         <p>
-          <span className="font-medium text-gray-700">Pages Crawled:</span> {data.pagesCrawled}
+          <span className="font-medium text-gray-700">Pages Crawled:</span> {pagesCrawled}
         </p>
+      )}
+      {data.errors && data.errors.length > 0 && (
+        <p className="text-xs text-red-500 mt-1">Errors: {data.errors.join(', ')}</p>
       )}
     </div>
   );
@@ -111,19 +117,32 @@ function MarketingResult({ data }: { data: any }) {
 }
 
 function ContentResult({ data }: { data: any }) {
-  const piece: { title?: string; body?: string; type?: string; createdAt?: string } = {
+  const piece: { title?: string; body?: string; type?: string; createdAt?: string; imageUrls?: string[] } = {
     title: data.title || '',
     body:  data.body  || '',
     type:  data.type  || '',
+    imageUrls: data.imageUrls || [],
   };
   if (!piece.title) return <p className="text-sm text-gray-600">No content generated.</p>;
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <h4 className="font-medium text-gray-700 text-sm">{piece.title}</h4>
       <p className="text-xs text-gray-500">
         {piece.type || 'generated'} · {new Date(piece.createdAt || Date.now()).toLocaleDateString()}
       </p>
-      <div className="mt-2 text-sm text-gray-600 bg-white p-3 rounded-lg border max-h-40 overflow-y-auto whitespace-pre-wrap">
+      {piece.imageUrls && piece.imageUrls.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {piece.imageUrls.map((url: string, i: number) => (
+            <img
+              key={i}
+              src={url}
+              alt={`Generated image ${i + 1}`}
+              className="h-24 w-24 object-cover rounded-lg border border-gray-200 flex-shrink-0"
+            />
+          ))}
+        </div>
+      )}
+      <div className="text-sm text-gray-600 bg-white p-3 rounded-lg border max-h-40 overflow-y-auto whitespace-pre-wrap">
         {piece.body?.substring(0, 500)}...
       </div>
     </div>
@@ -132,17 +151,25 @@ function ContentResult({ data }: { data: any }) {
 
 function FundingResult({ data }: { data: any }) {
   const prospects = data.prospects || [];
+  const pitchSummary = data.pitchSummary || data.pitchSummarySize ? '(Pitch generated)' : '';
   return (
     <div>
       <p className="text-sm text-gray-600 mb-2">
         Generated pitch and linked {prospects.length} prospect{prospects.length !== 1 ? 's' : ''}.
       </p>
+      {pitchSummary && (
+        <div className="mb-3 text-sm bg-white rounded-lg p-2.5 border border-gray-200">
+          <p className="font-medium text-gray-700 mb-1">Pitch Summary</p>
+          <p className="text-xs text-gray-500 whitespace-pre-wrap line-clamp-4">{pitchSummary}</p>
+        </div>
+      )}
       {prospects.map((p: any, i: number) => (
         <div key={p.id || i} className="text-sm bg-white rounded-lg p-2.5 border border-gray-200 mb-1">
-          <p className="font-medium text-gray-700">{p.contact?.name || p.name || 'Unnamed Contact'}</p>
+          <p className="font-medium text-gray-700">{p.name || p.contact?.name || 'Unnamed Contact'}</p>
           <p className="text-xs text-gray-500">
-            {p.investorProfile || data.investorProfile || 'Investor'} · {p.status || 'proposed'}
+            {p.firm || 'Unknown Firm'} · {p.email || 'No email'}
           </p>
+          {p.fit && <p className="text-xs text-indigo-600 mt-1">{p.fit}</p>}
         </div>
       ))}
     </div>

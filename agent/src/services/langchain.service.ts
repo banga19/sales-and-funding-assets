@@ -58,7 +58,7 @@ const FundingResearchSchema = z.object({
 });
 
 const FundingPitchSchema = z.object({
-  pitch: z.string().min(50).max(1000),
+  pitch: z.string().min(50).max(2000),
   suggestedContacts: z.array(z.object({
     name: z.string(),
     email: z.string().optional(),
@@ -68,31 +68,42 @@ const FundingPitchSchema = z.object({
   })).min(1).max(10),
 });
 
+const MarketingAssetSchema = z.object({
+  subject: z.string().min(5).max(200),
+  body: z.string().min(20).max(5000),
+});
+
+const ContentPieceSchema = z.object({
+  title: z.string().min(10).max(200),
+  body: z.string().min(100).max(10000),
+});
+
 /**
  * parseJsonFromLLM — extracts first JSON object from LLM text and validates
  * against a Zod schema. Returns parsed data or null on failure.
  */
 function parseJsonFromLLM<T>(raw: string, schema: z.ZodSchema<T>): T | null {
   const clean = raw.replace(/^```(?:json)?\s*[\r\n]*/i, '').replace(/[\r\n]*```\s*$/i, '').trim();
-  const jsonMatch = clean.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    logger.warn('[langchain] parseJsonFromLLM: no JSON block found', { snippet: raw.slice(0, 120) });
-    return null;
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < clean.length; i++) {
+    if (clean[i] === '{') { if (depth === 0) start = i; depth++; }
+    else if (clean[i] === '}') { depth--; if (depth === 0 && start !== -1) {
+      try {
+        const parsed = JSON.parse(clean.slice(start, i + 1));
+        const result = schema.safeParse(parsed);
+        if (result.success) return result.data;
+        logger.warn('[langchain] parseJsonFromLLM: schema validation failed', {
+          errors: result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`),
+        });
+      } catch (err: any) {
+        logger.warn('[langchain] parseJsonFromLLM: JSON parse failed', { error: err.message });
+      }
+      start = -1;
+    }}
   }
-  try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    const result = schema.safeParse(parsed);
-    if (!result.success) {
-      logger.warn('[langchain] parseJsonFromLLM: schema validation failed', {
-        errors: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`),
-      });
-      return null;
-    }
-    return result.data;
-  } catch (err: any) {
-    logger.warn('[langchain] parseJsonFromLLM: JSON parse failed', { error: err.message });
-    return null;
-  }
+  logger.warn('[langchain] parseJsonFromLLM: no valid JSON found', { snippet: raw.slice(0, 120) });
+  return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -101,8 +112,10 @@ function parseJsonFromLLM<T>(raw: string, schema: z.ZodSchema<T>): T | null {
 
 class LangChainService {
   private llm: ChatOpenAI;
+  private llmCache: Map<string, ChatOpenAI> = new Map();
   private lastHealthCheck: boolean = false;
   private lastHealthCheckTime: number = 0;
+  private lastHealthCheckFailureTime: number = 0;
   private isCheckingHealth: boolean = false;
   private static instance: LangChainService;
 
@@ -115,6 +128,7 @@ class LangChainService {
       configuration: {
         baseURL: agentConfig.ai.baseUrl,
       },
+      timeout: 60000,
     });
   }
 
@@ -125,35 +139,45 @@ class LangChainService {
     return LangChainService.instance;
   }
 
-  /** Shared LLM instance — all agents reuse this single ChatOpenAI */
+  /** Shared LLM instance — cached by (temperature, maxTokens) to avoid creating new instances */
   getLLM(temperature = 0.3, maxTokens?: number): ChatOpenAI {
-    if (maxTokens) {
-      return new ChatOpenAI({
+    if (!maxTokens && temperature === 0.3) return this.llm;
+    const key = `${temperature}-${maxTokens ?? 'default'}`;
+    if (!this.llmCache.has(key)) {
+      this.llmCache.set(key, new ChatOpenAI({
         model: agentConfig.ai.model,
         temperature,
-        maxTokens,
+        maxTokens: maxTokens ?? agentConfig.ai.maxTokens,
         apiKey: agentConfig.ai.apiKey,
         configuration: { baseURL: agentConfig.ai.baseUrl },
-      });
+        timeout: 60000,
+      }));
     }
-    return this.llm;
+    return this.llmCache.get(key)!;
   }
 
   /**
    * withRetry — wraps any async LLM call with exponential backoff.
-   * Use this in every chain `.invoke()` to survive transient NVIDIA API failures.
+   * Only retries on transient errors (429, 5xx, network timeouts).
+   * Non-retryable errors (400, 401, 403, 422) fail immediately.
    */
   async withRetry<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
+    const RETRYABLE_CODES = new Set([429, 500, 502, 503, 504]);
     let lastError: Error | undefined;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         return await fn();
-      } catch (err) {
+      } catch (err: any) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        const status = err?.status ?? err?.statusCode ?? err?.response?.status;
+        if (status && !RETRYABLE_CODES.has(status)) {
+          logger.error('[langchain] non-retryable error', { status, message: lastError.message });
+          throw lastError;
+        }
         if (attempt < maxRetries) {
           const delay = baseDelay * Math.pow(2, attempt - 1);
-          const jitter = Math.random() * 200;
-          logger.warn('[langchain] retry', { attempt, maxRetries, delayMs: delay + jitter, error: lastError.message });
+          const jitter = Math.random() * baseDelay;
+          logger.warn('[langchain] retry', { attempt, maxRetries, delayMs: Math.round(delay + jitter), error: lastError.message });
           await new Promise(r => setTimeout(r, delay + jitter));
         }
       }
@@ -170,7 +194,6 @@ class LangChainService {
     temperature = 0.3,
     maxTokens?: number,
   ): AsyncGenerator<string, string, unknown> {
-    const llm = this.getLLM(temperature, maxTokens);
     const streamingLlm = new ChatOpenAI({
       model: agentConfig.ai.model,
       temperature,
@@ -178,6 +201,7 @@ class LangChainService {
       apiKey: agentConfig.ai.apiKey,
       streaming: true,
       configuration: { baseURL: agentConfig.ai.baseUrl },
+      timeout: 60000,
     });
 
     let fullContent = '';
@@ -609,24 +633,23 @@ Output EXACTLY this JSON — nothing else:
    * ════════════════════════════════════════════════════════════════════════ */
 
   async healthCheck(): Promise<boolean> {
-    const CACHE_TTL_MS = 60_000; // 1 minute cache
+    const SUCCESS_TTL_MS = 60_000;
+    const FAILURE_TTL_MS = 30_000;
     const now = Date.now();
-
-    // If check is already running or last check is fresh, return cached value
-    if (this.isCheckingHealth || (now - this.lastHealthCheckTime < CACHE_TTL_MS)) {
-      return this.lastHealthCheck;
-    }
-
+    if (this.isCheckingHealth) return this.lastHealthCheck;
+    const ttl = this.lastHealthCheck ? SUCCESS_TTL_MS : FAILURE_TTL_MS;
+    if (now - this.lastHealthCheckTime < ttl) return this.lastHealthCheck;
     this.isCheckingHealth = true;
     try {
       const response = await this.llm.invoke([['human', 'Say "ok"']]);
       this.lastHealthCheck = Boolean((response as AIMessage).content);
       this.lastHealthCheckTime = now;
+      if (this.lastHealthCheck) this.lastHealthCheckFailureTime = 0;
       return this.lastHealthCheck;
     } catch {
       this.lastHealthCheck = false;
-      // Cache the failure state too to avoid spamming the failing API
       this.lastHealthCheckTime = now;
+      this.lastHealthCheckFailureTime = now;
       return false;
     } finally {
       this.isCheckingHealth = false;
@@ -634,5 +657,5 @@ Output EXACTLY this JSON — nothing else:
   }
 }
 
-export { parseJsonFromLLM, EnrichmentSchema, FundingResearchSchema, FundingPitchSchema };
+export { parseJsonFromLLM, EnrichmentSchema, FundingResearchSchema, FundingPitchSchema, MarketingAssetSchema, ContentPieceSchema };
 export const langchainService = LangChainService.getInstance();

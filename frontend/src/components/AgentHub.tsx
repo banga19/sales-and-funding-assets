@@ -1,5 +1,5 @@
 'use client';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Zap, BarChart3, PenTool, Briefcase } from 'lucide-react';
 import BulkSourcingModal from './agents/BulkSourcingModal';
 import MarketingModal from './agents/MarketingModal';
@@ -36,7 +36,6 @@ export default function AgentHub({ onProductsUpdated }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<AgentRun | null>(null);
   const [streaming, setStreaming] = useState<StreamingState | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
 
   const handleRun = useCallback(
     async (key: string, payload: any) => {
@@ -47,76 +46,56 @@ export default function AgentHub({ onProductsUpdated }: Props) {
       setStreaming({ phase: 'starting', progress: 0, message: 'Initializing...' });
 
       try {
-        // Try SSE streaming first
-        const endpoint = `/api/agents/${key}`;
-        const es = new EventSource(`${endpoint}?_format=sse`);
-        eventSourceRef.current = es;
+        // Map agent keys to loop endpoints
+        const loopMap: Record<string, string> = {
+          'bulk-sourcing': 'bulk-sourcing',
+          'sales-marketing': 'sales-marketing',
+          'content-creation': 'content-creation',
+          'funding': 'funding-pitch',
+        };
+        const loopName = loopMap[key] ?? key;
+        const endpoint = `/api/agents/loops/${loopName}`;
 
-        es.addEventListener('progress', (e) => {
-          const data = JSON.parse(e.data);
+        // Simple POST request - wait for full response
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload || {}),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status}`);
+        }
+
+        const data = await response.json();
+        const result = data.result || data;
+
+        // Update streaming state based on result steps
+        if (result.steps) {
+          const stepKeys = Object.keys(result.steps);
+          const currentStep = stepKeys[stepKeys.length - 1] || 'complete';
           setStreaming({
-            phase: data.phase || 'running',
-            progress: data.currentProduct ? (data.currentProduct / (data.totalProducts || 1)) * 100 : 0,
-            message: `${data.phase || 'Running'}...`,
+            phase: currentStep,
+            progress: 100,
+            message: 'Complete',
           });
-        });
+        }
 
-        es.addEventListener('complete', (e) => {
-          const data = JSON.parse(e.data);
-          setLastRun({ key, result: data });
-          setStreaming(null);
-          setLoading(null);
-          es.close();
-          if (key === 'bulk-sourcing' && data.success && onProductsUpdated) {
-            onProductsUpdated();
-          }
-        });
+        setLastRun({ key, result: { success: result.success, ...result } });
+        setStreaming(null);
+        setLoading(null);
 
-        es.addEventListener('error', (e) => {
-          setStreaming(null);
-          setLoading(null);
-          es.close();
-          // Fallback to regular fetch if SSE fails
-          fallbackFetch(key, payload);
-        });
-
-        // Timeout fallback — if no response in 10s, try regular fetch
-        setTimeout(() => {
-          if (loading === key) {
-            es.close();
-            fallbackFetch(key, payload);
-          }
-        }, 10000);
+        if (key === 'bulk-sourcing' && result.success && onProductsUpdated) {
+          onProductsUpdated();
+        }
       } catch (e: any) {
         setStreaming(null);
         setLoading(null);
         setLastRun({ key, result: { error: e.message } });
       }
     },
-    [agentsEnabled, onProductsUpdated, loading]
+    [agentsEnabled, onProductsUpdated]
   );
-
-  const fallbackFetch = async (key: string, payload: any) => {
-    try {
-      const endpoint = `/api/agents/${key}`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      setLastRun({ key, result: data });
-      setStreaming(null);
-      if (key === 'bulk-sourcing' && data.success && onProductsUpdated) {
-        onProductsUpdated();
-      }
-    } catch (e: any) {
-      setLastRun({ key, result: { error: e.message } });
-    } finally {
-      setLoading(null);
-      setStreaming(null);
-    }
-  };
 
   const openModal = (key: string) => {
     if (agentsEnabled) setModalOpen(key);

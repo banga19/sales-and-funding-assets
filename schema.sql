@@ -608,6 +608,7 @@ CREATE TABLE IF NOT EXISTS content_pieces (
     title      TEXT   NOT NULL,
     body       TEXT   NOT NULL,
     keywords   JSONB  DEFAULT '[]'::jsonb,
+    image_urls JSONB  DEFAULT '[]'::jsonb,
     created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_content_pieces_type       ON content_pieces(type);

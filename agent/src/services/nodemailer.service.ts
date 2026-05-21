@@ -85,7 +85,10 @@ class NodemailerService {
     if (this.transporter && this._isConnected) return this.transporter;
 
     // Concurrent callers share the same in-flight connection attempt
-    if (this._connectPromise) return this._connectPromise;
+    if (this._connectPromise) {
+      await this._connectPromise;
+      return this.transporter!;
+    }
 
     this._connectPromise = (async () => {
       this._provider = this.resolveProvider();
@@ -116,7 +119,7 @@ class NodemailerService {
             // Fall through to console stub below
             this.transporter   = null;
             this._provider     = 'console';
-            const stub = nodemailer.createTransport({ streamTransport: true, newline: 'unix', logger: false });
+            const stub = nodemailer.createTransport({ jsonTransport: true } as any);
             await stub.verify().catch(() => {});
             this.transporter   = stub;
             this._isConnected  = true;
@@ -139,12 +142,10 @@ class NodemailerService {
         }
 
         case 'console': {
-          // Stream-transport stub — prints to STDOUT, does not attempt TCP
+          // JSON-transport stub — prints email envelope to console, does not attempt TCP
           this.transporter = nodemailer.createTransport({
-            streamTransport: true,
-            newline:         'unix',
-            logger:          false,
-          });
+            jsonTransport: true,
+          } as any);
           await this.transporter.verify().catch(() => null);
           this._isConnected = true;
           logger.debug('[nodemailer] console stub — no real email transport');
@@ -155,10 +156,8 @@ class NodemailerService {
         default: {
           // Silent: swallows every send, returns a fake messageId
           this.transporter = nodemailer.createTransport({
-            streamTransport: true,
-            newline:         'unix',
-            logger:          false,
-          });
+            jsonTransport: true,
+          } as any);
           await this.transporter.verify().catch(() => null);
           this._isConnected = true;
           logger.debug('[nodemailer] blackhole stub — all sends are swallowed');
@@ -179,7 +178,8 @@ class NodemailerService {
    * Retries up to 3 times on transient SMTP errors.
    */
   async sendMail(options: SendMailOptions, maxRetries = 3): Promise<NodemailerSendResult> {
-    const from = options.from ?? agentConfig.email.from;
+    const cfgFrom = agentConfig.email.from;
+    const from = options.from ?? `"${cfgFrom.name}" <${cfgFrom.email}>`;
 
     const opts: SendMailOptions = {
       ...options,
@@ -201,7 +201,7 @@ class NodemailerService {
         logger.warn('[nodemailer] send attempt failed', {
           attempt,
           maxRetries,
-          to:      typeof opts.to === 'string' ? opts.to : opts.to?.join(', '),
+          to:      Array.isArray(opts.to) ? opts.to.map(a => typeof a === 'string' ? a : a?.address).join(', ') : (opts.to as string) || '',
           subject: opts.subject,
           error:   lastError.message,
         });
@@ -212,7 +212,7 @@ class NodemailerService {
     }
 
     logger.error('[nodemailer] all send attempts failed', {
-      to:    typeof opts.to === 'string' ? opts.to : opts.to?.join(', '),
+      to:    Array.isArray(opts.to) ? opts.to.map(a => typeof a === 'string' ? a : a?.address).join(', ') : (opts.to as string) || '',
       error: lastError?.message,
     });
     return {

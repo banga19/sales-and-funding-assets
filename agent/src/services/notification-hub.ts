@@ -101,6 +101,14 @@ export type NotificationEvent =
   | NotificationOutreachEvent
   | NotificationAgentAlertEvent;
 
+/** Hub interface — methods available on the notification hub singleton. */
+export interface NotificationHub {
+  subscribe: (sub: Omit<NotificationSubscriber, 'id'>) => string;
+  unsubscribe: (id: string) => boolean;
+  notify: (event: NotificationEvent) => void;
+  subscribers: ReadonlyArray<NotificationSubscriber>;
+}
+
 // ────────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ────────────────────────────────────────────────────────────────────────────────
@@ -132,7 +140,7 @@ function make(): { hub: NotificationHub; _notify: (e: NotificationEvent) => void
     get subscribers(): ReadonlyArray<NotificationSubscriber> { return subscribers; }
 
     subscribe(sub: Omit<NotificationSubscriber, 'id'>): string {
-      const id = sub.id ?? nextId();
+      const id = nextId();
       subscribers.push({ ...sub, id });
       return id;
     }
@@ -151,16 +159,17 @@ function make(): { hub: NotificationHub; _notify: (e: NotificationEvent) => void
     notify(event: NotificationEvent): void {
       this._queue.push(event);
 
-      // Deduplicate escalation tickets on the same runId so ops doesn't get buried under
-      // duplicate critical alerts from a single failed run.
       if (event.type === 'escalation' && event.agentName) {
-        const dupKey = JSON.stringify({ type: event.type, agentName: event.agentName, contactId: event.contactId ?? null });
-        // Keep only two as a safe guard; the later in the cycle is more relevant.
-        const filtered = this._queue.filter((e, i, arr) => {
-          const key = JSON.stringify({ type: e.type, agentName: (e as any).agentName, contactId: (e as any).contactId ?? null });
-          if (key !== dupKey) return true;
-          return i === arr.length - 1; // keep last, drop earlier dups
-        });
+        const seen = new Set<string>();
+        const filtered: NotificationEvent[] = [];
+        for (let i = this._queue.length - 1; i >= 0; i--) {
+          const e = this._queue[i];
+          const key = `${e.type}:${(e as any).agentName}:${(e as any).contactId ?? ''}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            filtered.unshift(e);
+          }
+        }
         this._queue.length = 0;
         this._queue.push(...filtered);
       }
@@ -222,9 +231,9 @@ function make(): { hub: NotificationHub; _notify: (e: NotificationEvent) => void
 
     if (emailSubs.length === 0) return;
 
-    for (const sub of emailSubs) {
+    await Promise.allSettled(emailSubs.map(async (sub) => {
       const to = sub.toEmail ?? escalationEmail ?? null;
-      if (!to) { logger.warn('[notification-hub] no destination for email subscriber', { subscriberId: sub.id }); continue; }
+      if (!to) { logger.warn('[notification-hub] no destination for email subscriber', { subscriberId: sub.id }); return; }
 
       const { subject, html, text } = _renderEmail(event, sub.direction);
       try {
@@ -241,7 +250,7 @@ function make(): { hub: NotificationHub; _notify: (e: NotificationEvent) => void
           to, error: err.message,
         });
       }
-    }
+    }));
   }
 
   function _renderEmail(event: NotificationEvent, direction: NotificationDirection): { subject: string; html: string; text: string } {
@@ -252,7 +261,7 @@ function make(): { hub: NotificationHub; _notify: (e: NotificationEvent) => void
         : '[Sokogate Agent Digest] ';
 
     const subject = prefix + _subject(event);
-    const escapeHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const escapeHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
     const agentName    = (event as any).agentName ?? 'agent';
     const typeLabel    = event.type;
@@ -376,24 +385,18 @@ export function unsubscribe(id: string): boolean {
   return notificationHub.unsubscribe(id);
 }
 
-export type { NotificationHub, NotificationSubscriber as BaseSubscriber };
 export { notificationHub };
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Built-in subscribers (registered once at module load)
 // ────────────────────────────────────────────────────────────────────────────────
 
-declare const notificationHub: {
-  subscribe: (s: Omit<NotificationSubscriber, 'id'>) => string;
-  subscribers: ReadonlyArray<NotificationSubscriber>;
-};
-
-/** Logger-only subscriber — fired for every event (INTERNAL / TO_AGENT). */
+/** Logger-only subscriber — fired for important lifecycle events only. */
 const _logSub = notificationHub.subscribe({
   label:     'logger',
   direction: 'INTERNAL',
   priority:  0,
-  filter:    () => true,  // every event
+  filter:    (e) => ['runCompleted', 'runFailed', 'escalation', 'runStarted'].includes(e.type),
   handler:   (e) => { logger.debug('[hub] event', { type: e.type, agentName: (e as any).agentName }); },
 });
 

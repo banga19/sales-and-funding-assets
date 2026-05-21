@@ -36,9 +36,9 @@ function getClient(): IORedis | null {
   return redisClient;
 }
 
-function hashKey(namespace: string, params: Record<string, unknown>): string {
-  const payload = JSON.stringify({ namespace, params });
-  return `cache:${namespace}:${createHash('sha256').update(payload).digest('hex').slice(0, 16)}`;
+function hashKey(namespace: string, params: Record<string, unknown> | string): string {
+  const payload = typeof params === 'string' ? `${namespace}:${params}` : JSON.stringify({ namespace, params });
+  return `cache:${createHash('sha256').update(payload).digest('hex').slice(0, 16)}`;
 }
 
 export interface CacheConfig {
@@ -50,7 +50,7 @@ export interface CacheConfig {
  * Get cached response.
  * Returns null on cache miss or Redis failure.
  */
-export async function getCached<T>(namespace: string, params: Record<string, unknown>): Promise<T | null> {
+export async function getCached<T>(namespace: string, params: Record<string, unknown> | string): Promise<T | null> {
   const client = getClient();
   if (!client) return null;
 
@@ -75,7 +75,7 @@ export async function getCached<T>(namespace: string, params: Record<string, unk
  */
 export async function setCached<T>(
   namespace: string,
-  params: Record<string, unknown>,
+  params: Record<string, unknown> | string,
   data: T,
   ttlSeconds = 3600,
 ): Promise<void> {

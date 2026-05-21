@@ -96,7 +96,7 @@ export default function AgentControlPanel() {
       const data = await apiClient.triggerDailyOutreach();
       setDailyOutreachResult(data);
       if (data?.success) {
-        toast.success(`Outreach: ${data.processed ?? 0} processed, ${data.successful ?? 0} sent`);
+        toast.success(data.status === 'queued' ? 'Outreach started — check Email Logs for results' : `Outreach: ${data.processed ?? 0} processed, ${data.successful ?? 0} sent`);
       } else {
         toast.error('Daily outreach failed');
       }

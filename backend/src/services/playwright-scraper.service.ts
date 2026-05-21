@@ -69,28 +69,6 @@ async function getBrowser(): Promise<Browser> {
     ...(px.server ? { proxy: px as any } : {}),
   });
 
-  // Inject fingerprint-evasion script at browser-persistent level
-  await (sharedBrowser as any).addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] as any });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] as any });
-    (window as any).chrome = {} as any;
-
-    const getParameter = WebGLRenderingContext.prototype.getParameter;
-    // @ts-ignore
-    WebGLRenderingContext.prototype.getParameter = function (this: WebGLRenderingContext, pname: number) {
-      if (pname === 37445) return 'Intel Inc.';
-      if (pname === 37446) return 'Intel Iris Xe';
-      return getParameter.call(this, pname);
-    };
-
-    const origQuery = (navigator as any).permissions.query as any;
-    (navigator as any).permissions.query = (parameters: { name: string }) =>
-      parameters.name === 'notifications'
-        ? Promise.resolve({ state: (Notification as any).permission } as any as Promise<PermissionStatus>)
-        : origQuery(parameters);
-  });
-
   report('stealth', `Browser ready — ua:${ua.slice(0, 50)}… proxy:${px.server ?? 'none'}`);
   return sharedBrowser;
 }

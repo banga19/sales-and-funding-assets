@@ -96,6 +96,7 @@ router.get('/email-logs', async (req: Request, res: Response) => {
 
   // ── POST /api/agents/daily-outreach ────────────────────────────────────────────
   // Manual trigger for the daily outreach workflow.
+  // Returns immediately (202) and processes in background.
   // Optionally accepts: { dryRun?: boolean }
   router.post('/daily-outreach', async (req: Request, res: Response) => {
     try {
@@ -103,7 +104,6 @@ router.get('/email-logs', async (req: Request, res: Response) => {
       logger.info('[daily-outreach] manual trigger', { dryRun });
 
       if (dryRun) {
-        const { outreachWorkflow } = await import('../../workflows/outreach.workflow');
         const query = `
           SELECT COUNT(*) as cnt FROM contacts c
           LEFT JOIN conversations conv ON c.id = conv.contact_id
@@ -117,9 +117,18 @@ router.get('/email-logs', async (req: Request, res: Response) => {
         return res.json({ success: true, dryRun: true, eligibleContacts: eligible });
       }
 
-      const { outreachWorkflow } = await import('../../workflows/outreach.workflow');
-      const stats = await outreachWorkflow.executeDailyBatch();
-      res.json({ success: true, ...stats });
+      // Return immediately — process in background
+      res.json({ success: true, status: 'queued', message: 'Daily outreach started in background.' });
+
+      (async () => {
+        try {
+          const { outreachWorkflow } = await import('../../workflows/outreach.workflow');
+          const stats = await outreachWorkflow.executeDailyBatch();
+          logger.info('[daily-outreach] background complete', stats);
+        } catch (err: any) {
+          logger.error('[daily-outreach] background failed', { error: err.message });
+        }
+      })();
     } catch (err: any) {
       logger.error('[daily-outreach] failed', { error: err.message });
       res.status(500).json({ success: false, error: err.message || 'Daily outreach failed' });

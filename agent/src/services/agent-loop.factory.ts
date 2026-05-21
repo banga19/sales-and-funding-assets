@@ -5,35 +5,29 @@
  * Sokogate sub-agents: BulkSourcing, SalesMarketing, ContentCreation, FundingPitch.
  *
  * Design
- *  Each sub-agent loop is a sequence of three chain steps:
+ *  Each sub-agent loop is a sequence of chain steps with:
  *   1. Fetch / retrieve source data (SQL or HTTP client)
- *   2. LLM reasoning chain (ChatOpenAI via ChatPromptTemplate.pipe(llm)) with withRetry
+ *   2. LLM reasoning chain (ChatPromptTemplate.pipe(llm)) with withRetry + system prompts
  *   3. Persist / action step (DB upsert, notification emit)
  *
- *  The factory returns a plain async LoopResult (no LangChain-specific types leak
- *  out to the caller), keeping orchestrator.ts clean and type-safe.
- *
- * LangChain classes consumed at this layer
- *   · ChatOpenAI            — LLM for every chain step
- *   · ChatPromptTemplate    — prompt builder for each LLM call
- *   · Runnable              — base type for composed chain pipelines
- *   · parseJsonFromLLM      — structured output enforcement (zod + regex fallback)
+ *  All LLM calls use system messages for chain-of-thought suppression,
+ *  Zod schemas for structured output, and caching where applicable.
  *
  * Notification integration
- *   _notifyCompletion()    — fires a typed event to notification-hub at the end of
- *                            every loop, giving the hub the data it needs to send
- *                            an email digest to the ops team or an escalation address.
+ *   _notifyCompletion() — fires a typed event to notification-hub at the end of
+ *   every loop, giving the hub the data it needs to send an email digest or escalation.
  */
 
-import { ChatOpenAI, type BaseMessage } from '@langchain/openai';
+import type { BaseMessage } from '@langchain/core/messages';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
-import type { Runnable } from '@langchain/core/runnables';
-import { parseJsonFromLLM, EnrichmentSchema } from './langchain.service';
+import { parseJsonFromLLM, EnrichmentSchema, MarketingAssetSchema, ContentPieceSchema, FundingResearchSchema, FundingPitchSchema } from './langchain.service';
 import { notify, type NotificationEvent, type NotificationRunEvent } from './notification-hub';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
 import { langchainService } from './langchain.service';
 import { db } from '../database/db.client';
+import { getCached, setCached } from './response-cache.service';
+import { z } from 'zod';
 
 // ══════════════════════════════════════════════════════════════════════════════════
 // Shared types
@@ -47,24 +41,30 @@ export interface LoopResult {
   durationMs: number;
   steps:      Record<string, Record<string, any>>;
   errors:     string[];
-  summary:    Record<string, number | string>;
+  summary:    Record<string, any>;
 }
 
 export interface BaseLoopOptions {
-  /** Agent name used for logging + notification events. */
   agentName:   LoopAgentName;
-  /** Phase progress callback wired to SSE / WS dashboard. */
   onProgress?: (phase: string, data: Record<string, any>) => void;
   runId?:      string;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// System prompts for chain-of-thought suppression
+// ══════════════════════════════════════════════════════════════════════════════════
+
+const ENRICH_SYSTEM = 'You are a B2B product cataloguer. You must output ONLY the JSON object. Do NOT show any thinking, reasoning, planning, or internal monologue.';
+const MARKETING_SYSTEM = 'You are a professional marketing copywriter. You must output ONLY the final marketing text. Do NOT show any thinking, reasoning, or planning.';
+const CONTENT_SYSTEM = 'You are a senior B2B content writer. You must output ONLY the final content. Do NOT show any thinking, reasoning, or planning.';
+const RESEARCH_SYSTEM = 'You are an investor research analyst. You must output ONLY the JSON object. Do NOT show any thinking, reasoning, or planning.';
+const SYNTHESIS_SYSTEM = 'You are a startup founder and fundraising strategist. You must output ONLY the JSON object. Do NOT show any thinking, reasoning, or planning.';
 
 // ══════════════════════════════════════════════════════════════════════════════════
 // AgentLoopFactory
 // ══════════════════════════════════════════════════════════════════════════════════
 
 class AgentLoopFactory {
-  private get llm() { return langchainService.getLLM(); }
-
   // ── 1. Bulk-Sourcing loop ────────────────────────────────────────────────────
 
   async bulkSourcing(opts: {
@@ -74,83 +74,145 @@ class AgentLoopFactory {
     onProgress?:  (phase: string, data: any) => void;
     runId?:       string;
   }): Promise<LoopResult> {
-    const { sourceProductData } = await import('./product-source.service');
     const start   = Date.now();
     const errors: string[] = [];
     const steps:  Record<string, Record<string, any>> = {};
 
-    // ── Step 1: Scrape ─────────────────────────────────────────────────────────
     opts.onProgress?.('scraping', { pages: opts.pages });
-    let scrapeResult: { productsFound?: number; productsUpserted: number };
+
+    // Call backend Playwright scraper (handles JavaScript-rendered SPA)
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+    let productsFound = 0;
 
     try {
-      scrapeResult = await sourceProductData();
+      const scrapeResponse = await fetch(`${backendUrl}/api/products/scrape`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baseUrl: agentConfig.sokogate.baseUrl,
+          maxPages: opts.pages,
+          maxProducts: agentConfig.sokogate.maxProductsPerRun,
+          mode: 'foreground',
+        }),
+      });
+
+      if (!scrapeResponse.ok) {
+        const errText = await scrapeResponse.text().catch(() => 'Unknown error');
+        throw new Error(`Backend scrape failed: ${scrapeResponse.status} ${errText.slice(0, 200)}`);
+      }
+
+      const scrapeData = await scrapeResponse.json();
+      
+      // Query database for actual product count after scrape
+      const countResult = await db.query('SELECT COUNT(*) FROM scraped_products');
+      productsFound = parseInt(countResult.rows[0].count, 10);
+
       steps.scraping = {
-        productsFound:    scrapeResult.productsFound ?? 0,
-        productsUpserted: scrapeResult.productsUpserted,
+        productsFound,
+        productsUpserted: productsFound,
       };
+
+      opts.onProgress?.('scraping', { productsFound });
+      logger.info('[bulk-sourcing] backend scrape complete', { productsFound });
     } catch (err: any) {
       errors.push(`scraping: ${err.message}`);
-      steps.scraping = { error: err.message };
-      this._notifyCompletion('bulk-sourcing', { success: false, errors, durationMs: Date.now() - start, steps, summary: {} });
-      return { success: false, agentName: 'bulk-sourcing', durationMs: Date.now() - start, steps, errors, summary: { productsUpserted: 0, enrichedCount: 0, productsFound: 0 } };
+      steps.scraping = { error: err.message, productsFound: 0 };
+      logger.warn('[bulk-sourcing] scrape failed', { error: err.message });
+
+      // Fallback: try legacy cheerio scraper
+      try {
+        const { sourceProductData } = await import('./product-source.service');
+        const fallbackResult = await sourceProductData(opts.pages);
+        productsFound = fallbackResult.productsUpserted ?? 0;
+        steps.scraping.fallback = true;
+        steps.scraping.productsFound = productsFound;
+        steps.scraping.productsUpserted = productsFound;
+        logger.info('[bulk-sourcing] fallback scraper result', { productsFound });
+      } catch (fallbackErr: any) {
+        errors.push(`fallback-scraping: ${fallbackErr.message}`);
+      }
     }
 
-    // ── Step 2: AI enrichment (optional, concurrency-batched) ──────────────────
+    // If no products found, return early
+    if (productsFound === 0) {
+      const result: LoopResult = {
+        success: errors.length === 0,
+        agentName: 'bulk-sourcing',
+        durationMs: Date.now() - start,
+        steps,
+        errors,
+        summary: { productsUpserted: 0, enrichedCount: 0, productsFound: 0 },
+      };
+      this._notifyCompletion('bulk-sourcing', result);
+      return result;
+    }
+
     let enrichedCount = 0;
 
-    if (opts.enrichWithAI && scrapeResult.productsUpserted > 0) {
-      opts.onProgress?.('enriching', { toEnrich: scrapeResult.productsUpserted });
+    if (opts.enrichWithAI && productsFound > 0) {
+      opts.onProgress?.('enriching', { toEnrich: productsFound });
 
       try {
         const { rows: products } = await db.query(
-          `SELECT id, name, description, category
-             FROM scraped_products
-            ORDER BY last_scraped_at DESC
-            LIMIT $1`,
-          [Math.min(scrapeResult.productsUpserted, opts.maxEnrich)],
+          `SELECT id, name, description, category FROM scraped_products ORDER BY created_at DESC LIMIT $1`,
+          [Math.min(productsFound, opts.maxEnrich)],
         );
 
-        const CONCURRENCY = 5;
+        const CONCURRENCY = agentConfig.queue.concurrency || 5;
         let count = 0;
 
         for (let i = 0; i < products.length; i += CONCURRENCY) {
           const batch = products.slice(i, i + CONCURRENCY);
-          opts.onProgress?.('enriching', { current: i, total: products.length });
+          opts.onProgress?.('enriching', { current: i + 1, total: products.length });
 
           const results = await Promise.allSettled(
             batch.map(async (p: any) => {
-              const prompt = `You are a B2B product cataloguer for a Kenyan construction-materials e-commerce platform.
-Product name: "${p.name}"
-Category: "${p.category}"
-Scraped description: "${(p.description || 'none').slice(0, 600)}"
+              const cacheKey = `loop:enrich:${p.name}|${p.category}|${(p.description || '').slice(0, 200)}`;
+              const cached = await getCached('enrichment', cacheKey);
+              if (cached) return cached;
 
-Return ONLY valid JSON — no code fences:
-{"enrichment_keywords":["a","b","c"],"enrichment_tagline":"30 – 50 words","enrichment_selling_points":["bullet1","bullet2"]}`;
+              const promptTemplate = ChatPromptTemplate.fromMessages([
+                ['system', ENRICH_SYSTEM],
+                ['human', `You are a B2B product cataloguer for a Kenyan construction-materials e-commerce platform.
+Product name: {name}
+Category: {category}
+Scraped description: {description}
 
-              const res = await langchainService.withRetry(() =>
-                this.llm.invoke([['human', prompt]]),
-              );
+Return ONLY valid JSON — no code fences, no preamble:
+{{"enrichment_keywords":["a","b","c"],"enrichment_tagline":"30 – 50 words","enrichment_selling_points":["bullet1","bullet2"]}}`],
+              ]);
+
+              const chain = promptTemplate.pipe(langchainService.getLLM(0.2, 300));
+              const res = await langchainService.withRetry(() => chain.invoke({
+                name: (p.name || 'Unknown').slice(0, 200),
+                category: (p.category || 'General').slice(0, 100),
+                description: ((p.description || 'none') as string).slice(0, 800),
+              }));
               const raw  = (res as BaseMessage).content?.toString() ?? '{}';
               const data = parseJsonFromLLM(raw, EnrichmentSchema);
 
               if (data) {
                 await db.query(
-                  `UPDATE scraped_products SET enriched_data = $1, updated_at = NOW() WHERE id = $2`,
-                  [JSON.stringify(data), p.id],
+                  `UPDATE scraped_products SET enriched_data = $1, enrichment_keywords = $2, enrichment_tagline = $3, enrichment_selling_points = $4, updated_at = NOW() WHERE id = $5`,
+                  [JSON.stringify(data), data.enrichment_keywords, data.enrichment_tagline, data.enrichment_selling_points, p.id],
                 );
-                return true;
+                await setCached('enrichment', cacheKey, data, 86400);
+                return data;
               }
-              return false;
+              return null;
             }),
           );
 
           count += results.filter(r => r.status === 'fulfilled' && r.value).length;
           opts.onProgress?.('enriching', { enrichedSoFar: count });
+
+          if (i + CONCURRENCY < products.length) {
+            await new Promise(r => setTimeout(r, 500));
+          }
         }
 
         enrichedCount = count;
-        steps.enrichment = { enriched: count };
+        steps.enrichment = { enriched: count, totalCandidates: products.length };
       } catch (err: any) {
         errors.push(`enrichment: ${err.message}`);
         steps.enrichment = { error: err.message };
@@ -165,8 +227,8 @@ Return ONLY valid JSON — no code fences:
       steps,
       errors,
       summary: {
-        productsFound:    scrapeResult.productsFound ?? scrapeResult.productsUpserted,
-        productsUpserted: scrapeResult.productsUpserted,
+        productsFound,
+        productsUpserted: productsFound,
         enrichedCount,
       },
     };
@@ -189,10 +251,7 @@ Return ONLY valid JSON — no code fences:
     let assetsCreated = 0;
 
     const { rows: products } = await db.query(
-      `SELECT id, name, description, category
-         FROM scraped_products
-        WHERE id = ANY($1::uuid[])
-        LIMIT $2`,
+      `SELECT id, name, description, category FROM scraped_products WHERE id = ANY($1::uuid[]) AND is_active = TRUE LIMIT $2`,
       [opts.productIds, agentConfig.salesMarketing.maxProducts],
     );
 
@@ -206,45 +265,86 @@ Return ONLY valid JSON — no code fences:
     }
 
     const ASSET_TYPES = ['email_sequence', 'social_post', 'ad_copy', 'landing_page'] as const;
-    const prompts: Record<string, string> = {
-      email_sequence: `You are head of marketing at Sokogate/Ultimo Trading Company Limited.
-Product: "{name}"
-{desc}
-Generate a cold-email sequence. Format: a subject on the first line, a blank line, then the body.`,
 
-      social_post: `Write one LinkedIn/Twitter post for Sokogate about "{name}". Under 400 chars. End with 2-3 hashtags. Output plain text only.`,
+    const ASSET_PROMPTS: Record<string, string> = {
+      email_sequence: `You are head of marketing at Sokogate/Ultimo Trading Company Limited, an AI-powered B2B e-commerce platform for construction and industrial goods.
+Product: {name}
+Category: {category}
+Description: {description}
+Generate a cold-email sequence with a subject line and body. Audience: B2B procurement managers. Keep under 200 words.`,
 
-      ad_copy: `Write a Facebook/Google Ads ad for "{name}". Maximum 125 characters body + 40 character headline.\nHeadline: <headline, 40 chars max>\nCopy: <90-125 char persuasive body>`,
+      social_post: `You are the social media manager for Sokogate, a Kenyan B2B construction-materials marketplace.
+Product: {name}
+Description: {description}
+Write an engaging LinkedIn post under 400 characters. End with 2-3 hashtags.`,
 
-      landing_page: `Write a landing-page hero section for "{name}".\nH1: <hero headline>\nBULLETS:\n  - <benefit 1>\n  - <benefit 2>\n  - <benefit 3>\nCTA: <primary CTA link text>`,
+      ad_copy: `You are a performance marketing specialist for Sokogate, a B2B e-commerce platform for construction materials.
+Product: {name}
+Description: {description}
+Write Facebook/Google Ads copy with HEADLINE (40 chars max) and COPY (90-125 chars).`,
+
+      landing_page: `You are a conversion-focused copywriter for Sokogate, a B2B construction-materials marketplace.
+Product: {name}
+Description: {description}
+Write a landing-page hero section with H1, 3 benefit bullets, and CTA.`,
     };
 
     opts.onProgress?.('generating', { products: products.length });
 
-    for (const product of products) {
+    for (let pi = 0; pi < products.length; pi++) {
+      const product = products[pi];
       const desc = (product as any).description ?? '';
 
       for (const type of ASSET_TYPES) {
         if (opts.targetChannel !== 'all' && opts.targetChannel !== type) continue;
 
         try {
-          const promptText = prompts[type]
-            .replace('{name}', product.name)
-            .replace('{desc}', desc.slice(0, 300));
+          const cacheKey = `loop:marketing:${product.id}:${type}`;
+          const cached = await getCached<{ subject: string; body: string }>('marketing', cacheKey);
+          if (cached) {
+            await db.query(
+              `INSERT INTO marketing_assets (id, product_id, type, content, created_at)
+               VALUES (gen_random_uuid()::text, $1::uuid, $2, $3, NOW())`,
+              [product.id, type, `SUBJECT: ${cached.subject}\n\n${cached.body}`],
+            );
+            assetsCreated++;
+            continue;
+          }
 
-          const chain = ChatPromptTemplate.fromMessages([['human', promptText]]).pipe(this.llm);
+          const promptText = ASSET_PROMPTS[type]
+            .replace('{name}', (product.name || 'Unknown').slice(0, 200))
+            .replace('{category}', ((product as any).category || 'General').slice(0, 100))
+            .replace('{description}', desc.slice(0, 500));
+
+          const chain = ChatPromptTemplate.fromMessages([
+            ['system', MARKETING_SYSTEM],
+            ['human', promptText],
+          ]).pipe(langchainService.getLLM(0.5, 1024));
+
           const res   = await langchainService.withRetry(() => chain.invoke({}));
           const content = (res as BaseMessage).content?.toString().trim();
           if (!content) throw new Error('Empty LLM response');
 
+          const parsed = parseJsonFromLLM(content, MarketingAssetSchema);
+          const finalContent = parsed
+            ? `SUBJECT: ${parsed.subject}\n\n${parsed.body}`
+            : content;
+
           await db.query(
             `INSERT INTO marketing_assets (id, product_id, type, content, created_at)
              VALUES (gen_random_uuid()::text, $1::uuid, $2, $3, NOW())`,
-            [product.id, type, content],
+            [product.id, type, finalContent],
           );
+
+          if (parsed) {
+            await setCached('marketing', cacheKey, { subject: parsed.subject, body: parsed.body }, 3600);
+          }
+
           assetsCreated++;
+          steps[`product_${pi}_${type}`] = { ok: true };
         } catch (err: any) {
-          errors.push(`${product.name}/${type}: ${err.message}`);
+          errors.push(`${(product as any).name}/${type}: ${err.message}`);
+          steps[`product_${pi}_${type}`] = { error: err.message };
         }
       }
     }
@@ -269,6 +369,8 @@ Generate a cold-email sequence. Format: a subject on the first line, a blank lin
     type:        'blog' | 'product_guide' | 'company_profile';
     keywords:    string[];
     productIds?: string[];
+    generateImage?: boolean;
+    imageStyle?: 'modern' | 'minimal' | 'bold';
     onProgress?: (phase: string, data: any) => void;
     runId?:      string;
   }): Promise<LoopResult> {
@@ -279,7 +381,6 @@ Generate a cold-email sequence. Format: a subject on the first line, a blank lin
 
     opts.onProgress?.('retrieving', { keywords: opts.keywords });
 
-    // ── RAG retrieval ──────────────────────────────────────────────────────────
     if (opts.productIds && opts.productIds.length > 0) {
       try {
         const { rows } = await db.query(
@@ -309,7 +410,9 @@ Generate a cold-email sequence. Format: a subject on the first line, a blank lin
             rows.map((p: any) => `- ${p.name}: ${(p.description || '').slice(0, 100)}`).join('\n'),
           );
         }
-      } catch { /* non-fatal */ }
+      } catch (err: any) {
+        logger.warn('[content-loop] keyword search failed', { error: err.message });
+      }
     }
 
     const contextText = contextBlocks.join('\n\n') || 'No matching catalog entries found.';
@@ -317,41 +420,56 @@ Generate a cold-email sequence. Format: a subject on the first line, a blank lin
 
     opts.onProgress?.('generating', { contextChars: contextText.length });
 
-    // ── LLM generation ─────────────────────────────────────────────────────────
+    const cacheKey = `loop:content:${opts.type}:${opts.keywords.join(',')}:${(opts.productIds || []).join(',')}`;
+    const cached = await getCached<{ title: string; body: string }>('content', cacheKey);
+    if (cached) {
+      steps.generation = { title: cached.title, chars: cached.body.length, cacheHit: true };
+      steps.persist = { ok: true };
+      const result: LoopResult = {
+        success: true, agentName: 'content-creation', durationMs: Date.now() - start,
+        steps, errors, summary: { title: cached.title, bodyLength: cached.body.length },
+      };
+      this._notifyCompletion('content-creation', result);
+      return result;
+    }
+
     const typePrompts: Record<string, string> = {
-      blog: `SEO-optimised article — Sokogate blog for B2B procurement managers in East and West Africa.
-Title + intro + 2-3 body sections with sub-headings + CTA to browsable Sokogate catalog.`,
+      blog: `Write a 600-word SEO-optimised blog article for Sokogate / Ultimo Trading Company Limited.
+Audience: B2B procurement managers in East and West Africa.
+Include: intro, 2-3 body sections with sub-headings, data-driven arguments, CTA to sokogate.com.`,
 
-      product_guide: `B2B product-buying guide.
-Structure: intro, section per product type (material properties, MOQ, lead times, certifications), FAQ, CTA.`,
+      product_guide: `Write a 600-word B2B product buying guide for procurement teams in Kenya and Nigeria.
+Structure: intro, section per product (material properties, MOQ, lead times, certifications), FAQ, CTA.`,
 
-      company_profile: `400-word professional company profile for "Ultimo Trading Company Limited" trading as Sokogate.
+      company_profile: `Write a 400-word professional company profile for "Ultimo Trading Company Limited" trading as Sokogate.
 Cover: founding story, product range, markets, key metrics ($600K+ ARR, 10K+ customers), competitive advantages.`,
     };
 
-    const fullPrompt =
-      `${typePrompts[opts.type]}\n\n---\n\n[Write title, headings, body with paragraphs and bullets]\n\n${contextText}`;
+    const fullPrompt = `${typePrompts[opts.type]}\n\n---\n\n${contextText}`;
 
     try {
       const chain = ChatPromptTemplate.fromMessages([
-        ['system', 'You are a senior B2B content writer for Sokogate / Ultimo Trading Company Limited.'],
+        ['system', CONTENT_SYSTEM],
         ['human',  fullPrompt],
-      ]).pipe(this.llm);
+      ]).pipe(langchainService.getLLM(0.4, 2048));
 
       const res   = await langchainService.withRetry(() => chain.invoke({}));
       const body  = (res as BaseMessage).content?.toString().trim() || '[no content returned]';
-      const title = body.split('\n').find(l => l.replace(/^#+\s*/, '').trim().length >= 30)
-        ?.replace(/^#+\s*/, '') ?? `Generated ${opts.type}`;
 
-      steps.generation = { title: title.slice(0, 80), chars: body.length };
+      const parsed = parseJsonFromLLM(body, ContentPieceSchema);
+      const fallbackTitle = body.split('\n').find(l => l.replace(/^#+\s*/, '').trim().length >= 30);
+      const title = parsed?.title || (fallbackTitle ? fallbackTitle.replace(/^#+\s*/, '') : `Generated ${opts.type}`);
+      const finalBody = parsed?.body || body;
 
-      // ── Persist ──────────────────────────────────────────────────────────────
+      steps.generation = { title: title.slice(0, 80), chars: finalBody.length };
+
       try {
         await db.query(
-          `INSERT INTO content_pieces (id, type, title, body, keywords, created_at)
-             VALUES (gen_random_uuid()::text, $1, $2, $3, $4, NOW())`,
-          [opts.type, title.slice(0, 150), body, opts.keywords],
+          `INSERT INTO content_pieces (id, type, title, body, keywords, image_urls, created_at)
+             VALUES (gen_random_uuid()::text, $1, $2, $3, $4::jsonb, $5::jsonb, NOW())`,
+          [opts.type, title.slice(0, 150), finalBody, JSON.stringify(opts.keywords), JSON.stringify([])],
         );
+        await setCached('content', cacheKey, { title, body: finalBody, imageUrls: [] }, 7200);
         steps.persist = { ok: true };
       } catch (err: any) {
         steps.persist = { ok: false, error: err.message };
@@ -364,7 +482,7 @@ Cover: founding story, product range, markets, key metrics ($600K+ ARR, 10K+ cus
         durationMs,
         steps,
         errors,
-        summary: { title, bodyLength: body.length, keywordCount: opts.keywords.length },
+        summary: { title, bodyLength: finalBody.length, keywordCount: opts.keywords.length, imageUrls: [] },
       };
 
       this._notifyCompletion('content-creation', result);
@@ -391,102 +509,156 @@ Cover: founding story, product range, markets, key metrics ($600K+ ARR, 10K+ cus
     const start   = Date.now();
     const errors: string[] = [];
     const steps:  Record<string, Record<string, any>> = {};
-    let contacts: Array<{ name: string; email?: string; firm: string; fit: string }> = [];
+    let contacts: any[] = [];
 
-    // ── Step 1: Research (LLM-driven) ─────────────────────────────────────────
     opts.onProgress?.('research', { profile: opts.investorProfile });
 
-    try {
-      const researchPrompt = `You are a fundraising research analyst. Your task is to identify 3–5 RECENTLY ACTIVE ${opts.investorProfile} investors or funds that invest in B2B e-commerce or construction-tech.
-Targeting: East Africa (Kenya, Nigeria, Ghana, Senegal).
+    const cacheKey = `loop:funding:research:${opts.investorProfile}`;
+    const cachedContacts = await getCached<any[]>('funding', cacheKey);
+    if (cachedContacts) {
+      contacts = cachedContacts;
+      steps.research = { contactsFound: contacts.length, cacheHit: true };
+    } else {
+      try {
+        const researchPrompt = `You are a fundraising research analyst. Identify the KEY CHARACTERISTICS of ${opts.investorProfile} investors who typically fund B2B e-commerce or construction-tech companies in East Africa.
 
 Return ONLY valid JSON — no markdown code fences, no commentary:
-{"contacts":[{"name":"Full Name","email":"person@example.com","firm":"Firm Name","fit":"one-sentence fit reason"}]}`;
+{{"contacts":[{{"name":"Example Fund Name","email":"","firm":"Example Firm","fit":"Why this type of investor fits"}}]}}`;
 
-      const res     = await langchainService.withRetry(() => this.llm.invoke([['human', researchPrompt]]));
-      const raw     = (res as BaseMessage).content?.toString() ?? '{}';
-      const json    = raw.match(/\{[\s\S]*\}/);
-      const parsed  = json ? JSON.parse(json[0]) : {};
-      contacts      = (parsed.contacts as Array<{ name: string; email?: string; firm: string; fit: string }>) ?? [];
-      steps.research = { contactsFound: contacts.length };
-    } catch (err: any) {
-      errors.push(`research: ${err.message}`);
-      steps.research = { error: err.message };
+        const promptTemplate = ChatPromptTemplate.fromMessages([
+          ['system', RESEARCH_SYSTEM],
+          ['human', researchPrompt],
+        ]);
+
+        const res     = await langchainService.withRetry(() =>
+          promptTemplate.pipe(langchainService.getLLM(0.5, 512)).invoke({}));
+        const raw     = (res as BaseMessage).content?.toString() ?? '{}';
+        const parsed  = parseJsonFromLLM(raw, FundingResearchSchema);
+        if (parsed?.contacts?.length) {
+          contacts = parsed.contacts;
+          await setCached('funding', cacheKey, contacts, 86400);
+        }
+        steps.research = { contactsFound: contacts.length };
+      } catch (err: any) {
+        errors.push(`research: ${err.message}`);
+        steps.research = { error: err.message };
+      }
     }
 
-    // ── Step 2: Synthesis ──────────────────────────────────────────────────────
     opts.onProgress?.('synthesis', { researchHits: contacts.length });
 
+    let pitchSummary = '';
+    let suggestedContacts: any[] = [];
+
+    const topMatches = contacts
+      .slice(0, 5)
+      .map((c) => `- ${c.firm} (${c.name}): ${c.fit}`)
+      .join('\n');
+
+    const companyStr = JSON.stringify(opts.companyDetails).slice(0, 300).replace(/\{/g, '{{').replace(/\}/g, '}}');
+
+    // Step 2a: Generate pitch as plain text
     try {
-      const topMatches = contacts
-        .slice(0, 5)
-        .map((c) => `- ${c.firm} (${c.name}): ${c.fit}`)
-        .join('\n');
+      const pitchPrompt = `Write a 150-250 word pitch for a ${opts.investorProfile} investor about Sokogate.
 
-      const synthesis = `You are the founder of Ultimo Trading Company Limited (trading as sokogate.com) — a Kenyan B2B construction-materials marketplace with 10,000+ customers and $600K+ ARR.
+Company: Ultimo Trading Company Limited (sokogate.com) — Kenyan B2B construction-materials marketplace, 10,000+ customers, $600K+ ARR.
+Details: ${companyStr}
+${topMatches ? `Reference: ${topMatches}` : ''}
 
-Target investor type: ${opts.investorProfile}
+Write the pitch directly. No preamble.`;
 
-Company details:
-${Object.entries(opts.companyDetails).map(([k, v]) => `- ${k}: ${v}`).join('\n')}
+      const pitchTemplate = ChatPromptTemplate.fromMessages([
+        ['system', 'Write a professional pitch. No JSON. No markdown.'],
+        ['human', pitchPrompt],
+      ]);
 
-${topMatches ? `Top investor matches from research:\n${topMatches}\n` : ''}
-
-Your tasks:
-1. Write a 150-250 word pitch relevant to a ${opts.investorProfile} investor.
-2. Suggest 3 specific people (name, email, firm, role, fit reason).
-
-Return ONLY valid JSON — no markdown fence, no commentary:
-{"pitch":"...","suggestedContacts":[{"name":"","email":"","firm":"","role":"","fit":""}]}`;
-
-      const res   = await langchainService.withRetry(() => this.llm.invoke([['human', synthesis]]));
-      const raw2  = (res as BaseMessage).content?.toString() ?? '{}';
-      const json2 = raw2.match(/\{[\s\S]*\}/);
-      const parsed = json2 ? JSON.parse(json2[0]) : { pitch: '', suggestedContacts: [] };
-      const pitchSummary = parsed.pitch ?? '';
-
-      steps.synthesis = {
-        contactsMentioned: (parsed.suggestedContacts ?? []).length,
-        pitchLength:       pitchSummary.length,
-      };
-
-      // ── Step 3: Persist investor_prospects ──────────────────────────────────
-      let created = 0;
-      for (const c of (parsed.suggestedContacts ?? [])) {
-        if (!c?.email) continue;
-        try {
-          await db.query(
-            `INSERT INTO investor_prospects (id, investor_profile, pitch_summary, status, created_at)
-               VALUES (gen_random_uuid()::text, $1, $2, 'proposed', NOW())
-               ON CONFLICT DO NOTHING`,
-            [opts.investorProfile, pitchSummary],
-          );
-          created++;
-        } catch { /* ignore duplicate / FK violations */ }
-      }
-
-      steps.persist = { prospectsCreated: created };
-      const durationMs = Date.now() - start;
-
-      const result: LoopResult = {
-        success:   created > 0,
-        agentName: 'funding-pitch',
-        durationMs,
-        steps,
-        errors,
-        summary: { pitchSummaryLength: pitchSummary.length, prospectsCreated: created },
-      };
-      this._notifyCompletion('funding-pitch', result);
-      return result;
+      const res = await langchainService.withRetry(() =>
+        pitchTemplate.pipe(langchainService.getLLM(0.3, 1024)).invoke({}));
+      let rawPitch = (res as BaseMessage).content?.toString().trim() || '';
+      // Remove planning/thinking lines from NVIDIA Nemotron outputs
+      const pitchLines = rawPitch.split('\n').filter(l => {
+        const t = l.trim();
+        if (!t) return false;
+        if (/^(we need|let's|let |count|draft|ensure|must|should|likely|around|word|now|first|second|third|step|note|actually|ok|okay|write|craft|approx|manual|safe|avoid)\b/i.test(t)) return false;
+        if (/^(draft:|now count|let's count|word count)/i.test(t)) return false;
+        if (t.length < 30) return false;
+        return true;
+      });
+      pitchSummary = pitchLines.join('\n').trim() || rawPitch;
+      steps.synthesis = { pitchLength: pitchSummary.length };
     } catch (err: any) {
-      errors.push(`synthesis: ${err.message}`);
-      const result: LoopResult = {
-        success: false, agentName: 'funding-pitch', durationMs: Date.now() - start,
-        steps, errors, summary: {},
-      };
-      this._notifyCompletion('funding-pitch', result);
-      return result;
+      errors.push(`pitch: ${err.message}`);
+      steps.synthesis = { error: err.message };
     }
+
+    // Step 2b: Generate suggested contacts as JSON
+    try {
+      const contactsPrompt = `Suggest 3 people or firms to contact for ${opts.investorProfile} investment in Sokogate.
+
+Return ONLY valid JSON:
+{"contacts":[{"name":"Person Name","email":"email@example.com","firm":"Firm Name","role":"Partner","fit":"one-line fit reason"}]}
+
+${topMatches ? `Reference: ${topMatches}` : ''}`;
+
+      const contactsTemplate = ChatPromptTemplate.fromMessages([
+        ['system', 'Output ONLY a JSON object with a contacts array. No thinking. No explanation.'],
+        ['human', contactsPrompt],
+      ]);
+
+      const res = await langchainService.withRetry(() =>
+        contactsTemplate.pipe(langchainService.getLLM(0.5, 512)).invoke({}));
+      const raw = (res as BaseMessage).content?.toString() ?? '{}';
+      const parsed = parseJsonFromLLM(raw, z.object({ contacts: z.array(z.object({
+        name: z.string(), email: z.string().optional(), firm: z.string(), role: z.string().optional(), fit: z.string(),
+      })).min(1).max(10) }));
+      if (parsed?.contacts?.length) {
+        suggestedContacts = parsed.contacts;
+      }
+    } catch (err: any) {
+      logger.warn('[funding-loop] contacts step failed', { error: err.message });
+    }
+
+    // Fallback: use research contacts if no suggested contacts were generated
+    if (suggestedContacts.length === 0 && contacts.length > 0) {
+      suggestedContacts = contacts.slice(0, 5).map((c: any) => ({
+        name: c.name || 'Unknown',
+        email: c.email || '',
+        firm: c.firm || c.name || 'Unknown Firm',
+        role: 'Investor',
+        fit: c.fit || 'Matched by research',
+      }));
+      logger.info('[funding-loop] using research contacts as fallback', { count: suggestedContacts.length });
+    }
+
+    let created = 0;
+    for (const c of suggestedContacts) {
+      if (!c?.name && !c?.firm) continue;
+      try {
+        await db.query(
+          `INSERT INTO investor_prospects (id, investor_profile, pitch_summary, contact_name, contact_email, firm, role, fit_reason, status, created_at)
+             VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, 'proposed', NOW())
+             ON CONFLICT (id) DO NOTHING`,
+          [opts.investorProfile, pitchSummary, c.name || '', c.email || '', c.firm || '', c.role || '', c.fit || ''],
+        );
+        created++;
+      } catch (err: any) {
+        logger.warn('[funding-loop] persist failed', { name: c.name, error: err.message });
+      }
+    }
+
+    steps.persist = { prospectsCreated: created };
+    const durationMs = Date.now() - start;
+
+    const result: LoopResult = {
+      success:   errors.length === 0,
+      agentName: 'funding-pitch',
+      durationMs,
+      steps,
+      errors,
+      summary: { pitchSummaryLength: pitchSummary.length, prospectsCreated: created, prospects: suggestedContacts.slice(0, 5), pitchSummary },
+    };
+    this._notifyCompletion('funding-pitch', result);
+    return result;
   }
 
   // ── Notification helper ──────────────────────────────────────────────────────
@@ -507,7 +679,6 @@ Return ONLY valid JSON — no markdown fence, no commentary:
             durationMs: result.durationMs,
           };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       notify(event as NotificationEvent);
     } catch { /* non-fatal notification failure */ }
 
@@ -520,19 +691,19 @@ Return ONLY valid JSON — no markdown fence, no commentary:
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════
-// Public functional API — thin wrappers over the factory singleton
+// Public functional API
 // ══════════════════════════════════════════════════════════════════════════════════
 
 const factory = new AgentLoopFactory();
 
 export interface BulkSourcingLoopOptions {
-  pages: number; enrichWithAI: boolean; maxEnrich?: number; onProgress?: (phase: string, data: any) => void; runId?: string;
+  pages: number; enrichWithAI: boolean; maxEnrich: number; onProgress?: (phase: string, data: any) => void; runId?: string;
 }
 export interface SalesMarketingLoopOptions { productIds: string[]; targetChannel: string; onProgress?: (phase: string, data: any) => void; runId?: string; }
-export interface ContentCreationLoopOptions { type: 'blog'|'product_guide'|'company_profile'; keywords: string[]; productIds?: string[]; onProgress?: (phase: string, data: any) => void; runId?: string; }
+export interface ContentCreationLoopOptions { type: 'blog'|'product_guide'|'company_profile'; keywords: string[]; productIds?: string[]; generateImage?: boolean; imageStyle?: 'modern'|'minimal'|'bold'; onProgress?: (phase: string, data: any) => void; runId?: string; }
 export interface FundingPitchLoopOptions { investorProfile: 'angel'|'vc'|'bank'|'government'; companyDetails: Record<string, any>; onProgress?: (phase: string, data: any) => void; runId?: string; }
 
-export async function runBulkSourcingLoop(opts: BulkSourcingLoopOptions): Promise<LoopResult> { return factory.bulkSourcing(opts as any); }
-export async function runSalesMarketingLoop(opts: SalesMarketingLoopOptions): Promise<LoopResult> { return factory.salesMarketing(opts as any); }
-export async function runContentCreationLoop(opts: ContentCreationLoopOptions): Promise<LoopResult> { return factory.contentCreation(opts as any); }
-export async function runFundingPitchLoop(opts: FundingPitchLoopOptions): Promise<LoopResult> { return factory.fundingPitch(opts as any); }
+export async function runBulkSourcingLoop(opts: BulkSourcingLoopOptions): Promise<LoopResult> { return factory.bulkSourcing(opts); }
+export async function runSalesMarketingLoop(opts: SalesMarketingLoopOptions): Promise<LoopResult> { return factory.salesMarketing(opts); }
+export async function runContentCreationLoop(opts: ContentCreationLoopOptions): Promise<LoopResult> { return factory.contentCreation(opts); }
+export async function runFundingPitchLoop(opts: FundingPitchLoopOptions): Promise<LoopResult> { return factory.fundingPitch(opts); }

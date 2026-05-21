@@ -80,7 +80,7 @@ const USER_AGENTS = [
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
 ];
-const userAgentPool = USER_AGENTS.map((ua) => (Math.random() < 0.5 ? ua : ua)); // keep uniform weight for now
+const userAgentPool = USER_AGENTS;
 
 // Force-seed the pool into the axios default by mutating per-request
 function httpGet<T = any>(url: string, signal?: AbortSignal): Promise<{ data: T }> {
@@ -382,8 +382,9 @@ export interface AutonomousSourceResult {
 export async function autonomousSourceProducts(
   triggeredBy: 'manual' | 'autonomous' = 'manual',
   signal?: AbortSignal,
+  maxPagesOverride?: number,
 ): Promise<AutonomousSourceResult> {
-  const maxPages     = MAX_PAGES;
+  const maxPages     = maxPagesOverride ?? MAX_PAGES;
   const baseUrl      = BASE_URL;
   const startTime    = Date.now();
   let productsFound    = 0;
@@ -422,7 +423,7 @@ export async function autonomousSourceProducts(
     setStatus('scraping', `Found ${productsFound} product page(s). Extracting data…`);
 
     // ── Phase 2: detail page scrape + DB upsert ──────────────────────────────
-    const limit = Math.min(productUrls.size, 50);
+    const limit = Math.min(productUrls.size, agentConfig.sokogate.maxProductsPerRun);
     let i = 0;
     for (const url of productUrls) {
       if (signal?.aborted) break;
@@ -438,7 +439,7 @@ export async function autonomousSourceProducts(
         if (err instanceof DOMException && err.name === 'AbortError') break;
         logger.warn('[product-source] Detail page failed', { url, error: err.message });
       }
-      if (i % 5 === 0) { /* brief pause every 5 pages — polite */ await new Promise((r) => setTimeout(r, 500)); }
+      if (i % 5 === 0) { await new Promise((r) => setTimeout(r, agentConfig.sokogate.requestDelayMs)); }
     }
 
     const durationMs = Date.now() - startTime;
@@ -481,9 +482,9 @@ function resetAbortController(): AbortController {
 // ─── Convenience wrappers ───────────────────────────────────────────────────────
 
 /** Kick off autonomous product sourcing — non-blocking; resolves when the full run is done. */
-export async function sourceProductData(): Promise<AutonomousSourceResult> {
+export async function sourceProductData(pages?: number): Promise<AutonomousSourceResult> {
   const ctrl = resetAbortController();
-  const result = await autonomousSourceProducts('manual', ctrl.signal);
+  const result = await autonomousSourceProducts('manual', ctrl.signal, pages);
   setStatus('idle', 'Awaiting next sourcing run…', result.productsUpserted);
   return result;
 }
@@ -499,13 +500,12 @@ export function startAutoSource(hours: number = 24, signal?: AbortSignal): void 
       if (signal?.aborted) return;
       const result = await autonomousSourceProducts('autonomous', new AbortController().signal);
       logger.info('[product-source] Auto-sourcing tick complete', { runId: result.runId });
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const scheduled = signal ? new Promise<void>((r) => setTimeout(r, hours * 60 * 60 * 1000)) : Promise.resolve();
-      await scheduled;
+      if (signal?.aborted) return;
+      await new Promise<void>((r) => setTimeout(r, hours * 60 * 60 * 1000));
     } catch (e: any) {
       logger.warn('[product-source] Auto-sourcing tick error', { error: e.message });
     }
     if (signal?.aborted) return;
-    setImmediate(tick);
+    setTimeout(tick, 0);
   })();
 }

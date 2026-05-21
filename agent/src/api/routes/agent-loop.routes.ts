@@ -61,6 +61,8 @@ const ContentCreationLoopSchema: Record<string, unknown> = {
   type:       { type: 'string', enum: ['blog', 'product_guide', 'company_profile'] },
   keywords:   { type: 'array', items: { type: 'string' } },
   productIds: { type: 'array', items: { type: 'string' } },
+  generateImage: { type: 'boolean' },
+  imageStyle: { type: 'string', enum: ['modern', 'minimal', 'bold'] },
 };
 const FundingPitchLoopSchema: Record<string, unknown> = {
   investorProfile:   { type: 'string', enum: ['angel', 'vc', 'bank', 'government'] },
@@ -74,10 +76,11 @@ const FundingPitchLoopSchema: Record<string, unknown> = {
 router.post('/bulk-sourcing', async (req: Request, res: Response) => {
   const startedAt = new Date();
   const isSSE     = wantsStreaming(req);
-  const ssId =
+  const ssId = (
     req.headers['x-correlation-id'] ??
     req.headers['sentry-trace'] ??
-    `loop-bs-${Date.now()}`;
+    `loop-bs-${Date.now()}`
+  ) as string;
 
   if (isSSE) {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -94,7 +97,6 @@ router.post('/bulk-sourcing', async (req: Request, res: Response) => {
     const maxEnrich   = Math.min((req.body?.maxEnrich ?? 50) as number, 100);
 
     const result = await runBulkSourcingLoop({
-      agentName:     'bulk-sourcing',
       pages:         Math.max(1, Math.min(Number(pages), agentConfig.bulkSourcing.maxPages)),
       enrichWithAI,
       maxEnrich,
@@ -157,7 +159,6 @@ router.post('/sales-marketing', async (req: Request, res: Response) => {
     }
 
     const result = await runSalesMarketingLoop({
-      agentName:     'sales-marketing',
       productIds,
       targetChannel: targetChannel || 'all',
       onProgress:    (phase, data) => { if (isSSE) sendSSE(res, 'progress', { phase, ...data }); },
@@ -211,12 +212,16 @@ router.post('/content-creation', async (req: Request, res: Response) => {
       type       = agentConfig.contentCreation.defaultType,
       keywords   = [],
       productIds = [],
+      generateImage = false,
+      imageStyle = 'modern',
     } = req.body ?? {};
 
     const result = await runContentCreationLoop({
       type,
       keywords:   Array.isArray(keywords) ? keywords : [keywords].filter(Boolean),
       productIds: Array.isArray(productIds) ? productIds : [],
+      generateImage: generateImage === true,
+      imageStyle: ['modern', 'minimal', 'bold'].includes(imageStyle) ? imageStyle : 'modern',
       onProgress: (phase, data) => { if (isSSE) sendSSE(res, 'progress', { phase, ...data }); },
       runId:      ssId,
     });
@@ -227,6 +232,7 @@ router.post('/content-creation', async (req: Request, res: Response) => {
       title:       (result.summary.title as string) ?? '',
       bodyLength:  (result.summary.bodyLength as number) ?? 0,
       keywords:    result.summary.keywords      as number ?? keywords.length,
+      imageUrls:   result.summary.imageUrls     as string[] ?? [],
       errors:      result.errors,
       durationMs:  result.durationMs,
       steps:       result.steps,
@@ -271,7 +277,6 @@ router.post('/funding-pitch', async (req: Request, res: Response) => {
     } = req.body ?? {};
 
     const result = await runFundingPitchLoop({
-      agentName:      'funding-pitch',
       investorProfile: investorProfile as 'angel'|'vc'|'bank'|'government',
       companyDetails,
       onProgress:     (phase, data) => { if (isSSE) sendSSE(res, 'progress', { phase, ...data }); },
@@ -283,6 +288,8 @@ router.post('/funding-pitch', async (req: Request, res: Response) => {
       success:          result.success,
       pitchSummarySize: result.summary.pitchSummaryLength,
       prospectsCreated: result.summary.prospectsCreated,
+      prospects:        result.summary.prospects || [],
+      pitchSummary:     result.summary.pitchSummary || '',
       errors:           result.errors,
       durationMs:       result.durationMs,
       steps:            result.steps,
@@ -325,10 +332,10 @@ router.get('/', (_req, res) => {
       },
       {
         name:         'content-creation',
-        description:  'RAG-powered content generation: blog, product guide, or company profile',
+        description:  'RAG-powered content generation: blog, product guide, or company profile with optional AI images',
         featureFlag:  'contentAgent',
         endpoints:    { post: '/api/agents/loops/content-creation' },
-        defaultBody:  { type: 'blog', keywords: ['B2B construction','Kenya e-commerce'], productIds: [] },
+        defaultBody:  { type: 'blog', keywords: ['B2B construction','Kenya e-commerce'], productIds: [], generateImage: false, imageStyle: 'modern' },
       },
       {
         name:         'funding-pitch',

@@ -1,90 +1,176 @@
-// agent/src/services/funding.agent.ts
+/**
+ * funding.agent.ts
+ *
+ * LangChain-powered autonomous investor research and pitch generation agent
+ * for Ultimo Trading Company Limited (Sokogate).
+ *
+ * Pipeline:
+ *   Step 1  Research — LLM generates investor contacts
+ *   Step 2  Pitch — Generate pitch as plain text
+ *   Step 3  Persist — INSERT investor_prospects + return prospects array for UI
+ */
+
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+import type { BaseMessage } from '@langchain/core/messages';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
-import { agentConfig } from '../config/agent.config';
-import { langchainService } from './langchain.service';
+import { langchainService, parseJsonFromLLM, FundingResearchSchema } from './langchain.service';
+import { getCached, setCached } from './response-cache.service';
 
-import { parseJsonFromLLM, FundingResearchSchema, FundingPitchSchema } from './langchain.service';
+const RESEARCH_SYSTEM = 'Output ONLY JSON. No thinking. No explanation.';
+const PITCH_SYSTEM = 'Write ONLY the pitch text. No thinking. No planning. No word count. No preamble. Start directly with the pitch.';
+
+export type FundingStatus = {
+  phase: 'researching' | 'synthesizing' | 'persisting' | 'complete' | 'error';
+  contactsFound?: number;
+  prospectsCreated?: number;
+  error?: string;
+};
+
+type StatusCallback = (status: FundingStatus) => void;
 
 export class FundingPitchAgent {
-  private get llm() { return langchainService.getLLM(0.2, 1024); }
+  private listeners: Set<StatusCallback> = new Set();
+
+  subscribe(cb: StatusCallback): () => void {
+    this.listeners.add(cb);
+    return () => { this.listeners.delete(cb); };
+  }
+
+  private emit(status: FundingStatus): void {
+    for (const cb of this.listeners) {
+      try { cb(status); } catch { /* ignore */ }
+    }
+  }
 
   async run(investorProfile: 'angel' | 'vc' | 'bank' | 'government', companyDetails: Record<string, any>) {
     const start = Date.now();
 
-    // ── Step 1 — Research LLM-driven, no external API needed
+    this.emit({ phase: 'researching' });
+
+    const cacheKey = `funding:research:${investorProfile}`;
     let contacts: any[] = [];
     let researchError: string | null = null;
+
     try {
-      const researchPrompt = `Research and list 3–5 RECENTLY ACTIVE ${investorProfile} investors for B2B e-commerce/construction-tech in East Africa.
-Return ONLY valid JSON, no markdown code fences, no preamble:
-{"contacts":[{"name":"..","email":"..","firm":"..","fit":".."}]}`;
-      const raw = await langchainService.withRetry(() => this.llm.invoke([['human', researchPrompt]]));
-      const text = (raw as any).content?.toString().trim() || '';
-      const parsed = parseJsonFromLLM(text, FundingResearchSchema);
-      if (parsed?.contacts?.length) contacts = parsed.contacts;
-      else {
-        researchError = 'LLM returned no valid contacts';
-        logger.warn('[funding-agent] research returned no contacts', { textSnippet: text.slice(0, 200) });
+      const cached = await getCached<any[]>('funding', cacheKey);
+      if (cached) {
+        contacts = cached;
+        logger.info('[funding-agent] research cache hit', { investorProfile });
+      } else {
+        const researchPrompt = `Identify characteristics of ${investorProfile} investors who fund B2B e-commerce and construction-tech in East Africa.
+
+Return ONLY JSON:
+{"contacts":[{"name":"Fund Name","email":"","firm":"Firm","fit":"Why they fit"}]}`;
+
+        const promptTemplate = ChatPromptTemplate.fromMessages([
+          ['system', RESEARCH_SYSTEM],
+          ['human', researchPrompt],
+        ]);
+
+        const raw = await langchainService.withRetry(() =>
+          promptTemplate.pipe(langchainService.getLLM(0.5, 512)).invoke({}));
+        const text = (raw as BaseMessage).content?.toString().trim() || '';
+        const parsed = parseJsonFromLLM(text, FundingResearchSchema);
+        if (parsed?.contacts?.length) {
+          contacts = parsed.contacts;
+          await setCached('funding', cacheKey, contacts, 86400);
+        } else {
+          researchError = 'LLM returned no valid investor contacts';
+        }
       }
     } catch (err: any) {
       researchError = err.message;
       logger.warn('[funding-agent] research step failed', { error: err.message });
     }
 
-    // ── Step 2 — Synthesis: pitch summary + suggested contacts
-    let parsed: Record<string, any> = {};
+    this.emit({ phase: 'synthesizing', contactsFound: contacts.length });
+
+    let pitchSummary = '';
     let synthesisError: string | null = null;
+
+    const companyStr = JSON.stringify(companyDetails).slice(0, 200).replace(/\{/g, '{{').replace(/\}/g, '}}');
+
     try {
-      const contactNames = contacts.slice(0, 5).map((c: any) => c?.name ?? c?.firm ?? 'unknown');
-      const contactsBlock = contactNames.length > 0
-        ? `Names to mention as fit signals: ${contactNames.join(', ')}`
-        : '';
+      const pitchPrompt = `Write a 180-word pitch for a ${investorProfile} investor about Sokogate.
 
-      const synthesis = `You are the founder of Ultimo Trading Company Limited (trading as sokogate.com) — a Kenyan B2B construction-materials marketplace with 10,000+ customers and $600K+ ARR.
+Company: Ultimo Trading Company Limited (sokogate.com)
+Kenyan B2B construction-materials marketplace, 10,000+ customers, 600K+ ARR.
+Details: ${companyStr}
 
-Target investor type: ${investorProfile}
-Company: ${JSON.stringify(companyDetails).slice(0, 300)}
-${contactsBlock}
+Write the pitch directly. No preamble.`;
 
-Your tasks:
-1. Write a 180-220 word pitch summary for a ${investorProfile} outreach email.
-2. Suggest 3 people (name, email, firm, role, one-line fit reason).
+      const pitchTemplate = ChatPromptTemplate.fromMessages([
+        ['system', PITCH_SYSTEM],
+        ['human', pitchPrompt],
+      ]);
 
-Output ONLY a JSON object. Do not write anything before or after the JSON. Do not use markdown fences.
-{"pitch":"...","suggestedContacts":[{"name":"","email":"","firm":"","role":"","fit":"..."}]}`;
-
-      const raw2 = await langchainService.withRetry(() => this.llm.invoke([['human', synthesis]]));
-      const text2 = (raw2 as any).content?.toString().trim() || '';
-      parsed = parseJsonFromLLM(text2, FundingPitchSchema) || { pitch: '', suggestedContacts: [] };
-      if (!parsed.pitch) {
-        synthesisError = 'LLM returned no valid pitch';
-        logger.warn('[funding-agent] synthesis returned no pitch', { textSnippet: text2.slice(0, 200) });
-      }
+      const raw = await langchainService.withRetry(() =>
+        pitchTemplate.pipe(langchainService.getLLM(0.3, 512)).invoke({}));
+      let text = (raw as BaseMessage).content?.toString().trim() || '';
+      // Remove planning/thinking lines
+      const lines = text.split('\n').filter(l => {
+        const trimmed = l.trim();
+        if (!trimmed) return false;
+        if (/^(let|we need|count|draft|ensure|must|should|likely|around|word|now|first|second|third|step|note|actually|ok|okay)\b/i.test(trimmed)) return false;
+        if (trimmed.length < 30) return false;
+        return true;
+      });
+      pitchSummary = lines.join('\n').trim() || text;
+      if (!pitchSummary) synthesisError = 'Pitch generation returned empty text';
     } catch (err: any) {
-      synthesisError = err.message;
-      logger.error('[funding-agent] synthesis step failed', { error: err.message });
+      synthesisError = `Pitch generation failed: ${err.message}`;
+      logger.error('[funding-agent] pitch step failed', { error: err.message });
     }
 
-    const pitchSummary = parsed.pitch || `Pitch generation encountered issues.${researchError ? ` Research error: ${researchError}.` : ''}${synthesisError ? ` Synthesis error: ${synthesisError}.` : ''} Check NVIDIA API connectivity and retry.`;
-    const suggestedContacts = Array.isArray(parsed.suggestedContacts) ? parsed.suggestedContacts : [];
+    if (!pitchSummary && synthesisError) {
+      pitchSummary = `Pitch generation encountered issues. ${synthesisError}`;
+    }
 
-    // ── Step 3 — Persist investor_prospects rows
+    this.emit({ phase: 'persisting' });
+
+    // Build prospects array for UI display
+    const prospects = contacts.slice(0, 5).map((c: any) => ({
+      id: `prospect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      contact: { name: c.name || 'Unnamed Contact' },
+      name: c.name || '',
+      email: c.email || '',
+      firm: c.firm || '',
+      fit: c.fit || '',
+      investorProfile,
+      status: 'proposed',
+      pitchSummary,
+    }));
+
+    // Persist each prospect
     let created = 0;
-    for (const c of suggestedContacts) {
-      if (!c?.email) continue;
+    for (const p of prospects) {
       try {
         await db.query(
-          `INSERT INTO investor_prospects (id, investor_profile, pitch_summary, status, created_at)
-           VALUES (gen_random_uuid()::text, $1, $2, 'proposed', NOW())
-           ON CONFLICT DO NOTHING`,
-          [investorProfile, pitchSummary],
+          `INSERT INTO investor_prospects (id, investor_profile, pitch_summary, contact_name, contact_email, firm, fit_reason, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'proposed', NOW())
+           ON CONFLICT (id) DO NOTHING`,
+          [p.id, investorProfile, pitchSummary, p.name, p.email, p.firm, p.fit],
         );
         created++;
-      } catch { /* ignore duplicates / FK violations */ }
+      } catch (err: any) {
+        logger.warn('[funding-agent] persist failed for prospect', { name: p.name, error: err.message });
+      }
     }
 
-    return { pitchSummary, prospectsCreated: created, durationMs: Date.now() - start };
+    this.emit({ phase: 'complete', prospectsCreated: created });
+
+    const durationMs = Date.now() - start;
+    logger.info('[funding-agent] run complete', { investorProfile, prospectsCreated: created, durationMs });
+
+    return {
+      pitchSummary,
+      prospectsCreated: created,
+      prospects,
+      researchError,
+      synthesisError,
+      durationMs,
+    };
   }
 }
 

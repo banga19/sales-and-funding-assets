@@ -13,6 +13,7 @@ const repoRoot = path.resolve(agentRoot, '..');
   path.join(repoRoot, 'infra/docker/004_b2b_product_extensions.sql'),
   path.join(agentRoot, 'src/database/migrations/004_add_agent_tables.sql'),
   path.join(agentRoot, 'src/database/migrations/005_add_agent_system_tables.sql'),
+  path.join(agentRoot, 'src/database/migrations/006_add_image_urls_to_content_pieces.sql'),
   path.join(agentRoot, 'src/database/migrations/007_add_email_logs.sql'),
   ];
 
