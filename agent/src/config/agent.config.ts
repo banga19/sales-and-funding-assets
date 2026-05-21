@@ -177,7 +177,7 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
     errors.push('NVIDIA_API_KEY is required');
   }
   
-  if (agentConfig.features.email && !agentConfig.email.resend.apiKey) {
+  if (agentConfig.features.email && !agentConfig.email.resend.apiKey && process.env.EMAIL_DEV_MODE !== 'true') {
     errors.push('RESEND_API_KEY is required when email is enabled');
   }
   
