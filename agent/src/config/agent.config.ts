@@ -102,16 +102,10 @@ export const agentConfig = {
   
   // Email Configuration
   email: {
-    resend: {
-      apiKey: process.env.RESEND_API_KEY || '',
-      from: {
-        email: process.env.RESEND_FROM_EMAIL || 'sales@sokogate.com',
-        name: process.env.RESEND_FROM_NAME || 'Sokogate Sales Team',
-      },
-    },
-    sendgrid: {
-      apiKey: process.env.SENDGRID_API_KEY || '',
-      from: process.env.SENDGRID_FROM_EMAIL || 'sales@sokogate.com',
+    apiKey: process.env.SMTP_PASS || process.env.EMAIL_API_KEY || '',
+    from: {
+      email: process.env.EMAIL_FROM || process.env.SMTP_FROM || 'sales@sokogate.com',
+      name: process.env.EMAIL_FROM_NAME || 'Sokogate Sales Team',
     },
   },
   
@@ -177,8 +171,8 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
     errors.push('NVIDIA_API_KEY is required');
   }
   
-  if (agentConfig.features.email && !agentConfig.email.resend.apiKey && process.env.EMAIL_DEV_MODE !== 'true') {
-    errors.push('RESEND_API_KEY is required when email is enabled');
+  if (agentConfig.features.email && !agentConfig.email.apiKey && process.env.EMAIL_DEV_MODE !== 'true') {
+    errors.push('EMAIL_API_KEY or SMTP_PASS is required when email is enabled and not in dev mode');
   }
   
   if (!agentConfig.database.url) {

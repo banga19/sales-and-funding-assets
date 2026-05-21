@@ -26,6 +26,7 @@ import { initializeMetricsSyncJob } from './jobs/metrics-sync.job';
 import outreachBatchRoutes from './api/routes/outreach-batch.routes';
 import batchSendRoutes from './api/routes/batch-send.routes';
 import masterSwitchRoutes from './api/routes/master-switch.routes';
+import agentLoopRoutes from './api/routes/agent-loop.routes';
 import productsRoutes from './api/routes/products.routes';
 import { sourceProductData, getLiveStatus } from './services/product-source.service';
 
@@ -158,6 +159,11 @@ class SalesAgent {
     // ── Master Switch — autonomous sub-agent panel ────────────────────────────
     this.app.use('/api/agent/agents', masterSwitchRoutes);
 
+    // ── Agent Loop Factory — LangChain Runnable per-agent execution loops ───────
+    // POST /api/agents/loops/bulk-sourcing | sales-marketing | content-creation | funding-pitch
+    // GET  /api/agents/loops  — discovery / schema
+    this.app.use('/api/agents/loops', agentLoopRoutes);
+
     // ── Contact Management ───────────────────────────────────────────────────────
     const mapContact = (r: any) => ({
       id: r.id,
@@ -283,7 +289,7 @@ class SalesAgent {
     this.app.post('/api/agent/email/test', async (req: Request, res: Response) => {
       try {
         const { to, subject } = req.body;
-        const targetTo = to || agentConfig.email.resend.from.email;
+        const targetTo = to || agentConfig.email.from.email;
         const targetSubject = subject || 'Sokogate \u2014 Test Email';
 
         if (agentConfig.dryRun) {
@@ -396,7 +402,7 @@ class SalesAgent {
     this.app.post('/api/test-email', async (req: Request, res: Response) => {
       try {
         const { to, subject } = req.body;
-        const targetTo   = to ?? agentConfig.email.resend.from.email;
+        const targetTo   = to ?? agentConfig.email.from.email;
         const targetSubj  = subject ?? 'Sokogate \u2014 Test Email';
 
         if (agentConfig.dryRun) {

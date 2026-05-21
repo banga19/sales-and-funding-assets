@@ -82,10 +82,32 @@ export default function AgentControlPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
+  const [dailyOutreachRunning, setDailyOutreachRunning] = useState(false);
+  const [dailyOutreachResult, setDailyOutreachResult] = useState<any>(null);
   /* Prevent double-triggered mount fetch */
   const fetchedRef          = useRef(false);
   /* Track in-flight toggle IDs so concurrent toggles don't clobber each other */
   const inflightRef         = useRef<Record<string, Promise<void>>>({});
+
+  const triggerDailyOutreach = async () => {
+    setDailyOutreachRunning(true);
+    setDailyOutreachResult(null);
+    try {
+      const data = await apiClient.triggerDailyOutreach();
+      setDailyOutreachResult(data);
+      if (data?.success) {
+        toast.success(`Outreach: ${data.processed ?? 0} processed, ${data.successful ?? 0} sent`);
+      } else {
+        toast.error('Daily outreach failed');
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || 'Unknown error';
+      setDailyOutreachResult({ success: false, error: msg });
+      toast.error(msg);
+    } finally {
+      setDailyOutreachRunning(false);
+    }
+  };
 
   const fetchFeatures = async () => {
     if (fetchedRef.current) return;
@@ -308,6 +330,30 @@ export default function AgentControlPanel() {
             </div>
           );
         })}
+      </div>
+
+      {/* Run Daily Outreach */}
+      <div className="border-t border-gray-100 pt-4">
+        <button
+          type="button"
+          onClick={triggerDailyOutreach}
+          disabled={dailyOutreachRunning || !features.autonomousAgents}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800"
+        >
+          {dailyOutreachRunning ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Megaphone className="w-4 h-4" />
+          )}
+          {dailyOutreachRunning ? 'Running…' : 'Run Daily Outreach'}
+        </button>
+        {dailyOutreachResult && (
+          <div className={`mt-2 p-3 rounded-lg text-xs ${
+            dailyOutreachResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+          }`}>
+            <pre className="whitespace-pre-wrap font-mono text-[11px]">{JSON.stringify(dailyOutreachResult, null, 2)}</pre>
+          </div>
+        )}
       </div>
 
       {!features.autonomousAgents && (

@@ -1,15 +1,3 @@
-/**
- * health-check.service.ts
- *
- * Deep health checks for all service dependencies:
- * - PostgreSQL connectivity
- * - Redis/Memurai connectivity
- * - NVIDIA AI API reachability
- * - BullMQ queue status
- *
- * Returns structured health status for monitoring dashboards.
- */
-
 import { db } from '../database/db.client';
 import { agentConfig } from '../config/agent.config';
 import { logger } from '../utils/logger';
@@ -31,9 +19,6 @@ export interface HealthCheck {
 
 const startTime = Date.now();
 
-/**
- * Check PostgreSQL connectivity.
- */
 async function checkPostgres(): Promise<HealthCheck> {
   const start = Date.now();
   try {
@@ -52,9 +37,6 @@ async function checkPostgres(): Promise<HealthCheck> {
   }
 }
 
-/**
- * Check Redis/Memurai connectivity.
- */
 async function checkRedis(): Promise<HealthCheck> {
   const start = Date.now();
   try {
@@ -84,9 +66,6 @@ async function checkRedis(): Promise<HealthCheck> {
   }
 }
 
-/**
- * Check NVIDIA AI API reachability.
- */
 async function checkNvidiaAI(): Promise<HealthCheck> {
   const start = Date.now();
   try {
@@ -113,10 +92,6 @@ async function checkNvidiaAI(): Promise<HealthCheck> {
   }
 }
 
-/**
- * getFullHealthStatus — returns the shape the frontend dashboard expects:
- * { status, timestamp, checks: { database: { healthy }, email: boolean, nvidia: boolean } }
- */
 export async function getHealthStatus(): Promise<{
   status: 'healthy' | 'degraded' | 'unhealthy';
   timestamp: string;
@@ -140,11 +115,9 @@ export async function getHealthStatus(): Promise<{
   const nvidiaCheck = nvidia.status === 'fulfilled' ? nvidia.value : { status: 'warn' as const };
   const emailCheck = email.status === 'fulfilled' ? email.value : false;
 
-  // Database is healthy if both Postgres and Redis are up
   const dbHealthy = postgresCheck.status === 'pass' && redisCheck.status === 'pass';
   const nvidiaHealthy = nvidiaCheck.status === 'pass';
 
-  // Determine overall status
   const hasFailures = postgresCheck.status === 'fail' || redisCheck.status === 'fail';
   const hasWarnings = nvidiaCheck.status === 'warn' || !emailCheck;
 
@@ -171,20 +144,11 @@ export async function getHealthStatus(): Promise<{
   };
 }
 
-/**
- * Check email service (Resend) connectivity.
- */
 async function checkEmail(): Promise<boolean> {
   try {
-    const { Resend } = await import('resend');
-    const resend = new Resend(agentConfig.email.resend.apiKey);
-
-    // Try to list domains (lightweight check)
-    await resend.domains.list();
-    return true;
+    const { emailService } = await import('../channels/email.service');
+    return await emailService.healthCheck();
   } catch {
     return false;
   }
 }
-
-// Made with Bob

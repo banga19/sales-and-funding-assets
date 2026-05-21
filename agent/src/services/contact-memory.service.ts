@@ -20,6 +20,7 @@ import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
+import { langchainService } from './langchain.service';
 
 /** Descriptor used to build the embedding text from a contact row. */
 export interface ContactEmbeddingInput {
@@ -215,31 +216,21 @@ export async function buildFilterFromSemanticQuery(
   tierFilter:    string[];
   stageFilter:   string[];
   limit:         number;
-  searchQuery?:  string;   // full-text search term if present in query
+  searchQuery?:  string;
 }> {
-  const llm = new ChatOpenAI({
-    apiKey:         agentConfig.ai.apiKey,
-    model:          agentConfig.ai.model,
-    configuration:  { baseURL: agentConfig.ai.baseUrl },
-    temperature:    0.0,
-  });
-
   const prompt = `Given a natural language query about contacts in a B2B CRM,
-output ONLY this JSON (no markdown, no commentary):
-{
-  "typeFilter":  ["prospect" | "investor" | "partner" | "funding"],
-  "statusFilter": ["Not Started"|"Contacted"|...],
-  "tierFilter":    ["T1"|"T2"|"T3"],
-  "stageFilter":   ["not_started"|"delivered"|"responded"],
-  "limit": 20,
-  "searchQuery": "optional text fragment for ILIKE search"
-}
+output ONLY this JSON (no markdown, no commentary, no explanation):
+{"typeFilter":["prospect","investor","partner","funding"],"statusFilter":["Not Started","Contacted","Responded"],"tierFilter":["T1","T2","T3"],"stageFilter":["not_started","delivered","responded"],"limit":20,"searchQuery":"optional text fragment"}
 Query: "${query}"`;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = await llm.invoke([{ role: 'user', content: prompt }]);
-  const content = (result as any)?.content?.toString().trim() || '{}';
-  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  const raw = await langchainService.withRetry(async () => {
+    const llm = langchainService.getLLM(0.0, 300);
+    const response = await llm.invoke([['human', prompt]]);
+    return typeof response.content === 'string' ? response.content : '';
+  });
+
+  const clean = raw.replace(/^```(?:json)?\s*[\r\n]*/i, '').replace(/[\r\n]*```\s*$/i, '').trim();
+  const jsonMatch = clean.match(/\{[\s\S]*\}/);
   const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
 
   return {

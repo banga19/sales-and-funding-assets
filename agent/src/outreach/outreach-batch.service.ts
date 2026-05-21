@@ -5,9 +5,9 @@
  *
  * Workflow per contact:
  *  1. Fetch contacts from the `contacts` table (optionally filtered by type/category).
- *  2. For each contact render a personalized email (NVIDIA AI-generated subject/body
+ *  2. For each contact render a personalized email (LangChain AI-generated subject/body
  *     if NODE_ENV !== dry-run and NVIDIA_API_KEY is set, otherwise category template).
- *  3. Send via Resend (`emailService` singleton).
+ *  3. Send via nodemailer (`emailService` singleton).
  *  4. Persist a row in `email_logs` and (optionally) in `message_history`.
  *  5. Update `contacts.emails_sent`, `contacts.outreach_status`, `contacts.last_contact_date`.
  *
@@ -18,9 +18,10 @@
 import { db } from '../database/db.client';
 import { emailService } from '../channels/email.service';
 import { agentConfig } from '../config/agent.config';
-import { aiCompletion } from '../lib/nvidia';
+import { langchainService } from '../services/langchain.service';
 import { logger } from '../utils/logger';
 import { EMAIL_TEMPLATES, fill, type EmailTemplate } from './templates';
+import { z } from 'zod';
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,12 @@ function pickTemplate(type: string): EmailTemplate | undefined {
   return EMAIL_TEMPLATES[type] ?? EMAIL_TEMPLATES.prospect;
 }
 
-/** Build an EmailTemplate from NVIDIA AI, falling back to the category template. */
+const OutreachEmailSchema = z.object({
+  subject: z.string().min(5).max(100),
+  body: z.string().min(50).max(2000),
+});
+
+/** Build an EmailTemplate from LangChain AI, falling back to the category template. */
 async function aiOrTemplate(
   type:      string,
   name:      string,
@@ -79,23 +85,29 @@ Generate ONLY the email subject line and body for a "${type}" outreach.
 Recipient: ${name}${company ? ` at ${company}` : ''}
 Sender: Sokogate Sales Team <sales@sokogate.com>
 
-Output raw JSON with no markdown fences:
-{
-  "subject": "short compelling subject line (max 60 chars)",
-  "body": "plain-text email body, 120-200 words, warm and professional tone"
-}`;
+Output ONLY valid JSON with no markdown fences, no preamble, no explanation:
+{"subject":"short compelling subject line (max 60 chars)","body":"plain-text email body, 120-200 words, warm and professional tone"}`;
 
-    const raw = await aiCompletion(prompt, 500);
-    const parsed = JSON.parse(raw);
+    const raw = await langchainService.withRetry(async () => {
+      const llm = langchainService.getLLM(0.5, 500);
+      const response = await llm.invoke([['human', prompt]]);
+      return typeof response.content === 'string' ? response.content : '';
+    });
 
-    if (parsed.subject && parsed.body) {
-      return render({
-        subject: parsed.subject,
-        body:    parsed.body,
-      });
+    const clean = raw.replace(/^```(?:json)?\s*[\r\n]*/i, '').replace(/[\r\n]*```\s*$/i, '').trim();
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const validated = OutreachEmailSchema.safeParse(parsed);
+      if (validated.success && validated.data.subject && validated.data.body) {
+        return render({
+          subject: validated.data.subject,
+          body:    validated.data.body,
+        });
+      }
     }
   } catch (err: any) {
-    logger.warn('[outreach-batch] NVIDIA generation failed — using template', {
+    logger.warn('[outreach-batch] LangChain generation failed — using template', {
       error: err.message,
     });
   }
@@ -205,7 +217,7 @@ export class OutreachBatchService {
           continue;
         }
 
-        // Live send via Resend
+        // Live send via nodemailer
         const sendResult = await emailService.send({
           to:      contact.email,
           subject: email.subject,

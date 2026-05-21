@@ -58,7 +58,7 @@ export interface SendContactOptions {
  * Orchestrates one complete AI-personalised send for a contact.
  *
  * @param contact        Raw row from the `contacts` table (as mapped by mapContact).
- * @param dryRun         When true, compose and log but never call Resend.
+ * @param dryRun         When true, compose and log but never send.
  * @param overrideSubject When both overrideSubject and overrideBody are provided,
  *                        the message is sent verbatim — the personalisation engine
  *                        is entirely bypassed (used by the Compose Email panel).
@@ -239,7 +239,7 @@ export async function sendContactEmail(
       contactId:    contact.id,
       contactType:  contact.type,
       toEmail:      contact.email,
-      fromEmail:    agentConfig.email.resend.from.email,
+      fromEmail:    agentConfig.email.from.email,
       subject,
       bodyPreview:  body.replace(/<[^>]*>/g, '').slice(0, 500),
       status:       result.status,

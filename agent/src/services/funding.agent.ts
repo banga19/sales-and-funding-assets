@@ -14,20 +14,28 @@ export class FundingPitchAgent {
 
     // ── Step 1 — Research LLM-driven, no external API needed
     let contacts: any[] = [];
+    let researchError: string | null = null;
     try {
       const researchPrompt = `Research and list 3–5 RECENTLY ACTIVE ${investorProfile} investors for B2B e-commerce/construction-tech in East Africa.
-Return ONLY valid JSON, no markdown code fences:
+Return ONLY valid JSON, no markdown code fences, no preamble:
 {"contacts":[{"name":"..","email":"..","firm":"..","fit":".."}]}`;
       const raw = await langchainService.withRetry(() => this.llm.invoke([['human', researchPrompt]]));
       const text = (raw as any).content?.toString().trim() || '';
       const parsed = parseJsonFromLLM(text, FundingResearchSchema);
       if (parsed?.contacts?.length) contacts = parsed.contacts;
-    } catch { /* proceed without research data */ }
+      else {
+        researchError = 'LLM returned no valid contacts';
+        logger.warn('[funding-agent] research returned no contacts', { textSnippet: text.slice(0, 200) });
+      }
+    } catch (err: any) {
+      researchError = err.message;
+      logger.warn('[funding-agent] research step failed', { error: err.message });
+    }
 
     // ── Step 2 — Synthesis: pitch summary + suggested contacts
     let parsed: Record<string, any> = {};
+    let synthesisError: string | null = null;
     try {
-      // Flatten contact names so the string fits within the max-token context
       const contactNames = contacts.slice(0, 5).map((c: any) => c?.name ?? c?.firm ?? 'unknown');
       const contactsBlock = contactNames.length > 0
         ? `Names to mention as fit signals: ${contactNames.join(', ')}`
@@ -49,11 +57,16 @@ Output ONLY a JSON object. Do not write anything before or after the JSON. Do no
       const raw2 = await langchainService.withRetry(() => this.llm.invoke([['human', synthesis]]));
       const text2 = (raw2 as any).content?.toString().trim() || '';
       parsed = parseJsonFromLLM(text2, FundingPitchSchema) || { pitch: '', suggestedContacts: [] };
+      if (!parsed.pitch) {
+        synthesisError = 'LLM returned no valid pitch';
+        logger.warn('[funding-agent] synthesis returned no pitch', { textSnippet: text2.slice(0, 200) });
+      }
     } catch (err: any) {
-      logger.warn('[funding-agent] synthesis failed', { error: err.message });
+      synthesisError = err.message;
+      logger.error('[funding-agent] synthesis step failed', { error: err.message });
     }
 
-    const pitchSummary = parsed.pitch || 'No pitch generated. The AI could not produce a valid response — check NVIDIA API connectivity.';
+    const pitchSummary = parsed.pitch || `Pitch generation encountered issues.${researchError ? ` Research error: ${researchError}.` : ''}${synthesisError ? ` Synthesis error: ${synthesisError}.` : ''} Check NVIDIA API connectivity and retry.`;
     const suggestedContacts = Array.isArray(parsed.suggestedContacts) ? parsed.suggestedContacts : [];
 
     // ── Step 3 — Persist investor_prospects rows

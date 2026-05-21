@@ -52,8 +52,8 @@ import { agentConfig } from '../config/agent.config';
 
 // ── Constants ───────────────────────────────────────────────────────────────────
 
-const SENDER_EMAIL = agentConfig.email.resend.from.email;
-const SENDER_NAME  = agentConfig.email.resend.from.name;
+const SENDER_EMAIL = agentConfig.email.from.email;
+const SENDER_NAME  = agentConfig.email.from.name;
 
 // Use the LangChain classifier as a second pass on uncertain heuristic calls.
 // When false (default) the regex/CSV heuristic runs alone — this is Option A
@@ -699,7 +699,7 @@ export async function sendBatch(options: {
   // subject + body once per entry before the verbatim send fires.
   //
   // When false (Option A / default) entries are skipped here and the raw
-  // markdown text is passed straight through to Resend.
+  // markdown text is passed straight through to nodemailer.
   const allSendable = [...sendTargets];
   const aiPolished: SendTimelineEntry[] = [];
 
@@ -730,7 +730,7 @@ export async function sendBatch(options: {
     }
   }
 
-  // ── 6b. Send each polished (or raw) entry via Resend ─────────────────────
+  // ── 6b. Send each polished (or raw) entry via nodemailer ─────────────────────
   const rateLimitMs  = !dryRun ? 2000 : 0;
   const quotaReached = () => emailService.getRemainingToday() <= 0;
 

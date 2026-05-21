@@ -309,7 +309,7 @@ SUBJECT: <polished subject line>
       ['human', BATCH_PROMPT],
     ]);
     const chain = promptTemplate.pipe(this.llm);
-    const response = await chain.invoke({});
+    const response = await this.withRetry(() => chain.invoke({}));
     const content = (response as AIMessage).content?.toString() || params.existingBody;
 
     const parsed = this.parseGeneratedMessage(content, true);

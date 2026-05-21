@@ -10,6 +10,10 @@ agent Express server at `localhost:3002` and can be triggered via API endpoints 
 - They can be invoked manually through the UI or scheduled externally.
 - Agents share common resources: PostgreSQL database, NVIDIA AI API, and the Sokogate scraping engine.
 - Results are persisted in the database and surfaced in the frontend.
+- **LangChain:** All 4 sub-agents now use LangChain `ChatPromptTemplate.pipe(ChatOpenAI)` chains with explicit retry, structured JS-on output, and progress streaming.
+- **Notification Hub** (`notification-hub.ts`): event-driven pub/sub layer; every agent fires a typed event and the hub fans it out to Nodemailer email subscribers, in-process log subscribers, and escalation handlers.
+- **NodemailerService** (`nodemailer.service.ts`): single email transport with SMTP / Ethereal dev / console-stub fallback, retry with backoff, and structured health checks — used by both the existing email channel and new notification-hub subscribers.
+- **AgentLoopFactory** (`agent-loop.factory.ts`): LangChain Runnable abstraction. Each sub-agent loop returns a typed `LoopResult` (steps, errors, summary) to the master switch and fires a notification event on completion.
 
 ## Sub-Agents
 
@@ -44,6 +48,33 @@ agent Express server at `localhost:3002` and can be triggered via API endpoints 
   - `investorProfile` (string): "angel" | "vc" | "bank" | "government".
   - `companyDetails` (object): Company info to include in the pitch.
 - **Response:** Creates `investor_prospects` records and launches an outreach pipeline.
+
+### Agent Loop Factory (LangChain-powered automation)
+
+| Loop | POST endpoint | Description |
+|---|---|---|
+| Bulk Sourcing | `POST /api/agents/loops/bulk-sourcing` | Scrape + enrich with AI enforcement; streams phase events on `Accept: text/event-stream` |
+| Sales & Marketing | `POST /api/agents/loops/sales-marketing` | Multi-step asset generation (4 types per product); appends to `marketing_assets` |
+| Content Creation | `POST /api/agents/loops/content-creation` | RAG loop: catalog retrieval → prompt → persist; saves to `content_pieces` |
+| Funding Pitch | `POST /api/agents/loops/funding-pitch` | Research → synthesis → persist pipeline; writes `investor_prospects` |
+| Discovery | `GET /api/agents/loops` | Returns available loop names, schemas, and default request bodies for each agent |
+
+Each loop:
+1. Accepts typed request params.
+2. Invokes `langchainService.withRetry()` for exponential backoff on NVIDIA API calls.
+3. Returns a `LoopResult` with `steps`, `errors`, `summary`, and `durationMs`.
+4. Fires a `notification-hub` event (`runCompleted` / `runFailed`) for logging, email, and escalation.
+
+### Nodemailer / Notification Hub
+
+| Component | File | Purpose |
+|---|---|---|
+| `NodemailerService` | `agent/src/services/nodemailer.service.ts` | Singleton Nodemailer transport: SMTP / Ethereal dev / console-stub fallback; with retry |
+| `NotificationHub` | `agent/src/services/notification-hub.ts` | Pub/sub event bus; fans typed events to in-process callbacks and nodemailer email subscribers |
+
+**SMTP env vars:** `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_FROM_NAME` — set in `agent/.env`.  
+If `EMAIL_DEV_MODE=true` or `SMTP_HOST` is blank, a console/blackhole stub is used (no real email sent).  
+Escalation address: `ESCALATION_EMAIL` in `agent/.env`; used when the hub detects `runFailed` or `escalation` events with severity `error`/`critical`.
 
 ## Configuration
 Agent settings (API keys, default parameters) are stored in `agent/src/config/agent.config.ts` and can be overridden per request.

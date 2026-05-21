@@ -6,7 +6,6 @@ import { MessageResponse } from '../types/message.types';
 class EmailService {
   private transport: nodemailer.Transporter | null = null;
   private usingEthereal = false;
-  private etherealUrl: string | null = null;
   private static instance: EmailService;
   private sentToday: Map<string, number> = new Map();
 
@@ -25,7 +24,6 @@ class EmailService {
     if (this.transport) return this.transport;
 
     if (process.env.EMAIL_DEV_MODE === 'true') {
-      // Use Ethereal Email — fake SMTP, view emails at ethereal.email
       const testAccount = await nodemailer.createTestAccount();
       this.transport = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
@@ -39,12 +37,15 @@ class EmailService {
         webUrl: 'https://ethereal.email/login',
       });
     } else {
-      // Use Resend SMTP
+      // Production SMTP — configure via env vars
       this.transport = nodemailer.createTransport({
-        host: 'smtp.resend.com',
-        port: 465,
-        secure: true,
-        auth: { user: 'resend', pass: agentConfig.email.resend.apiKey },
+        host: process.env.SMTP_HOST || '',
+        port: parseInt(process.env.SMTP_PORT || '587', 10),
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: {
+          user: process.env.SMTP_USER || '',
+          pass: process.env.SMTP_PASS || agentConfig.email.apiKey,
+        },
       });
     }
 
@@ -70,7 +71,7 @@ class EmailService {
       }
 
       const transport = await this.getTransport();
-      const fromAddr = `${agentConfig.email.resend.from.name} <${agentConfig.email.resend.from.email}>`;
+      const fromAddr = `${agentConfig.email.from.name} <${agentConfig.email.from.email}>`;
 
       const info = await transport.sendMail({
         from: fromAddr,
@@ -84,20 +85,17 @@ class EmailService {
       this.incrementCounter();
       loggers.messageSent(params.to, 'email', true);
 
-      // Log Ethereal preview URL so you can view the rendered email
+      let previewUrl: string | undefined;
       if (this.usingEthereal && info.messageId) {
-        const previewUrl = nodemailer.getTestMessageUrl(info);
-        if (previewUrl) {
-          this.etherealUrl = previewUrl as string;
-          logger.info('[EMAIL] View rendered email:', { url: this.etherealUrl });
-        }
+        const url = nodemailer.getTestMessageUrl(info);
+        if (url) previewUrl = url as string;
       }
 
       return {
         success: true,
         message_id: info.messageId,
         delivered_at: new Date(),
-        previewUrl: this.etherealUrl ?? undefined,
+        previewUrl,
       };
     } catch (error: any) {
       loggers.apiError('email', error);
@@ -174,7 +172,9 @@ class EmailService {
   public async healthCheck(): Promise<boolean> {
     try {
       if (this.usingEthereal) return true;
-      return !!agentConfig.email.resend.apiKey;
+      const transport = await this.getTransport();
+      await transport.verify();
+      return true;
     } catch {
       return false;
     }

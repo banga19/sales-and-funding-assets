@@ -94,9 +94,57 @@ router.get('/email-logs', async (req: Request, res: Response) => {
   }
 });
 
-// ── GET /api/agents/email-logs/summary ─────────────────────────────────────────
-// Returns summary counts grouped by contact_type and status.
-router.get('/email-logs/summary', async (_req: Request, res: Response) => {
+  // ── POST /api/agents/daily-outreach ────────────────────────────────────────────
+  // Manual trigger for the daily outreach workflow.
+  // Optionally accepts: { dryRun?: boolean }
+  router.post('/daily-outreach', async (req: Request, res: Response) => {
+    try {
+      const { dryRun = false } = req.body ?? {};
+      logger.info('[daily-outreach] manual trigger', { dryRun });
+
+      if (dryRun) {
+        const { outreachWorkflow } = await import('../../workflows/outreach.workflow');
+        const query = `
+          SELECT COUNT(*) as cnt FROM contacts c
+          LEFT JOIN conversations conv ON c.id = conv.contact_id
+          WHERE c.status IN ('Not Started','Contacted')
+            AND conv.id IS NULL
+            AND c.do_not_contact = false
+            AND c.emails_sent < 50
+        `;
+        const { rows } = await db.query(query);
+        const eligible = parseInt(rows[0]?.cnt || '0', 10);
+        return res.json({ success: true, dryRun: true, eligibleContacts: eligible });
+      }
+
+      const { outreachWorkflow } = await import('../../workflows/outreach.workflow');
+      const stats = await outreachWorkflow.executeDailyBatch();
+      res.json({ success: true, ...stats });
+    } catch (err: any) {
+      logger.error('[daily-outreach] failed', { error: err.message });
+      res.status(500).json({ success: false, error: err.message || 'Daily outreach failed' });
+    }
+  });
+
+  // ── POST /api/agents/contacts/:id/reset ────────────────────────────────────────
+  // Reset a contact's outreach status so they can be re-processed.
+  router.post('/contacts/:id/reset', async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      await db.query(
+        `UPDATE contacts SET outreach_status = 'none', emails_sent = 0, updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      await db.query(`DELETE FROM conversations WHERE contact_id = $1`, [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ── GET /api/agents/email-logs/summary ─────────────────────────────────────────
+  // Returns summary counts grouped by contact_type and status.
+  router.get('/email-logs/summary', async (_req: Request, res: Response) => {
   try {
     const { rows } = await db.query(`
       SELECT

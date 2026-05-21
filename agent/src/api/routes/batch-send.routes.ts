@@ -84,7 +84,7 @@ router.get('/batch-send/preview', async (_req: Request, res: Response) => {
 //
 // Body
 //   batchFile     "INVESTOR-OUTREACH-BATCH.md" | "PARTNERSHIP-OUTREACH-BATCH.md"
-//   dryRun        (default false) — compose + log only, contact no Resend
+//   dryRun        (default false) — compose + log only, no actual send
 //   overrideNhod  (default false) — clear nhod blocks and force-send
 //
 // Response

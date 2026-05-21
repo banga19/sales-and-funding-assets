@@ -78,14 +78,14 @@ export class OutreachWorkflow {
       LEFT JOIN conversations conv ON c.id = conv.contact_id
       WHERE 
         c.status IN ('Not Started','Contacted')
-        AND (conv.id IS NULL OR conv.current_stage = 'not_started')
-        AND c.last_contacted_at IS NULL
+        AND conv.id IS NULL
         AND c.do_not_contact = false
+        AND c.emails_sent < 50
       ORDER BY c.engagement_score DESC, c.created_at ASC
       LIMIT $1
     `;
 
-    const limit = agentConfig.rateLimits.email.perDay;
+    const limit = Math.min(agentConfig.rateLimits.email.perDay, 20);
 
     const result = await db.query(query, [limit]);
     return result.rows;

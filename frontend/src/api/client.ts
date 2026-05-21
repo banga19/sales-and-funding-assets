@@ -45,8 +45,30 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { ProductListResponse, ScrapeStatusResponse } from '../types';
 
+/**
+ * Api base URL:
+ * - Default: '/api' (Vite dev proxy) → avoids external network issues.
+ * - Some environments may inject an external IP/host (e.g. http://172.65.x.x) which can
+ *   cause Connect Timeout on restricted networks. To make environments resilient,
+ *   we auto-fallback to '/api' unless explicitly allowed.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const API_BASE_URL: string = (import.meta.env as any).VITE_API_BASE_URL ?? '/api';
+const RAW_API_BASE_URL: string = (import.meta.env as any).VITE_API_BASE_URL ?? '/api';
+const ALLOW_EXTERNAL_API_BASE_URL: boolean = (import.meta.env as any).VITE_API_ALLOW_EXTERNAL_BASE_URL === '1';
+
+function shouldFallbackToProxy(baseUrl: string): boolean {
+  if (!baseUrl) return true;
+
+  // If it's already a relative base, we want to use the Vite proxy.
+  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) return false;
+
+  // External URL to a private/internal IP range → likely not reachable from "opencode".
+  // (We avoid breaking legitimate public URLs.)
+  return /^https?:\/\/(10\.|127\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/i.test(baseUrl);
+}
+
+const API_BASE_URL: string = !ALLOW_EXTERNAL_API_BASE_URL && shouldFallbackToProxy(RAW_API_BASE_URL) ? '/api' : RAW_API_BASE_URL;
+
 const API_TIMEOUT: number = parseInt((import.meta.env as any).VITE_API_TIMEOUT ?? '30000', 10);
 const DEBUG: boolean = (import.meta.env as any).VITE_DEBUG === '1' || (import.meta.env as any).DEV === true;
 
@@ -147,6 +169,11 @@ class ApiClient {
 
   async triggerOutreach() {
     const response = await this.client.post('/agent/outreach/trigger');
+    return response.data;
+  }
+
+  async triggerDailyOutreach() {
+    const response = await this.client.post('/agents/daily-outreach', {});
     return response.data;
   }
 
