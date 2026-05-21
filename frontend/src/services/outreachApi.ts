@@ -37,9 +37,11 @@ export async function sendContactOutreach(
   try {
     const resp: any = await withTimeout(
       () => apiClient.post('/outreach/send', { contactId, dryRun }),
-      45_000,  // personalization + SMTP can take a while — give it room
+      45_000,
     );
-    return { ok: Boolean(resp?.success), message: resp?.message ?? 'Email queued for sending.' };
+    // apiClient returns full Axios response — unwrap .data
+    const body = resp?.data ?? resp;
+    return { ok: Boolean(body?.success), message: body?.message ?? 'Email queued for sending.' };
   } catch (err: any) {
     return {
       ok: false,
@@ -57,7 +59,8 @@ export async function fetchOutreachContacts(
       () => apiClient.get<any>('/contacts?pageSize=200'),
       30_000,
     );
-    const items: any[] = Array.isArray(raw?.data) ? raw.data : [];
+    const body = raw?.data ?? raw;
+    const items: any[] = Array.isArray(body?.data) ? body.data : (Array.isArray(body) ? body : []);
     onStateUpdate?.({ contacts: items, loading: false, contactsError: null });
   } catch (err: any) {
     onStateUpdate?.({ contactsError: err?.message ?? 'Failed to load contacts.', loading: false });
@@ -73,8 +76,10 @@ export async function fetchEmailLogs(
       () => apiClient.get<any[]>('/outreach/logs'),
       30_000,
     );
+    const body = resp?.data ?? resp;
+    const logs: any[] = Array.isArray(body?.value) ? body.value : (Array.isArray(body) ? body : []);
     onStateUpdate?.({
-      emailLogs:    Array.isArray(resp) ? (resp as any[]) : [],
+      emailLogs:    logs,
       logsLoading:  false,
       logsError:    null,
     });
