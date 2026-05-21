@@ -5,111 +5,203 @@
  *  • list of contacts (with persona, status, and metadata)
  *  • in-flight sending set (per contact id)
  *  • last message string (success / error feedback)
- *  • one-shot load function (guarded by a useRef sentinel)
+ *
+ * All API calls are fully asynchronous with per-request timeouts and
+ * retry-with-backoff so the UI is never blocked by a single slow
+ * downstream call.
  */
 
 import { createContext, useContext, useEffect, useState, useRef, useCallback, type ReactNode } from 'react';
 import type { EmailLogEntry } from '../services/outreachApi';
 import { fetchOutreachContacts, fetchEmailLogs, sendContactOutreach } from '../services/outreachApi';
 import { apiClient } from '../api/client';
+import { retryWithBackoff } from '../utils/asyncHelpers';
 
 // ─── State ─────────────────────────────────────────────────────────────────────
 
 interface OutreachState {
-  contacts:    any[];
-  emailLogs:   EmailLogEntry[];
-  sendingIds:  Set<string>;
-  loading:     boolean;
-  logsLoading: boolean;
-  error:       string | null;
-  lastMessage: string | null;
+  contacts:        any[];
+  emailLogs:       EmailLogEntry[];
+  sendingIds:      Set<string>;
+  loading:         boolean;
+  logsLoading:     boolean;
+  contactsError:   string | null;
+  logsError:       string | null;
+  lastMessage:     string | null;
 }
 
 interface OutreachContextValue extends OutreachState {
-  loadContacts:  () => Promise<void>;
-  loadEmailLogs: () => Promise<void>;
-  sendOutreach:  (contactId: string, dryRun?: boolean) => Promise<{ ok: boolean; message: string }>;
-  clearMessage:  () => void;
+  loadContacts:     () => Promise<void>;
+  retryContacts:    () => Promise<void>;
+  loadEmailLogs:    () => Promise<void>;
+  refreshEmailLogs: () => Promise<void>;
+  sendOutreach:     (contactId: string, dryRun?: boolean) => Promise<{ ok: boolean; message: string }>;
+  clearMessage:     () => void;
 }
 
 const defaultState: OutreachState = {
-  contacts:    [],
-  emailLogs:   [],
-  sendingIds:  new Set(),
-  loading:     false,
-  logsLoading: false,
-  error:       null,
-  lastMessage: null,
+  contacts:      [],
+  emailLogs:     [],
+  sendingIds:    new Set(),
+  loading:       false,
+  logsLoading:   false,
+  contactsError: null,
+  logsError:     null,
+  lastMessage:   null,
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const OutreachContext = createContext<OutreachContextValue>({
   ...defaultState,
-  loadContacts:  async () => {},
-  loadEmailLogs: async () => {},
-  sendOutreach:  async () => ({ ok: false, message: 'Not initialised.' }),
-  clearMessage:  () => {},
+  loadContacts:     async () => {},
+  retryContacts:    async () => {},
+  loadEmailLogs:    async () => {},
+  refreshEmailLogs: async () => {},
+  sendOutreach:     async () => ({ ok: false, message: 'Not initialised.' }),
+  clearMessage:     () => {},
 });
 
 // ─── Provider ──────────────────────────────────────────────────────────────────
 
 export function OutreachProvider({ children }: { children: ReactNode }) {
-  const [state, setState]   = useState<OutreachState>(defaultState);
-  const fetchedRef         = useRef(false); // contacts load guard
-  const logsFetched        = useRef(false); // email logs load guard
+  const [state, setState] = useState<OutreachState>(defaultState);
+  /* Two independent refs so `retryContacts` and `loadEmailLogs` can always
+     re-fire even after a successful first load. */
+  const contactsLoadedRef   = useRef(false);
+  const emailLogsFetchedRef = useRef(false);
+
+  // ── Contacts ────────────────────────────────────────────────────────────────
 
   const loadContacts = useCallback(async () => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-    setState(prev => ({ ...prev, loading: true, error: null }));
-    await fetchOutreachContacts((update) => setState(prev => ({ ...prev, ...update })));
-  }, []);
-
-  const loadEmailLogs = useCallback(async () => {
-    if (logsFetched.current) return;
-    logsFetched.current = true;
-    setState(prev => ({ ...prev, logsLoading: true }));
-    await fetchEmailLogs((update) => setState(prev => ({ ...prev, ...update })));
-
-    // Also hydrate from DB-backed agent email-logs endpoint
+    contactsLoadedRef.current = true;
+    setState(prev => ({ ...prev, loading: true, contactsError: null }));
     try {
-      const resp = await (apiClient as any).get('/agents/email-logs?limit=200');
-      const dbLogs: any[] = Array.isArray(resp?.data) ? resp.data : [];
-      if (dbLogs.length > 0) {
-        setState(prev => ({
-          ...prev,
-          emailLogs: [
-            ...prev.emailLogs,
-            ...dbLogs.map((l: any): EmailLogEntry => ({
-              id:          l.id,
-              contactId:   l.contact_id,
-              contactName: '',
-              to:          l.to_email,
-              subject:     l.subject,
-              body:        l.body_preview || '',
-              status:      l.status === 'sent' || l.status === 'dry-run' ? l.status : 'failed',
-              error:       l.error_message,
-              sentAt:      l.sent_at,
-            })),
-          ],
-        }));
-      }
-    } catch {
-      // DB email-logs endpoint may not exist yet — silently ignore
+      await retryWithBackoff(
+        async () => {
+          await fetchOutreachContacts(
+            (update) => setState(prev => ({ ...prev, ...update })),
+          );
+        },
+        3,
+        (attempt, err) => console.warn(`[Outreach] contacts attempt ${attempt} failed:`, err),
+      );
+    } catch (err: any) {
+      setState(prev => ({
+        ...prev,
+        loading:       false,
+        contactsError: err?.message ?? 'Failed to load contacts.',
+      }));
     }
   }, []);
 
+  /** Explicit retry / refresh — always re-fetches regardless of prior state. */
+  const retryContacts = useCallback(async () => {
+    contactsLoadedRef.current = true;
+    setState(prev => ({ ...prev, loading: true, contactsError: null }));
+    try {
+      await retryWithBackoff(
+        async () => {
+          await fetchOutreachContacts(
+            (update) => setState(prev => ({ ...prev, ...update })),
+          );
+        },
+        3,
+        (attempt, err) => console.warn(`[Outreach] contacts retry attempt ${attempt} failed:`, err),
+      );
+    } catch (err: any) {
+      setState(prev => ({
+        ...prev,
+        loading:       false,
+        contactsError: err?.message ?? 'Failed to load contacts.',
+      }));
+    }
+  }, []);
+
+  // ── Email Logs ──────────────────────────────────────────────────────────────
+
+  const loadEmailLogs = useCallback(async () => {
+    if (emailLogsFetchedRef.current) return;
+    emailLogsFetchedRef.current = true;
+
+    setState(prev => ({ ...prev, logsLoading: true, logsError: null }));
+
+    // Step 1: outreach API with retry + timeout
+    try {
+      await retryWithBackoff(
+        async () => {
+          await fetchEmailLogs((update) => setState(prev => ({ ...prev, ...update })));
+        },
+        3,
+        (attempt, err) => console.warn(`[Outreach] email-logs attempt ${attempt} failed:`, err),
+      );
+    } catch (err: any) {
+      // Logs are best-effort — surface the error but don't block DB hydration
+      setState(prev => ({
+        ...prev,
+        logsLoading: false,
+        logsError:   err?.message ?? 'Failed to load email logs.',
+      }));
+    }
+
+    // Step 2 (independent, non-blocking): hydrate from DB-backed agent endpoint
+    (async () => {
+      try {
+        const resp: any    = await apiClient.get('/agents/email-logs?limit=200');
+        const dbLogs: any[] = Array.isArray(resp?.data) ? resp.data : [];
+        if (dbLogs.length > 0) {
+          setState(prev => ({
+            ...prev,
+            emailLogs: [
+              ...prev.emailLogs,
+              ...dbLogs.map((l: any): EmailLogEntry => ({
+                id:          l.id,
+                contactId:   l.contact_id,
+                contactName: '',
+                to:          l.to_email,
+                subject:     l.subject,
+                body:        l.body_preview || '',
+                status:      l.status === 'sent' || l.status === 'dry-run' ? l.status : 'failed',
+                error:       l.error_message,
+                sentAt:      l.sent_at,
+              })),
+            ],
+          }));
+        }
+        setState(prev => ({ ...prev, logsLoading: false }));
+      } catch {
+        // DB email-logs endpoint may not exist yet — silently ignore
+        setState(prev => ({ ...prev, logsLoading: false }));
+      }
+    })();
+  }, []);
+
+  /** Re-fetch email logs regardless of fetched sentinel (used by the Refresh button). */
+  const refreshEmailLogs = useCallback(async () => {
+    emailLogsFetchedRef.current = false;
+    setState(prev => ({ ...prev, logsLoading: true, logsError: null }));
+    await loadEmailLogs();
+  }, [loadEmailLogs]);
+
+  // ── Quick Send ──────────────────────────────────────────────────────────────
+
   const sendOutreach = useCallback(async (contactId: string, dryRun = false) => {
+    // Mark this contact as in-flight
     setState(prev => {
       const next = new Set(prev.sendingIds);
       next.add(contactId);
       return { ...prev, sendingIds: next };
     });
 
-    const { ok, message } = await sendContactOutreach(contactId, dryRun, (update) =>
-      setState(prev => ({ ...prev, ...update })),
-    );
+    let ok: boolean;
+    let message: string;
+    {
+      const { ok: rOk, message: rMsg } = await sendContactOutreach(contactId, dryRun, (update) =>
+        setState(prev => ({ ...prev, ...update })),
+      );
+      ok      = rOk;
+      message = rMsg;
+    }
 
     setState(prev => {
       const next = new Set(prev.sendingIds);
@@ -122,13 +214,16 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
 
   const clearMessage = useCallback(() => setState(prev => ({ ...prev, lastMessage: null })), []);
 
-  // Auto-load on mount
+  // ── Auto-load on mount ─────────────────────────────────────────────────────
+
   useEffect(() => { void loadContacts(); }, [loadContacts]);
 
   const value: OutreachContextValue = {
     ...state,
     loadContacts,
+    retryContacts,
     loadEmailLogs,
+    refreshEmailLogs,
     sendOutreach,
     clearMessage,
   };

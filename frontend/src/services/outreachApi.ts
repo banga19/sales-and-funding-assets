@@ -1,4 +1,5 @@
 import { apiClient } from '../api/client';
+import { withTimeout } from '../utils/asyncHelpers';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -8,6 +9,8 @@ export interface OutreachState {
   sendingIds:  Set<string>;
   loading:     boolean;
   logsLoading: boolean;
+  contactsError:  string | null;
+  logsError:      string | null;
   error:       string | null;
 }
 
@@ -25,41 +28,24 @@ export type EmailLogEntry = {
 
 // ─── API calls ──────────────────────────────────────────────────────────────────
 
-/** POST /api/outreach/send — queue a single-contact outreach (async, returns jobId) */
+/** POST /api/outreach/send — fire-and-forget outreach (async, returns immediately) */
 export async function sendContactOutreach(
   contactId: string,
   dryRun = false,
   onStateUpdate?: (update: Partial<OutreachState>) => void,
-): Promise<{ ok: boolean; message: string; jobId?: string }> {
+): Promise<{ ok: boolean; message: string }> {
   try {
-    const resp: any = await apiClient.post('/outreach/send', { contactId, dryRun });
-    if (resp?.jobId) {
-      // Poll for result
-      return pollSendResult(resp.jobId);
-    }
-    return { ok: Boolean(resp?.success), message: resp?.message ?? 'Done.' };
+    const resp: any = await withTimeout(
+      () => apiClient.post('/outreach/send', { contactId, dryRun }),
+      45_000,  // personalization + SMTP can take a while — give it room
+    );
+    return { ok: Boolean(resp?.success), message: resp?.message ?? 'Email queued for sending.' };
   } catch (err: any) {
     return {
       ok: false,
-      message: err?.response?.data?.error ?? err?.message ?? 'Request failed.',
+      message: (err?.response?.data as any)?.error ?? err?.message ?? 'Request failed.',
     };
   }
-}
-
-/** Poll /api/outreach/send/:jobId until complete or timeout */
-async function pollSendResult(jobId: string, maxAttempts = 30, intervalMs = 1000): Promise<{ ok: boolean; message: string; jobId?: string }> {
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, intervalMs));
-    try {
-      const resp: any = await apiClient.get(`/outreach/send/${jobId}`);
-      if (resp?.status === 'sent' || resp?.status === 'failed') {
-        return { ok: resp.success ?? resp.ok, message: resp.message ?? 'Done.', jobId };
-      }
-    } catch {
-      // Continue polling
-    }
-  }
-  return { ok: false, message: 'Email send timed out — check logs for status.', jobId };
 }
 
 /** GET /api/contacts — list all contacts (unwrap Axios response) */
@@ -67,11 +53,14 @@ export async function fetchOutreachContacts(
   onStateUpdate?: (update: Partial<OutreachState>) => void,
 ): Promise<void> {
   try {
-    const raw: any = await apiClient.get<any>('/contacts?pageSize=200');
+    const raw: any = await withTimeout(
+      () => apiClient.get<any>('/contacts?pageSize=200'),
+      30_000,
+    );
     const items: any[] = Array.isArray(raw?.data) ? raw.data : [];
-    onStateUpdate?.({ contacts: items, loading: false });
+    onStateUpdate?.({ contacts: items, loading: false, contactsError: null });
   } catch (err: any) {
-    onStateUpdate?.({ error: err?.message ?? 'Failed to load contacts.', loading: false });
+    onStateUpdate?.({ contactsError: err?.message ?? 'Failed to load contacts.', loading: false });
   }
 }
 
@@ -80,14 +69,16 @@ export async function fetchEmailLogs(
   onStateUpdate?: (update: Partial<OutreachState>) => void,
 ): Promise<void> {
   try {
-    // apiClient.get() unwraps response.data — outreach endpoint returns raw array
-    const resp: any = await apiClient.get<any[]>('/outreach/logs');
+    const resp: any = await withTimeout(
+      () => apiClient.get<any[]>('/outreach/logs'),
+      30_000,
+    );
     onStateUpdate?.({
       emailLogs:    Array.isArray(resp) ? (resp as any[]) : [],
       logsLoading:  false,
+      logsError:    null,
     });
-  } catch {
-    // best-effort: agent DB-backed endpoint will fill gaps
-    onStateUpdate?.({ logsLoading: false });
+  } catch (err: any) {
+    onStateUpdate?.({ logsError: err?.message ?? 'Failed to load email logs.', logsLoading: false });
   }
 }

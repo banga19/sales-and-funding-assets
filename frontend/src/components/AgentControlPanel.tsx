@@ -1,7 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { apiClient } from '../api/client';
 import { toast } from 'react-hot-toast';
 import { Loader2, Zap, Database, Megaphone, FileText, Target } from 'lucide-react';
+import { SOK } from '../design-tokens';
+import { retryWithBackoff } from '../utils/asyncHelpers';
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const RETRY_BASE_MS = 1_000;
+const RETRY_MAX_MS  = 10_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 // ── UI key → canonical backend key mapping ────────────────────────────────────
 const UI_TO_BACKEND: Record<string, string> = {
@@ -16,6 +24,8 @@ function toBackendKey(uiKey: string): string {
   return UI_TO_BACKEND[uiKey] ?? uiKey;
 }
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+
 interface Features {
   autonomousAgents: boolean;
   bulkSourcing: boolean;
@@ -24,13 +34,12 @@ interface Features {
   fundingPitch: boolean;
 }
 
-interface ApiResult {
-  success: boolean;
-  features?: Record<string, boolean>;
-  feature?: string;
-  enabled?: boolean;
-  error?: string;
+interface FeatureFlagsResponse {
+  features: Record<string, boolean>;
+  source?: string;
 }
+
+// ── Metadata ───────────────────────────────────────────────────────────────────
 
 const FEATURE_META: Record<keyof Features, { label: string; icon: React.ElementType; description: string }> = {
   autonomousAgents: {
@@ -60,6 +69,8 @@ const FEATURE_META: Record<keyof Features, { label: string; icon: React.ElementT
   },
 };
 
+// ── Component ──────────────────────────────────────────────────────────────────
+
 export default function AgentControlPanel() {
   const [features, setFeatures] = useState<Features>({
     autonomousAgents: false,
@@ -69,14 +80,33 @@ export default function AgentControlPanel() {
     fundingPitch: false,
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
+  /* Prevent double-triggered mount fetch */
+  const fetchedRef          = useRef(false);
+  /* Track in-flight toggle IDs so concurrent toggles don't clobber each other */
+  const inflightRef         = useRef<Record<string, Promise<void>>>({});
 
   const fetchFeatures = async () => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
     try {
       setLoading(true);
       setError(null);
-      const flags = await apiClient.getFeatureFlags();
+      const flags: FeatureFlagsResponse = await retryWithBackoff(
+        async () => {
+          const data: FeatureFlagsResponse = await Promise.race([
+            apiClient.getFeatureFlags(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`Feature flags request timed out after ${REQUEST_TIMEOUT_MS}ms`)), REQUEST_TIMEOUT_MS),
+            ),
+          ]);
+          return data;
+        },
+        3,
+        (attempt, err) => console.warn(`[AgentConfig] fetch features attempt ${attempt} failed:`, err),
+      );
       if (flags?.features) {
         setFeatures({
           autonomousAgents: !!(flags.features.agentsEnabled || flags.features.autonomousAgents),
@@ -95,46 +125,77 @@ export default function AgentControlPanel() {
     }
   };
 
-  useEffect(() => { fetchFeatures(); }, []);
+  useEffect(() => { void fetchFeatures(); }, []);
 
   const handleToggle = async (feature: keyof Features) => {
     // Block sub-feature toggles when the master is off
     if (feature !== 'autonomousAgents' && !features.autonomousAgents) return;
 
+    /* If there is already an in-flight toggle for the same feature key, do
+       not issue a second one — let the existing call resolve first. */
+    const backendKey = toBackendKey(feature);
+    if (inflightRef.current[backendKey] != null) {
+      return;
+    }
+
+    // Determine the new UI value BEFORE the state mutation
     const newValue = !features[feature];
 
-    // Optimistic update
+    // Optimistic UI update
     setFeatures(prev => ({ ...prev, [feature]: newValue }));
     setToggling(prev => ({ ...prev, [feature]: true }));
-    try {
-      const backendKey = toBackendKey(feature);
-      const result = (await apiClient.toggleFeature(backendKey, newValue)) as { success?: boolean; feature?: string; enabled?: boolean; error?: string };
-      if (result?.success) {
-        toast.success(`${FEATURE_META[feature].label} ${newValue ? 'enabled' : 'disabled'}`);
 
-        // When master is turned off, server resets all sub-features — sync UI
-        if (feature === 'autonomousAgents' && !newValue) {
-          setFeatures(prev => ({
-            ...prev,
-            bulkSourcing: false,
-            marketing: false,
-            content: false,
-            fundingPitch: false,
-          }));
-        } else if (feature === 'autonomousAgents' && newValue) {
-          fetchFeatures();
+    const togglePromise = (async () => {
+      try {
+        // Accept both { success, feature, enabled, error } and { key, value, updated_at }
+        const result: { success?: boolean; feature?: string; enabled?: boolean; error?: string; value?: boolean } =
+          await Promise.race([
+            apiClient.toggleFeature(backendKey, newValue),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`Toggle request timed out after ${REQUEST_TIMEOUT_MS}ms`)), REQUEST_TIMEOUT_MS),
+            ),
+          ]);
+        if (result.success !== false && result.value !== undefined) {
+          toast.success(`${FEATURE_META[feature].label} ${newValue ? 'enabled' : 'disabled'}`);
+
+          // When master is turned off, server resets all sub-features — sync UI
+          if (feature === 'autonomousAgents' && !newValue) {
+            setFeatures(prev => ({
+              ...prev,
+              bulkSourcing: false,
+              marketing: false,
+              content: false,
+              fundingPitch: false,
+            }));
+          } else if (feature === 'autonomousAgents' && newValue) {
+            // Master just turned on — re-read all flags from server
+            fetchedRef.current = false;
+            await fetchFeatures();
+          }
+          // Sub-feature successes fall through — updated from server next poll
+        } else {
+          setFeatures(prev => ({ ...prev, [feature]: !newValue }));
+          toast.error(result?.error || 'Update failed');
         }
-      } else {
+      } catch (err: any) {
         setFeatures(prev => ({ ...prev, [feature]: !newValue }));
-        toast.error(result?.error || 'Update failed');
+        const msg = err?.response?.data?.error || err.message || 'Request timed out';
+        toast.error(`Failed to update: ${msg}`);
+      } finally {
+        setToggling(prev => {
+          const next = { ...prev };
+          delete next[feature];
+          return next;
+        });
+        delete inflightRef.current[backendKey];
       }
-    } catch (err: any) {
-      setFeatures(prev => ({ ...prev, [feature]: !newValue }));
-      const msg = err?.response?.data?.error || err.message;
-      toast.error(`Failed to update: ${msg}`);
-    } finally {
-      setToggling(prev => ({ ...prev, [feature]: false }));
-    }
+    })();
+
+    inflightRef.current[backendKey] = togglePromise;
+    void togglePromise.catch(() => {
+      // swallow — individual error already handled inside the closure
+      delete inflightRef.current[backendKey];
+    });
   };
 
   if (error && !features.autonomousAgents) {
@@ -144,6 +205,15 @@ export default function AgentControlPanel() {
           <span className="text-sm text-red-700">{error}</span>
         </div>
         <button onClick={fetchFeatures} className="underline text-xs text-red-700">Retry</button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 flex items-center justify-center gap-2 text-gray-400">
+        <Loader2 className="w-5 h-5 animate-spin" style={{ color: SOK.primary }} />
+        Loading agent configuration…
       </div>
     );
   }
@@ -169,7 +239,7 @@ export default function AgentControlPanel() {
           <button
             type="button"
             onClick={() => handleToggle('autonomousAgents')}
-            disabled={toggling.autonomousAgents}
+            disabled={toggling.autonomousAgents || loading}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
               features.autonomousAgents ? 'bg-blue-600' : 'bg-gray-300'
             } ${toggling.autonomousAgents ? 'opacity-70 cursor-wait' : 'focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:outline-none'}`}

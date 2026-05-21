@@ -373,46 +373,23 @@ class SalesAgent {
         if (!rows.length) return res.status(404).json({ success: false, error: 'Contact not found' });
         const contact = mapContact(rows[0]);
 
-        // Queue the send for async execution (non-blocking)
-        const { queueAgentRun, getJobStatus } = await import('./jobs/agent-run-queue');
-        const jobId = await queueAgentRun({
-          agentName: 'bulk-sourcing', // reuse queue infrastructure
-          params: { contactId, dryRun, subject, body, _type: 'quick-send' },
-          triggeredBy: 'outreach-panel',
-        });
+        // Return immediately (202 Accepted) — process in background
+        res.json({ success: true, status: 'queued', message: 'Email is being sent...' });
 
-        // Process immediately in background (don't wait for response)
+        // Fire-and-forget: process the send in the background
         (async () => {
           try {
             const { orchestrator } = await import('./agents/orchestrator');
             const { ok, message, logId } = await orchestrator.sendQuickPersonalized(contact, dryRun, subject, body);
-            // Store result for polling
-            (globalThis as any).__quickSendResults = (globalThis as any).__quickSendResults || {};
-            (globalThis as any).__quickSendResults[jobId] = { ok, message, logId, status: ok ? 'sent' : 'failed', completedAt: new Date().toISOString() };
+            logger.info('[outreach/send] completed', { contactId, ok, message, logId });
           } catch (error: any) {
-            (globalThis as any).__quickSendResults = (globalThis as any).__quickSendResults || {};
-            (globalThis as any).__quickSendResults[jobId] = { ok: false, message: error.message, status: 'failed', completedAt: new Date().toISOString() };
+            logger.error('[outreach/send] failed', { contactId, error: error.message });
           }
         })();
-
-        return res.json({ success: true, jobId, status: 'queued', message: 'Email queued for sending' });
       } catch (error: any) {
         logger.warn('Outreach send failed', { error: error.message });
         res.status(500).json({ success: false, error: error.message || 'Outreach failed' });
       }
-    });
-
-    // GET /api/outreach/send/:jobId — poll for quick-send result
-    this.app.get('/api/outreach/send/:jobId', async (req: Request, res: Response) => {
-      const { jobId } = req.params;
-      const results = (globalThis as any).__quickSendResults || {};
-      const result = results[jobId];
-
-      if (!result) {
-        return res.json({ success: false, status: 'pending', message: 'Email is being processed' });
-      }
-
-      res.json({ success: result.ok, ...result });
     });
 
     this.app.post('/api/test-email', async (req: Request, res: Response) => {

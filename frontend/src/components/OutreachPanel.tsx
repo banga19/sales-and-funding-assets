@@ -179,7 +179,6 @@ export default function OutreachPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('contacts');
   const [emailsFetched, setEmailsFetched] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const contactsContactsLoaded = useRef(false);
 
   const ctx = useOutreach();
   const {
@@ -188,12 +187,15 @@ export default function OutreachPanel() {
     sendingIds,
     loading,
     logsLoading,
-    error,
+    contactsError,
+    logsError,
     lastMessage,
     loadContacts,
+    retryContacts,
     loadEmailLogs,
+    refreshEmailLogs,
     clearMessage,
-    sendOutreach,   // ← already exported from OutreachContext
+    sendOutreach,
   } = ctx;
 
   const { openEmailPanel } = useEmailPanel();
@@ -201,10 +203,10 @@ export default function OutreachPanel() {
   const contacts = Array.isArray(rawContacts) ? rawContacts : [];
   const logs     = Array.isArray(rawLogs    ) ? rawLogs     : [];
 
-  // Auto-fetch contacts on mount (single-shot sentinel)
+  // Auto-fetch contacts on mount (no sentinel — context itself is idempotent)
   useEffect(() => {
-    if (!contactsContactsLoaded.current) { contactsContactsLoaded.current = true; void loadContacts(); }
-  }, []);
+    void loadContacts();
+  }, [loadContacts]);
 
   // Fetch email logs on first tab switch
   useEffect(() => {
@@ -293,11 +295,25 @@ export default function OutreachPanel() {
             <div className="flex items-center justify-center py-10 text-gray-400">
               <Loader2 className="w-5 h-5 mr-2 animate-spin" style={{ color: SOK.primary }} /> Loading contacts…
             </div>
+          ) : contactsError && contactList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-red-500 text-sm gap-3">
+              <p className="text-center font-medium">Failed to load contacts</p>
+              <p className="text-center" style={{ color: '#888899' }}>{contactsError}</p>
+              <button onClick={() => void retryContacts()} style={{
+                display: 'inline-flex', alignItems: 'center',
+                gap: '0.375rem', padding: '0.5rem 1.25rem',
+                borderRadius: '0.5rem', border: 'none', cursor: 'pointer',
+                background: '#605BE5', color: '#fff',
+                fontSize: '0.8125rem', fontWeight: 500,
+              }}>
+                <RefreshCw className="w-4 h-4" /> Retry
+              </button>
+            </div>
           ) : contactList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-sm gap-3">
               <Inbox className="w-10 h-10 opacity-30" />
               <p className="text-center" style={{ color: '#888899' }}>No contacts yet. They will appear once added to the database.</p>
-              <button onClick={() => { void loadContacts(); }} style={{
+              <button onClick={() => void retryContacts()} style={{
                 display: 'inline-flex', alignItems: 'center',
                 gap: '0.375rem', padding: '0.5rem 1.25rem',
                 borderRadius: '0.5rem', border: 'none', cursor: 'pointer',
@@ -315,7 +331,7 @@ export default function OutreachPanel() {
                   contact={c}
                   sending={sendingIds.has?.(c.id) ?? false}
                   onCompose={() => openComposer(c)}
-                  onQuickSend={() => void handleQuickSend(c)}
+                  onQuickSend={() => { void handleQuickSend(c); }}
                 />
               ))}
             </div>
@@ -325,30 +341,58 @@ export default function OutreachPanel() {
 
       {/* Email Logs tab */}
       {activeTab === 'logs' && (
-        logsLoading ? (
-          <div className="flex items-center justify-center py-10 text-gray-400">
-            <Loader2 className="w-5 h-5 mr-2 animate-spin" style={{ color: SOK.primary }} /> Loading email logs…
+        <>
+          <div className="flex justify-end mb-3">
+            <button
+              onClick={() => { void refreshEmailLogs(); }}
+              className="text-xs font-medium flex items-center gap-1 px-2.5 py-1 rounded-full transition-all"
+              style={{ background: SOK.primary, color: '#fff', opacity: logsLoading ? 0.6 : 1 }}
+              disabled={logsLoading}
+            >
+              <RefreshCw className="w-3.5 h-3.5" style={logsLoading ? { animation: 'sok-spin 1s linear infinite' } : undefined} />
+              Refresh
+            </button>
           </div>
-        ) : logList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-sm gap-3">
-            <Mail className="w-10 h-10 opacity-30" />
-            <p style={{ color: '#888899' }}>No email logs yet. Sent emails will appear here.</p>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {logList.map((log: any) => (
-              <div key={log.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100">
-                <div>
-                  <p className="font-medium text-sm text-gray-800">{log.subject}</p>
-                  <p className="text-xs text-gray-400">To: {log.to} · {new Date(log.sentAt).toLocaleDateString()}</p>
+          {logsLoading && logList.length === 0 ? (
+            <div className="flex items-center justify-center py-10 text-gray-400">
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" style={{ color: SOK.primary }} /> Loading email logs…
+            </div>
+          ) : logsError && logList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-red-500 text-sm gap-3">
+              <p className="text-center font-medium">Failed to load email logs</p>
+              <p className="text-center" style={{ color: '#888899' }}>{logsError}</p>
+              <button onClick={() => { void refreshEmailLogs(); }} style={{
+                display: 'inline-flex', alignItems: 'center',
+                gap: '0.375rem', padding: '0.5rem 1.25rem',
+                borderRadius: '0.5rem', border: 'none', cursor: 'pointer',
+                background: '#605BE5', color: '#fff',
+                fontSize: '0.8125rem', fontWeight: 500,
+              }}>
+                <RefreshCw className="w-4 h-4" /> Retry
+              </button>
+            </div>
+          ) : logList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-sm gap-3">
+              <Mail className="w-10 h-10 opacity-30" />
+              <p style={{ color: '#888899' }}>No email logs yet. Sent emails will appear here.</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {logList.map((log: any) => (
+                <div key={log.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100">
+                  <div>
+                    <p className="font-medium text-sm text-gray-800">{log.subject}</p>
+                    <p className="text-xs text-gray-400">To: {log.to} · {new Date(log.sentAt).toLocaleDateString()}</p>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${log.status === 'sent' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                    {log.status}
+                  </span>
                 </div>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${log.status === 'sent' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                  {log.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        )
+              ))}
+            </div>
+          )
+          }
+        </>
       )}
     </div>
   );
