@@ -286,9 +286,9 @@ export default function OutreachPanel() {
       {activeTab === 'contacts' && (
         <>
           {lastMessage && (
-            <div style={{ padding: '0.5rem 1rem', borderBottom: `1px solid ${SOK.borderSoft}`, fontSize: '0.8125rem', color: SOK.textSec, display: 'flex', justifyContent: 'space-between' }}>
-              <span>{lastMessage}</span>
-              <button onClick={clearMessage} style={{ background: 'none', border: 'none', cursor: 'pointer', color: SOK.textMuted }}>✕</button>
+            <div style={{ padding: '0.75rem 1rem', marginBottom: '0.5rem', borderRadius: '0.5rem', fontSize: '0.8125rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: lastMessage.startsWith('Error') ? '#FEF2F2' : '#ECFDF5', border: `1px solid ${lastMessage.startsWith('Error') ? '#FECACA' : '#A7F3D0'}`, color: lastMessage.startsWith('Error') ? '#991B1B' : '#065F46' }}>
+              <span className="font-medium">{lastMessage}</span>
+              <button onClick={clearMessage} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', opacity: 0.6 }}>✕</button>
             </div>
           )}
           {loading && contactList.length === 0 ? (
@@ -382,7 +382,7 @@ export default function OutreachPanel() {
                 <div key={log.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100">
                   <div>
                     <p className="font-medium text-sm text-gray-800">{log.subject}</p>
-                    <p className="text-xs text-gray-400">To: {log.to} · {new Date(log.sentAt).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400">To: {log.to} · {new Date(log.sentAt || log.sentat).toLocaleDateString()}</p>
                   </div>
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${log.status === 'sent' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
                     {log.status}

@@ -209,8 +209,12 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
       return { ...prev, sendingIds: next, lastMessage: ok ? message : `Error: ${message}` };
     });
 
+    // Auto-refresh contacts to see updated counts
+    contactsLoadedRef.current = false;
+    loadContacts();
+
     return { ok, message };
-  }, []);
+  }, [loadContacts]);
 
   const clearMessage = useCallback(() => setState(prev => ({ ...prev, lastMessage: null })), []);
 
