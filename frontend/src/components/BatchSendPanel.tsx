@@ -45,6 +45,7 @@ export default function BatchSendPanel() {
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendResults, setSendResults] = useState<SendResult[] | null>(null);
+  const [isDryRun, setIsDryRun] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -96,15 +97,18 @@ export default function BatchSendPanel() {
       const data = await res.json();
       if (data.success || data.sent > 0) {
         setSendResults(data.results || []);
+        setIsDryRun(!!data.dryRun);
       } else {
+        setIsDryRun(false);
         setError(data.error || 'Send failed');
       }
     } catch {
+      setIsDryRun(false);
       setError('Failed to send batch');
     } finally {
       setSending(false);
     }
-  }, [selectedFile]);
+   }, [selectedFile]);
 
   const verdictColor = (v: string) => {
     switch (v) {
@@ -176,7 +180,7 @@ export default function BatchSendPanel() {
             {preview.entries.map((entry) => {
               const vc = verdictColor(entry.decision.verdict);
               return (
-                <div key={entry.index} className="flex items-center justify-between px-3 py-2 text-sm">
+                 <div key={`${entry.toEmail || ''}|${entry.companyName || 'unknown'}|${entry.index}`} className="flex items-center justify-between px-3 py-2 text-sm">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-800 truncate">{entry.companyName}</p>
                     <p className="text-xs text-gray-400 truncate">{entry.toEmail || '\u2014'}</p>
@@ -205,42 +209,58 @@ export default function BatchSendPanel() {
       {sendResults && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-gray-700">Send Results</h4>
-            <button onClick={() => { setSendResults(null); setPreview(null); }}
+            <h4 className="text-sm font-semibold text-gray-700">
+              {isDryRun ? 'Dry-Run Preview' : 'Send Results'}
+            </h4>
+            <button onClick={() => { setSendResults(null); setPreview(null); setError(''); setIsDryRun(false); }}
               className="text-xs text-indigo-500 hover:underline">Clear</button>
           </div>
           <div className="flex gap-2 flex-wrap mb-2">
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
-              {sendResults.filter(r => r.sendStatus === 'sent').length} Sent
+              {isDryRun ? 'Dry-run' : 'Sent'}: {sendResults.filter(r => r.sendStatus === 'sent' || (!isDryRun && r.sendStatus === 'dry-run')).length}
             </span>
             {sendResults.filter(r => r.sendStatus === 'failed').length > 0 && (
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-700">
                 {sendResults.filter(r => r.sendStatus === 'failed').length} Failed
               </span>
             )}
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">
-              {sendResults.filter(r => r.sendStatus === 'skipped').length} Skipped
-            </span>
+            {sendResults.filter(r => r.sendStatus === 'skipped').length > 0 && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">
+                {sendResults.filter(r => r.sendStatus === 'skipped').length} Skipped
+              </span>
+            )}
           </div>
           <div className="border border-gray-100 rounded-lg divide-y divide-gray-50 max-h-72 overflow-y-auto">
-            {sendResults.map((r, i) => (
-              <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  {r.sendStatus === 'sent' ? <CheckCircle className="w-4 h-4 text-emerald-500" /> :
-                   r.sendStatus === 'failed' ? <XCircle className="w-4 h-4 text-red-500" /> :
-                   <AlertTriangle className="w-4 h-4 text-amber-400" />}
-                  <div>
-                    <p className="font-medium text-gray-800 truncate">{r.companyName}</p>
-                    <p className="text-xs text-gray-400 truncate">{r.toEmail || '\u2014'}</p>
+            {sendResults.map((r, i) => {
+              const statusColor = r.sendStatus === 'sent'
+                ? 'bg-emerald-50 text-emerald-600'
+                : r.sendStatus === 'failed'
+                  ? 'bg-red-50 text-red-600'
+                  : r.sendStatus === 'dry-run'
+                    ? 'bg-blue-50 text-blue-600'
+                    : 'bg-amber-50 text-amber-600';
+              const statusIcon = r.sendStatus === 'sent'
+                ? <CheckCircle className="w-4 h-4 text-emerald-500" />
+                : r.sendStatus === 'failed'
+                  ? <XCircle className="w-4 h-4 text-red-500" />
+                  : r.sendStatus === 'dry-run'
+                    ? <Eye className="w-4 h-4 text-blue-500" />
+                    : <AlertTriangle className="w-4 h-4 text-amber-400" />;
+              return (
+                <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    {statusIcon}
+                    <div>
+                      <p className="font-medium text-gray-800 truncate">{r.companyName}</p>
+                      <p className="text-xs text-gray-400 truncate">{r.toEmail || '\u2014'}</p>
+                    </div>
                   </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ml-2 shrink-0 ${statusColor}`}>
+                    {r.sendStatus}
+                  </span>
                 </div>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ml-2 shrink-0 ${
-                  r.sendStatus === 'sent' ? 'bg-emerald-50 text-emerald-600' :
-                  r.sendStatus === 'failed' ? 'bg-red-50 text-red-600' :
-                  'bg-amber-50 text-amber-600'
-                }`}>{r.sendStatus}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

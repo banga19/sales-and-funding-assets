@@ -234,7 +234,7 @@ router.post('/content-creation', async (req: Request, res: Response) => {
       body:        (result.summary.body as string) ?? '',
       type:        (result.summary.type as string) ?? type,
       bodyLength:  (result.summary.bodyLength as number) ?? 0,
-      keywords:    result.summary.keywords      as number ?? keywords.length,
+      keywords:    (result.summary.keywordCount as number) ?? keywords.length,
       imageUrls:   (result.summary.imageUrls as string[]) ?? [],
       errors:      result.errors,
       durationMs:  result.durationMs,
@@ -324,7 +324,7 @@ router.get('/', (_req, res) => {
         description:  'Scrape sokogate.com product pages and optionally AI-enrich metadata',
         featureFlag:  'productSourcing',
         endpoints:    { post: '/api/agents/loops/bulk-sourcing' },
-        defaultBody:  { pages: agentConfig.bulkSourcing.defaultPages, enrichWithAI: agentConfig.bulkSourcing.enrichWithAI },
+        defaultBody:  { pages: agentConfig.bulkSourcing.defaultPages, enrichWithAI: agentConfig.bulkSourcing.enrichWithAI, maxEnrich: 50 },
       },
       {
         name:         'sales-marketing',

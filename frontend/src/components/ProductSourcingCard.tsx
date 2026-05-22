@@ -229,7 +229,13 @@ export default function ProductSourcingCard() {
         apiClient.get(`/products?${params}`),
         apiClient.get('/products/stats'),
       ]);
-      setProducts(Array.isArray(prodRes?.data) ? prodRes.data : []);
+      // Deduplicate by product id to avoid React "duplicate key" warnings
+      const rawProducts = Array.isArray(prodRes?.data) ? prodRes.data : [];
+      const seen = new Map<string, any>();
+      for (const p of rawProducts) {
+        if (p?.id && !seen.has(p.id)) seen.set(p.id, p);
+      }
+      setProducts([...seen.values()]);
       setStats({
         total:           statsRes?.stats?.total          ?? 0,
         trending:        statsRes?.stats?.trending       ?? 0,

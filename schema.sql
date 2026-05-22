@@ -312,7 +312,12 @@ BEGIN
       b2b_price_tier     JSONB DEFAULT '[]',
       source_platform    VARCHAR(100) DEFAULT 'sokogate.com',
       translation_map    JSONB DEFAULT '{}',
-      volume_cbm         DECIMAL(8,4)
+      volume_cbm         DECIMAL(8,4),
+      -- AI-enrichment columns
+      enriched_data           JSONB    DEFAULT '{}',
+      enrichment_keywords     TEXT[]   DEFAULT '{}',
+      enrichment_tagline      TEXT,
+      enrichment_selling_points TEXT[] DEFAULT '{}'
     );
     CREATE INDEX idx_scraped_products_source_url      ON scraped_products(source_url);
     CREATE INDEX idx_scraped_products_category        ON scraped_products(category);
@@ -353,6 +358,10 @@ BEGIN
     ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS b2b_price_tier     JSONB DEFAULT '[]';
     ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS source_platform    VARCHAR(100) DEFAULT 'sokogate.com';
     ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS translation_map    JSONB DEFAULT '{}';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS enrichment_keywords      TEXT[]   DEFAULT '{}';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS enrichment_tagline       TEXT;
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS enrichment_selling_points TEXT[]   DEFAULT '{}';
+    ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS enriched_data           JSONB    DEFAULT '{}';
     ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS volume_cbm         DECIMAL(8,4);
     RAISE NOTICE 'scraped_products already existed — added missing columns.';
   END IF;

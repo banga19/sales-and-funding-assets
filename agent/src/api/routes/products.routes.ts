@@ -6,6 +6,12 @@ import { logger } from '../../utils/logger';
 const router = Router();
 
 // Helper to convert DB rows to matching Product type
+function rewriteImageUrl(url: string): string {
+  // Transforms: https://sokogate.com/static/products/foo.jpg
+  //        into: https://oss.sokogate.com/products/foo.jpg
+  return url.replace(/^https?:\/\/(?:www\.)?sokogate\.com\/static\/products?\//i, 'https://oss.sokogate.com/products/');
+}
+
 function rowToProduct(row: any) {
   const specs =
     typeof row.specifications === 'object' && row.specifications !== null
@@ -17,7 +23,7 @@ function rowToProduct(row: any) {
     description:    row.description || '',
     price:          String(row.price_current ?? ''),
     category:       row.category || 'General',
-    images:         row.images ?? [],
+    images:         (row.images ?? []).map(rewriteImageUrl),
     specifications: specs,
     inStock:        row.in_stock,
     sourceUrl:      row.source_url,

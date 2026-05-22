@@ -58,7 +58,7 @@ export function useDashboardData(): DashboardData {
   /* ── Status ── 30-second poll ─────────────────────────────── */
   const fetchStatus = useCallback(async (signal?: AbortSignal) => {
     try {
-      const raw: any = await (apiClient.get as any)('/api/status', { signal });
+      const raw: any = await (apiClient.get as any)('/status', { signal });
       if (raw != null && typeof raw === 'object' && 'features' in raw) {
         setStatus(raw as AgentStatus);
         setIsDemo(false);
@@ -72,7 +72,7 @@ export function useDashboardData(): DashboardData {
   /* ── Health ── 60-second poll ─────────────────────────────── */
   const fetchHealth = useCallback(async (signal?: AbortSignal) => {
     try {
-      const raw: any = await (apiClient.get as any)('/api/health', { signal });
+      const raw: any = await (apiClient.get as any)('/health', { signal });
       if (raw != null && typeof raw === 'object' && 'checks' in raw) {
         setHealth(raw as HealthCheck);
       }
@@ -93,7 +93,7 @@ export function useDashboardData(): DashboardData {
   /* ── Products — one-shot ─────────────────────────────────── */
   const fetchProducts = useCallback(async () => {
     try {
-      const raw: any = await apiClient.get('/api/products');
+      const raw: any = await apiClient.get('/products');
       setProducts(Array.isArray(raw?.data) ? raw.data : []);
     } catch (err: any) {
       console.warn('[useDashboardData] /api/products error:', err?.message);

@@ -32,7 +32,4 @@ router.post('/metrics/sync', metrics.syncMetrics);
 // Mount the DB router so GET /, POST /, POST /bulk all resolve correctly.
 router.use('/contacts', contactsDb);
 
-// Alias: also expose at /api/db/contacts for any external consumers.
-router.use('/db/contacts', contactsDb);
-
 export default router;

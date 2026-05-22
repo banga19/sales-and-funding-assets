@@ -16,7 +16,8 @@ const repoRoot = path.resolve(agentRoot, '..');
   path.join(agentRoot, 'src/database/migrations/006_market_leads_and_contacts_missing_columns.sql'),
   path.join(agentRoot, 'src/database/migrations/006_add_image_urls_to_content_pieces.sql'),
   path.join(agentRoot, 'src/database/migrations/007_add_email_logs.sql'),
-  path.join(agentRoot, 'src/database/migrations/008_add_conversation_memory_table.sql'),
+   path.join(agentRoot, 'src/database/migrations/008_add_conversation_memory_table.sql'),
+    path.join(agentRoot, 'src/database/migrations/009_add_received_at_message_history.sql'),
   ];
 
 async function main(): Promise<void> {

@@ -720,19 +720,35 @@ export async function sendBatch(options: {
   // When false (Option A / default) entries are skipped here and the raw
   // markdown text is passed straight through to nodemailer.
   const allSendable = [...sendTargets];
-  const aiPolished: SendTimelineEntry[] = [];
 
-  if (USE_AI_IMPROVE && allSendable.length > 0) {
-    logger.info('[batch-send][langchain] AI-improve pass — LLM polishing subject + body', {
+  // ── Step 6a: AI-improve pass (fire-and-forget, never blocks the client response) ──
+  // Skipped for dry-run (no value during preview / testing).
+  // For live sends, polish runs in the background after this request resolves.
+  if (USE_AI_IMPROVE && !dryRun && allSendable.length > 0) {
+    logger.info('[batch-send][langchain] AI-improve pass — LLM polishing subject + body (background)', {
       count: allSendable.length,
     });
-    for (const item of allSendable) {
-      const polished = await polishEntryWithLangChain(item, category);
-      aiPolished.push(polished);
-    }
+    (async () => {
+      for (const item of allSendable) {
+        try {
+          await polishEntryWithLangChain(item, category);
+        } catch (err: any) {
+          logger.warn('[batch-send][langchain] background polish failed (non-fatal)', {
+            company: item.companyName,
+            error: err.message,
+          });
+        }
+      }
+      logger.info('[batch-send][langchain] AI-improve pass complete', {
+        count: allSendable.length,
+      });
+    })().catch((err: any) => {
+      logger.error('[batch-send][langchain] AI-improve pass fatal', { error: err.message });
+    });
   }
 
-  const effectiveSendTargets = USE_AI_IMPROVE ? aiPolished : allSendable;
+  // Always send the raw entries; AI polishing happens in the background.
+  const effectiveSendTargets = allSendable;
 
   // ── 6a. Send quarantined / no-email: always skipped in the send phase ──
   for (const e of entries) {

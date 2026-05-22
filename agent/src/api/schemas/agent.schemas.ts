@@ -11,12 +11,13 @@ import { z } from 'zod';
 export const BulkSourcingSchema = z.object({
   pages: z.number().int().min(1).max(20).optional(),
   enrichWithAI: z.boolean().optional(),
+  maxEnrich: z.number().int().min(1).max(100).optional(),
 });
 
 // ── Sales & Marketing ──────────────────────────────────────────────────────────
 
 export const SalesMarketingSchema = z.object({
-  productIds: z.array(z.string().uuid()).min(1).max(50),
+  productIds: z.array(z.string()).min(1).max(50),
   targetChannel: z.enum(['email', 'social', 'ads', 'all']).optional(),
 });
 
@@ -24,8 +25,8 @@ export const SalesMarketingSchema = z.object({
 
 export const ContentCreationSchema = z.object({
   type: z.enum(['blog', 'product_guide', 'company_profile']),
-  keywords: z.array(z.string().min(1).max(100)).min(1).max(20),
-  productIds: z.array(z.string().uuid()).optional(),
+  keywords: z.array(z.string().min(1).max(100)).optional().default([]),
+  productIds: z.array(z.string()).optional(),
 });
 
 // ── Funding ────────────────────────────────────────────────────────────────────

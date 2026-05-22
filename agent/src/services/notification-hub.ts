@@ -307,7 +307,7 @@ function make(): { hub: NotificationHub; _notify: (e: NotificationEvent) => void
       case 'reply':        return `${agent} reply dispatched`;
       case 'delivered':    return `${agent} message delivered`;
       case 'bounced':      return `${agent} message bounced`;
-      case 'agentAlert':   return `${agent} alert: ` + (e as any).title ?? 'notification';
+      case 'agentAlert':   return `${agent} alert: ` + ((e as any).title || 'notification');
       default:             return `${agent}: ${(e as any).type}`;
     }
   }
@@ -409,11 +409,10 @@ if (agentConfig.escalation?.email) {
     label:      'nodemailer-failure-alerts',
     direction:  'ESCALATE',
     priority:   2,
-    toEmail:    agentConfig.escalation.email ?? undefined,
     filter:     (e): e is (NotificationRunEvent | NotificationEscalationEvent) =>
       (e.type === 'runFailed' || e.type === 'escalation')
       && ['error', 'critical'].includes((e as any).severity ?? 'error'),
-    handler:    () => { /* nodemailer delivery handled in _maybeSendEmail */ },
+    handler:    (e) => { logger.warn('[hub:escalation]', { type: e.type }); },
   });
 }
 

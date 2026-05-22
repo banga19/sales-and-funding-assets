@@ -17,6 +17,7 @@ export default function ProductCard({ product }: { product: Product }) {
           src={product.images[0]}
           alt={product.name}
           className="w-full h-36 object-cover rounded-lg mb-3"
+          onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder-product.svg'; }}
         />
       ) : (
         <div className="w-full h-36 rounded-lg mb-3 bg-gray-100 flex items-center justify-center text-gray-300 text-2xl">

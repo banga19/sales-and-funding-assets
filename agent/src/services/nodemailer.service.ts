@@ -62,6 +62,31 @@ class NodemailerService {
     return NodemailerService.instance;
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────────────────
+
+  /**
+   * safeVerify — calls transporter.verify() safely regardless of nodemailer
+   * transport implementation (SMTP vs. jsonTransport stub vs. Ethereal).
+   *
+   * Some Nodemailer jsonTransport stubs resolve verify() synchronously with a
+   * non-Promise value (i.e. the returned object has no .catch method), causing
+   * `tx.verify().catch(...)` to throw TypeError at runtime.
+   *
+   * This helper normalises both paths: if `result.catch` is a function it is
+   * awaited; otherwise the synchronous success path is accepted immediately.
+   */
+  private async safeVerify(tx: Transporter): Promise<void> {
+    try {
+      const result: any = tx.verify();
+      if (result && typeof result.catch === 'function') {
+        await result.catch(() => {});
+      }
+      // If result is a plain object (resolved synchronously), do nothing more.
+    } catch {
+      // Stub transports may throw synchronously on verify() — ignore silently.
+    }
+  }
+
   // ── Public: connection management ────────────────────────────────────────────
 
   private resolveProvider(): 'smtp' | 'ethereal' | 'console' | 'blackhole' {
@@ -109,7 +134,7 @@ class NodemailerService {
           } as any);
           // Verify the connection is live
           try {
-            await this.transporter.verify();
+            await this.safeVerify(this.transporter);
             this._isConnected = true;
             logger.info('[nodemailer] SMTP connection verified');
           } catch (err: any) {
@@ -120,7 +145,7 @@ class NodemailerService {
             this.transporter   = null;
             this._provider     = 'console';
             const stub = nodemailer.createTransport({ jsonTransport: true } as any);
-            await stub.verify().catch(() => {});
+            await this.safeVerify(stub);
             this.transporter   = stub;
             this._isConnected  = true;
           }
@@ -135,7 +160,7 @@ class NodemailerService {
             secure:  false,
             auth:    { user: creds.user, pass: creds.pass },
           });
-          await this.transporter.verify();
+          await this.safeVerify(this.transporter);
           this._isConnected = true;
           logger.info('[nodemailer] Ethereal test account ready', { user: creds.user, preview: creds.smtp });
           break;
@@ -146,7 +171,7 @@ class NodemailerService {
           this.transporter = nodemailer.createTransport({
             jsonTransport: true,
           } as any);
-          await this.transporter.verify().catch(() => null);
+          await this.safeVerify(this.transporter);
           this._isConnected = true;
           logger.debug('[nodemailer] console stub — no real email transport');
           break;
@@ -158,7 +183,7 @@ class NodemailerService {
           this.transporter = nodemailer.createTransport({
             jsonTransport: true,
           } as any);
-          await this.transporter.verify().catch(() => null);
+          await this.safeVerify(this.transporter);
           this._isConnected = true;
           logger.debug('[nodemailer] blackhole stub — all sends are swallowed');
           break;

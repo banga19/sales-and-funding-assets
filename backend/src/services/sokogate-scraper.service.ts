@@ -303,7 +303,38 @@ function pickImages($: cheerio.CheerioAPI, baseRef: string): string[] {
       if (src && /\.(jpg|jpeg|png|webp|gif)(?:[?#].*)?$/i.test(src)) imgs.push(abs(baseRef, src));
     });
   }
-  return [...new Set(imgs)];
+  return filterBrokenImageUrls([...new Set(imgs)], baseRef);
+}
+
+/**
+ * Rewrites known-broken image paths to their live OSS CDN equivalents.
+ * Legacy /static/products/*.jpg paths return 404 on the production deployment;
+ * they are rewritten to https://oss.sokogate.com/products/*.jpg instead of dropped.
+ * Root-origin home-page URLs are still stripped (noise, not real assets).
+ */
+function filterBrokenImageUrls(urls: string[], baseRef: string): string[] {
+  let origin: string;
+  try { origin = new URL(baseRef).origin; } catch { origin = ''; }
+  return urls
+    .map(url => {
+      try {
+        const u = new URL(url);
+        if (/\/static\/products?\//i.test(u.pathname)) {
+          return url.replace(/^https?:\/\/(?:www\.)?sokogate\.com\/static\/products?\//i, 'https://oss.sokogate.com/products/');
+        }
+      } catch { /* keep if unparseable but already writable */ }
+      return url;
+    })
+    .filter(url => {
+      try {
+        const u = new URL(url);
+        // Strip root-origin pages (noise, not a real asset)
+        if (origin && u.origin === origin && (u.pathname === '/' || u.pathname === '' || u.pathname === '/index.html')) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    });
 }
 
 function parseSpecs($: cheerio.CheerioAPI, selectors: string[]): ProductSpecification[] {

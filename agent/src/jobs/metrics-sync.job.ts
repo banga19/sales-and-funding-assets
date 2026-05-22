@@ -208,17 +208,13 @@ async function storeDailyMetrics(date: Date, metrics: any): Promise<void> {
   ];
 
   for (const metric of metricTypes) {
+    // date column, not created_at
     await db.query(
-      `INSERT INTO agent_metrics (metric_type, metric_value, metadata, created_at)
+      `INSERT INTO agent_metrics (metric_name, metric_value, metadata, date)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (metric_type, created_at) 
-       DO UPDATE SET metric_value = $2, metadata = $3`,
-      [
-        metric.type,
-        metric.value,
-        JSON.stringify({ date: dateStr }),
-        date,
-      ]
+       ON CONFLICT (date, metric_name, contact_type, tier, channel)
+       DO UPDATE SET metric_value = EXCLUDED.metric_value, metadata = EXCLUDED.metadata`,
+      [metric.type, metric.value, JSON.stringify({ date: dateStr }), dateStr],
     );
   }
 
@@ -231,13 +227,13 @@ async function storeDailyMetrics(date: Date, metrics: any): Promise<void> {
 export async function getMetrics(startDate: Date, endDate: Date): Promise<any[]> {
   const query = `
     SELECT 
-      metric_type,
+      metric_name,
       metric_value,
       metadata,
-      created_at
+      date
     FROM agent_metrics
-    WHERE created_at >= $1 AND created_at < $2
-    ORDER BY created_at DESC, metric_type
+    WHERE date >= $1 AND date < $2
+    ORDER BY date DESC, metric_name
   `;
 
   const result = await db.query(query, [startDate, endDate]);
@@ -254,21 +250,21 @@ export async function getMetricsSummary(days: number = 30): Promise<any> {
 
   const query = `
     SELECT 
-      metric_type,
+      metric_name,
       AVG(metric_value) as avg_value,
       MIN(metric_value) as min_value,
       MAX(metric_value) as max_value,
       SUM(metric_value) as total_value
     FROM agent_metrics
-    WHERE created_at >= $1 AND created_at < $2
-    GROUP BY metric_type
+    WHERE date >= $1 AND date < $2
+    GROUP BY metric_name
   `;
 
   const result = await db.query(query, [startDate, endDate]);
   
   const summary: any = {};
   for (const row of result.rows) {
-    summary[row.metric_type] = {
+    summary[row.metric_name] = {
       average: parseFloat(row.avg_value),
       min: parseFloat(row.min_value),
       max: parseFloat(row.max_value),

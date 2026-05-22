@@ -31,6 +31,7 @@ export interface MessageContext {
   days_since_last_contact?: number;
   previous_messages?: { role: 'user' | 'assistant'; content: string; intent?: string }[];
   conversation_summary?: string;
+  isMeetingFollowUp?: boolean;   // true when this message is a post-meeting follow-up
 
   // ── Prospect / Sales ────────────────────────────────────────────────────────
   location?: string;

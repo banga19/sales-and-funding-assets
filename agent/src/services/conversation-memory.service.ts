@@ -315,6 +315,29 @@ ${transcript}
   }
 }
 
+// ── Build-MessageContext-with-Memory helper ─────────────────────────────────────
+//
+// buildContextWithMemory enriches the supplied MessageContext with a short
+// conversation-memory summary (if one has been generated) before the context
+// is passed to the NVIDIA personalisation engine.
+// Returns the original context unchanged on failure.
+export async function buildContextWithMemory(
+  context: any,
+  contactId: string,
+): Promise<{ context: any; summary: string | null }> {
+  try {
+    const memoryRow = await conversationMemoryService.getMemoryByContact(contactId);
+    const summary = memoryRow?.summary ?? null;
+    return { context, summary };
+  } catch (err: any) {
+    logger.warn('[conversation-memory] buildContextWithMemory failed', {
+      contact_id: contactId,
+      error: err.message,
+    });
+    return { context, summary: null };
+  }
+}
+
 export const conversationMemoryService = new ConversationMemoryService();
 
 // Made with Bob

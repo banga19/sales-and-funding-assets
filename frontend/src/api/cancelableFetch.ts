@@ -34,14 +34,14 @@ function registerSignal(): AbortSignal {
 /** Typed aliases — AbortSignal passed directly to axios via the `signal`
  *  option. All results are awaited by the consuming hooks. */
 export const api = {
-  getHealth:         (signal?: AbortSignal) => (apiClient.get as any)('/api/health',         { signal }),
-  getStatus:         (signal?: AbortSignal) => (apiClient.get as any)('/api/status',         { signal }),
-  getProducts:       (signal?: AbortSignal) => (apiClient.get as any)('/api/products',       { signal }),
-  getScrapeStatus:   (signal?: AbortSignal) => (apiClient.get as any)('/api/products/scrape/status', { signal }),
-  getLogs:           (signal?: AbortSignal) => (apiClient.get as any)('/api/agent/logs',      { signal }),
-  getContacts:       (signal?: AbortSignal) => (apiClient.get as any)('/api/contacts',        { signal }),
-  triggerScrape:     (signal?: AbortSignal) => (apiClient.post as any)('/api/products/scrape', { mode: 'foreground' }, { signal }),
-  triggerTestEmail:  (signal?: AbortSignal) => (apiClient.post as any)('/api/agent/email/test',  {}, { signal }),
+  getHealth:         (signal?: AbortSignal) => (apiClient.get as any)('/health',         { signal }),
+  getStatus:         (signal?: AbortSignal) => (apiClient.get as any)('/status',         { signal }),
+  getProducts:       (signal?: AbortSignal) => (apiClient.get as any)('/products',       { signal }),
+  getScrapeStatus:   (signal?: AbortSignal) => (apiClient.get as any)('/products/scrape/status', { signal }),
+  getLogs:           (signal?: AbortSignal) => (apiClient.get as any)('/agent/logs',      { signal }),
+  getContacts:       (signal?: AbortSignal) => (apiClient.get as any)('/contacts',        { signal }),
+  triggerScrape:     (signal?: AbortSignal) => (apiClient.post as any)('/products/scrape', { mode: 'foreground' }, { signal }),
+  triggerTestEmail:  (signal?: AbortSignal) => (apiClient.post as any)('/agent/email/test',  {}, { signal }),
 };
 
 // Made with Bob

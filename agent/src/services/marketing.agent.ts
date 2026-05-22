@@ -114,9 +114,16 @@ export class MarketingAgent {
     const start = Date.now();
     const errors: string[] = [];
 
-    const validChannels = [...ASSET_TYPES, 'all'];
-    if (!validChannels.includes(targetChannel)) {
-      throw new Error(`Invalid targetChannel "${targetChannel}". Must be one of: ${validChannels.join(', ')}`);
+    // Maps documented API channel names → internal asset-type names
+    const CHANNEL_TO_ASSET: Record<string, string[]> = {
+      email: ['email_sequence'],
+      social: ['social_post'],
+      ads: ['ad_copy'],
+      all: ['email_sequence', 'social_post', 'ad_copy', 'landing_page'],
+    };
+
+    if (!CHANNEL_TO_ASSET[targetChannel]) {
+      throw new Error(`Invalid targetChannel "${targetChannel}". Must be one of: email, social, ads, all`);
     }
 
     this.emit({ phase: 'fetching' });
@@ -134,7 +141,7 @@ export class MarketingAgent {
     this.emit({ phase: 'generating', totalProducts: products.length });
 
     let assetsCreated = 0;
-    const channelsToGenerate = targetChannel === 'all' ? ASSET_TYPES : [targetChannel as AssetType];
+      const channelsToGenerate = CHANNEL_TO_ASSET[targetChannel]!;
 
     for (let pi = 0; pi < products.length; pi++) {
       const product = products[pi];
@@ -174,7 +181,7 @@ export class MarketingAgent {
       this.emit({ phase: 'persisting', currentProduct: pi + 1, totalProducts: products.length });
 
       for (let ai = 0; ai < channelsToGenerate.length; ai++) {
-        const type = channelsToGenerate[ai];
+        const type = channelsToGenerate[ai] as AssetType;
         const assetResult = assetResults[ai];
 
         if (assetResult.status === 'fulfilled') {

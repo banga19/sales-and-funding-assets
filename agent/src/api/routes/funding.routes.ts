@@ -1,8 +1,13 @@
-// agent/src/api/routes/funding.routes.ts
 import { Router, Request, Response } from 'express';
 import { fundingPitchAgent } from '../../services/funding.agent';
 import { logger } from '../../utils/logger';
 import { db } from '../../database/db.client';
+import { z } from 'zod';
+
+const FundingBodySchema = z.object({
+  investorProfile: z.enum(['angel', 'vc', 'bank', 'government']),
+  companyDetails:  z.record(z.unknown()).optional(),
+});
 
 const router = Router();
 
@@ -13,15 +18,12 @@ const router = Router();
  */
 router.post('/funding', async (req: Request, res: Response) => {
   try {
-    const { investorProfile, companyDetails } = req.body ?? {};
-    if (!investorProfile) {
-      return res.status(400).json({ success: false, error: 'investorProfile required' });
+    const parsed = FundingBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid request body' });
     }
 
-    const validProfiles = ['angel', 'vc', 'bank', 'government'];
-    if (!validProfiles.includes(investorProfile)) {
-      return res.status(400).json({ success: false, error: `Invalid investorProfile. Must be one of: ${validProfiles.join(', ')}` });
-    }
+    const { investorProfile, companyDetails = {} } = parsed.data;
 
     // Return immediately — process in background
     res.json({ success: true, status: 'queued', message: `Funding pitch generation started for ${investorProfile} investors.` });

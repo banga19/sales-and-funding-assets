@@ -123,7 +123,7 @@ app.get('/health', async (_req: express.Request, res: express.Response) => {
       catch { return { healthy: false }; }
     })(), HEALTH_TIMEOUT_MS),
     withTimeout((async () => {
-      try { const { default: redisClient } = await import('ioredis'); const r = new redisClient(process.env.REDIS_URL || 'redis://localhost:6379'); await r.ping(); await r.quit(); return true; }
+      try { const { Redis } = await import('ioredis'); const r = new Redis(process.env.REDIS_URL || 'redis://localhost:6379'); await r.ping(); await r.quit(); return true; }
       catch { return false; }
     })(), HEALTH_TIMEOUT_MS),
   ]);

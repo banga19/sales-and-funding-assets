@@ -11,7 +11,7 @@
 | **Technical Specification & Architecture** | [docs/TECHNICAL_SPEC.md](docs/TECHNICAL_SPEC.md) | Stack choices, monorepo layout, architecture diagram, request flow, design principles |
 | **Database Schema** | [schemas/DATABASE_SCHEMA.md](schemas/DATABASE_SCHEMA.md) | Prisma schema (PostgreSQL 17), ERD, all models, migrations strategy, indexing |
 | **API Reference** | [api/API_DOC.md](api/API_DOC.md) | tRPC router hierarchy, procedure specs, shared Zod schemas, REST fallback, error contract |
-| **Frontend Architecture** | [frontend/FRONTEND_ARCH.md](frontend/FRONTEND_ARCH.md) | Component hierarchy, SSR/CSR boundaries, TanStack Query + Zustand, form patterns, Tailwind config |
+| **Frontend Architecture** | [../frontend/FRONTEND_ARCH.md](../frontend/FRONTEND_ARCH.md) | Component hierarchy, SSR/CSR boundaries, TanStack Query + Zustand, form patterns, Tailwind config |
 | **Deployment Strategy** | [infra/DEPLOYMENT_STRATEGY.md](infra/DEPLOYMENT_STRATEGY.md) | GitHub Actions CI/CD, multi-stage Dockerfile, docker-compose, Terraform IaC, AWS + Vercel + Supabase stack |
 | **Development Checklist** | [docs/DEVELOPMENT_CHECKLIST.md](docs/DEVELOPMENT_CHECKLIST.md) | Ordered checklist from `clone → local dev → auth → tRPC → production scaling` |
 

@@ -101,6 +101,19 @@ export interface PriceDeltaRow {
 
 // ─── Conversion helpers ────────────────────────────────────────────────────────
 
+/** Replaces legacy /static/products/ paths with the live OSS CDN host.
+ *  The production site serves product images from oss.sokogate.com/products/.
+ *  A scraper that crawls the live site can encounter /static/products/*.jpg
+ *  during site transitions; this rewrite makes those URLs resolution-safe. */
+function rewriteImageUrl(url: string): string {
+  // Transforms: https://sokogate.com/static/products/foo.jpg
+  //        into: https://oss.sokogate.com/products/foo.jpg
+  return url.replace(
+    /^https?:\/\/(?:www\.)?sokogate\.com\/static\/products?\//i,
+    'https://oss.sokogate.com/products/'
+  );
+}
+
 function rowToProduct(row: DbProductRow): Product {
   const specs: ProductSpecification[] = Object.entries(row.specifications ?? {}).map(([k, v]) => ({ key: k, value: v }));
   return {
@@ -109,7 +122,7 @@ function rowToProduct(row: DbProductRow): Product {
     description:   row.description || '',
     price:         String(row.price_current ?? ''),
     category:      row.category || 'General',
-    images:        row.images ?? [],
+    images:        (row.images ?? []).map(rewriteImageUrl),
     specifications: specs,
     inStock:       row.in_stock,
     sourceUrl:     row.source_url,

@@ -194,8 +194,8 @@ function ProductCard({ product }: { product: Product }) {
         {/* Specs */}
         {product.specifications.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-            {product.specifications.slice(0, 3).map((spec, i) => (
-              <span key={i} style={{
+            {product.specifications.slice(0, 3).map((spec) => (
+              <span key={spec.key} style={{
                 fontSize: '0.6875rem', color: SOK.textSec,
                 background: SOK.surfaceMuted, border: `1px solid ${SOK.borderSoft}`,
                 padding: '0.125rem 0.375rem', borderRadius: '0.25rem',

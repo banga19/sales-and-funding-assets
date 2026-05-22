@@ -124,7 +124,7 @@ function MarketingResult({ data }: { data: any }) {
       </p>
       <div className="max-h-48 overflow-y-auto space-y-1.5">
         {assets.map((asset: any, i: number) => (
-          <div key={asset.id || i} className="text-sm bg-white rounded-lg p-2.5 border border-gray-200">
+          <div key={asset.id || `asset-${i}`} className="text-sm bg-white rounded-lg p-2.5 border border-gray-200">
             <p className="font-medium text-gray-700">{asset.product}</p>
             <p className="text-xs text-indigo-600 mb-1 uppercase tracking-wide">{asset.type.replace('_', ' ')}</p>
             <p className="text-gray-500 text-xs line-clamp-2">{asset.content?.substring(0, 150) || 'No preview available.'}</p>
@@ -166,7 +166,7 @@ function ContentResult({ data }: { data: any }) {
         <div className="flex gap-2 overflow-x-auto pb-2">
           {piece.imageUrls.map((url: string, i: number) => (
             <img
-              key={i}
+              key={url || i}
               src={url}
               alt={`Generated image ${i + 1}`}
               className="h-24 w-24 object-cover rounded-lg border border-gray-200 flex-shrink-0"
@@ -205,7 +205,7 @@ function FundingResult({ data }: { data: any }) {
         </div>
       )}
       {prospects.map((p: any, i: number) => (
-        <div key={p.id || i} className="text-sm bg-white rounded-lg p-2.5 border border-gray-200 mb-1">
+        <div key={p.id || `prospect-${i}`} className="text-sm bg-white rounded-lg p-2.5 border border-gray-200 mb-1">
           <p className="font-medium text-gray-700">{p.name || p.contact?.name || 'Unnamed Contact'}</p>
           <p className="text-xs text-gray-500">
             {p.firm || 'Unknown Firm'} · {p.email || 'No email'}

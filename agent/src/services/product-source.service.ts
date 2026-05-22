@@ -155,7 +155,42 @@ function pickImages($: $, baseRef: string): string[] {
   if (imgs.length < 4) { const tw = $('meta[name="twitter:image"]').attr('content');   if (tw) imgs.push(abs(baseRef, tw as string)); }
   if (imgs.length < 4) { $('.entry-content img, .product-description img, .summary img').each((_i: number, el: any) => { const s = $(el).attr('src'); if (s) imgs.push(abs(baseRef, s as string)); }); }
   if (imgs.length === 0) { $('img').each((_i: number, el: any) => { const s = $(el).attr('src'); if (s && /\.(jpg|jpeg|png|webp|gif)(?:[?#].*)?$/i.test(s as string)) imgs.push(abs(baseRef, s as string)); }); }
-  return [...new Set(imgs)];
+  return deduplicateImages([...new Set(imgs)]);
+}
+
+/**
+ * Remove stale /cdn-dena image URLs (known 404 paths on the current
+ * sokogate.com production deployment). Rewrites legacy /static/products/* paths
+ * to the live OSS CDN (https://oss.sokogate.com/products/foo.jpg) so the
+ * frontend PhotoArea always receives a working URL.
+ *
+ * Also rejects common non-absolute / relative paths that resolve to the origin
+ * root rather than to /wp-content/uploads/ (WooCommerce's canonical CDN).
+ */
+function deduplicateImages(urls: string[]): string[] {
+  const origin = new URL(BASE_URL).origin;
+  return urls
+    .map(url => {
+      try {
+        const u = new URL(url);
+        // Rewrite legacy /static/products/ path to the live OSS CDN
+        if (/\/static\/products?\//i.test(u.pathname)) {
+          return url.replace(/^https?:\/\/(?:www\.)?sokogate\.com\/static\/products?\//i, 'https://oss.sokogate.com/products/');
+        }
+      } catch { /* keep if unparseable but already writable */ }
+      return url;
+    })
+    .filter(url => {
+      try {
+        const u = new URL(url);
+        // Reject empty/origin-root paths — no actual image there
+        if (u.origin === origin && (u.pathname === '/' || u.pathname === '' || u.pathname === '/index.html')) return false;
+        // Accept: anything else is assumed valid
+        return true;
+      } catch {
+        return false;
+      }
+    });
 }
 
 // ─── HTTP + DB imports ─────────────────────────────────────────────────────────

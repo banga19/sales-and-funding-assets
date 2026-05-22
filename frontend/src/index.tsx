@@ -5,59 +5,62 @@ import { OutreachProvider } from './context/OutreachContext';
 import './index.css';
 import App from './App';
 
-// Console noise filtering for extension-related noise (e.g., Grammarly)
-const filterConsoleMessages = () => {
-  const originalError = console.error;
-  const originalWarn = console.warn;
+// ─── Console Noise Filters ────────────────────────────────────────────────────
+// Single consolidated filter covering all four noise categories:
+//  1. Cross-window bridge spam  (page_all.js / MessageEvent / init command)
+//  2. log4js DEFAULT root logger warnings (printToConsole / Using DEFAULT root logger)
+//  3. Angular error-corruption stubs (Understand this error / warning)
+//  4. Browser-extension noise  (grammarly / chrome-extension / react-devtools)
+const NOISE_FILTERS = [
+  // Category 1 — cross-window bridge
+  'MessageEvent',
+  'init command',
+  // Category 2 — log4js root logger
+  'printToConsole',
+  'Using DEFAULT root logger',
+  // Category 3 — Angular stubs
+  'Understand this error',
+  'Understand this warning',
+  // Category 4 — browser extensions
+  'grammarly',
+  'chrome-extension://',
+  'react-devtools',
+  '__grammarly',
+  'inject',
+  'crx',
+];
 
-  const noiseKeywords = [
-    'grammarly',
-    'chrome-extension://',
-    'react-devtools',
-    'Extension',
-    'extension',
-    '__grammarly',
-    'inject',
-    'crx',
-  ];
-
-  const shouldFilter = (args: any[]) => {
-    return args.some(arg => {
-      if (typeof arg === 'string') {
-        const lowerArg = arg.toLowerCase();
-        return noiseKeywords.some(keyword => lowerArg.includes(keyword.toLowerCase()));
-      }
-      if (arg instanceof Error) {
-        const stack = arg.stack || '';
-        const message = arg.message || '';
-        return noiseKeywords.some(keyword => 
-          message.toLowerCase().includes(keyword.toLowerCase()) || 
-          stack.toLowerCase().includes(keyword.toLowerCase())
-        );
-      }
-      return false;
-    });
-  };
-
-  console.error = (...args: any[]) => {
-    if (shouldFilter(args)) return;
-    originalError.apply(console, args);
-  };
-
-  console.warn = (...args: any[]) => {
-    if (shouldFilter(args)) return;
-    originalWarn.apply(console, args);
-  };
+const shouldFilterStr = (str: string) => NOISE_FILTERS.some(p => str.includes(p));
+const shouldFilterArgs = (args: any[]) => {
+  if (typeof args[0] === 'string') return shouldFilterStr(args[0]);
+  const str = args.map(a => (a ?? '').toString()).join(' ');
+  return shouldFilterStr(str);
 };
 
-filterConsoleMessages();
+const _origConsoleLog  = console.log;
+const _origConsoleWarn = console.warn;
+const _origConsoleErr  = console.error;
+console.log  = (...args: any[]) => { if (!shouldFilterArgs(args)) _origConsoleLog.apply(console, args); };
+console.warn = (...args: any[]) => { if (!shouldFilterArgs(args)) _origConsoleWarn.apply(console, args); };
+console.error = (...args: any[]) => {
+  const str = args.map(a => (a ?? '').toString()).join(' ');
+  if (str.includes('grammarly') || str.includes('chrome-extension')) return;
+  _origConsoleErr.apply(console, args);
+};
 
-// Suppress cross-origin MessageEvent noise from Chrome extensions
+// ─── MessageEvent Deduplication ──────────────────────────────────────────────
+// Filters repeated cross-window MessageEvent spam; only surfaces first occurrence
+// per unique fingerprint as console.debug in DEV mode.
 const filterMessageEvents = () => {
   const ORIGIN = window.location.origin;
+  let lastSeen = '';
   window.addEventListener('message', (event: MessageEvent) => {
-    if (event.origin !== ORIGIN) return; // ignore extensions
-    // allow known app messages through
+    if (event.origin !== ORIGIN) return;
+    if (typeof event.data === 'object' && event.data !== null && 'command' in event.data) return;
+    const fingerprint = JSON.stringify(event.data);
+    if (fingerprint === lastSeen) return;
+    lastSeen = fingerprint;
+    if (import.meta.env.DEV) console.debug('[MessageEvent]', event.data);
   }, true);
 };
 filterMessageEvents();

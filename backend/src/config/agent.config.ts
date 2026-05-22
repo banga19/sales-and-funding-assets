@@ -6,7 +6,7 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:3001,http://localhost:3000,http://localhost:3002'),
 
   // ── Database ────────────────────────────────────────────────────────────────
-  DATABASE_URL:             z.string().default('postgresql://sokogate:sokogate-dev-change-me@localhost:5432/sokogate'),
+  DATABASE_URL:             z.string().default('postgresql://sokogate:sokogate-dev-change-me@localhost:5433/sokogate'),
   DB_POOL_MIN:              z.coerce.number().default(2),
   DB_POOL_MAX:              z.coerce.number().default(10),
 

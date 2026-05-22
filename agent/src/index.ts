@@ -330,15 +330,26 @@ class SalesAgent {
       sentAt: string;
     }[] = [];
 
-    const origInfo  = logger.info;
+     const origInfo  = logger.info;
     const origWarn  = logger.warn;
     const origError = logger.error;
+
+    // Capture structured log lines into in-memory buffer for /api/agent/logs
+    function makeLogProxy(level: 'info' | 'warn' | 'error', orig: (...a: any[]) => void): (...a: any[]) => void {
+      return (...a: any[]) => {
+        const ts = new Date().toISOString();
+        const msg = typeof a[0] === 'string' ? a[0] : JSON.stringify(a[0]);
+        logBuffer.push({ timestamp: ts, level, message: msg?.slice?.(0, 500) ?? '' });
+        if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
+        orig(...a);
+      };
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (logger as any).info  = (...args: unknown[]) => { const ts = new Date().toISOString(); const msg = String(args.join(' ')).slice(0, 500); logBuffer.push({ timestamp: ts, level: 'info',  message: msg }); if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift(); (origInfo as any)(...args); };
+    (logger as any).info  = makeLogProxy('info',  origInfo as any);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (logger as any).warn  = (...args: unknown[]) => { const ts = new Date().toISOString(); const msg = String(args.join(' ')).slice(0, 500); logBuffer.push({ timestamp: ts, level: 'warn',  message: msg }); if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift(); (origWarn as any)(...args); };
+    (logger as any).warn  = makeLogProxy('warn',  origWarn as any);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (logger as any).error = (...args: unknown[]) => { const ts = new Date().toISOString(); const msg = String(args.join(' ')).slice(0, 500); logBuffer.push({ timestamp: ts, level: 'error', message: msg }); if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift(); (origError as any)(...args); };
+    (logger as any).error = makeLogProxy('error', origError as any);
 
     this.app.get('/api/agent/logs', (req: Request, res: Response) => {
       const lines = req.query.lines ? Math.min(parseInt(String(req.query.lines), 10), LOG_BUFFER_MAX) : 100;

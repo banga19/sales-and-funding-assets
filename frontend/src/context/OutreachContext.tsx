@@ -69,11 +69,14 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
   /* Two independent refs so `retryContacts` and `loadEmailLogs` can always
      re-fire even after a successful first load. */
   const contactsLoadedRef   = useRef(false);
+  const contactsLoadingRef  = useRef(false); // prevents concurrent loadContacts races
   const emailLogsFetchedRef = useRef(false);
 
   // ── Contacts ────────────────────────────────────────────────────────────────
 
   const loadContacts = useCallback(async () => {
+    if (contactsLoadingRef.current) return;
+    contactsLoadingRef.current = true;
     contactsLoadedRef.current = true;
     setState(prev => ({ ...prev, loading: true, contactsError: null }));
     try {
@@ -92,11 +95,15 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
         loading:       false,
         contactsError: err?.message ?? 'Failed to load contacts.',
       }));
+    } finally {
+      contactsLoadingRef.current = false;
     }
   }, []);
 
   /** Explicit retry / refresh — always re-fetches regardless of prior state. */
   const retryContacts = useCallback(async () => {
+    if (contactsLoadingRef.current) return;
+    contactsLoadingRef.current = true;
     contactsLoadedRef.current = true;
     setState(prev => ({ ...prev, loading: true, contactsError: null }));
     try {
@@ -115,6 +122,8 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
         loading:       false,
         contactsError: err?.message ?? 'Failed to load contacts.',
       }));
+    } finally {
+      contactsLoadingRef.current = false;
     }
   }, []);
 
@@ -150,11 +159,10 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
         const resp: any    = await apiClient.get('/agents/email-logs?limit=200');
         const dbLogs: any[] = Array.isArray(resp?.data) ? resp.data : [];
         if (dbLogs.length > 0) {
-          setState(prev => ({
-            ...prev,
-            emailLogs: [
-              ...prev.emailLogs,
-              ...dbLogs.map((l: any): EmailLogEntry => ({
+          setState(prev => {
+            const seen = new Set(prev.emailLogs.map(l => l.id));
+            const unique = dbLogs
+              .map((l: any): EmailLogEntry => ({
                 id:          l.id,
                 contactId:   l.contact_id,
                 contactName: '',
@@ -164,9 +172,10 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
                 status:      l.status === 'sent' || l.status === 'dry-run' ? l.status : 'failed',
                 error:       l.error_message,
                 sentAt:      l.sent_at,
-              })),
-            ],
-          }));
+              }))
+              .filter((l: EmailLogEntry) => !seen.has(l.id));
+            return { ...prev, emailLogs: [...prev.emailLogs, ...unique] };
+          });
         }
         setState(prev => ({ ...prev, logsLoading: false }));
       } catch {
@@ -210,7 +219,8 @@ export function OutreachProvider({ children }: { children: ReactNode }) {
     });
 
     // Auto-refresh contacts to see updated counts
-    contactsLoadedRef.current = false;
+    contactsLoadingRef.current = false;
+    contactsLoadedRef.current   = false;
     loadContacts();
 
     return { ok, message };

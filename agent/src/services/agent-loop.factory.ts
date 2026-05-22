@@ -25,7 +25,7 @@ import { notify, type NotificationEvent, type NotificationRunEvent } from './not
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
 import { langchainService } from './langchain.service';
-import { imageGenerationService } from './image-generation.service';
+            0
 import { db } from '../database/db.client';
 import { getCached, setCached } from './response-cache.service';
 import { z } from 'zod';
@@ -183,7 +183,7 @@ Return ONLY valid JSON — no code fences, no preamble:
 {{"enrichment_keywords":["a","b","c"],"enrichment_tagline":"30 – 50 words","enrichment_selling_points":["bullet1","bullet2"]}}`],
               ]);
 
-              const chain = promptTemplate.pipe(langchainService.getLLM(0.2, 300));
+              const chain = promptTemplate.pipe(langchainService.getLLM(0.2, 1024));
               const res = await langchainService.withRetry(() => chain.invoke({
                 name: (p.name || 'Unknown').slice(0, 200),
                 category: (p.category || 'General').slice(0, 100),
@@ -558,6 +558,9 @@ Use the context below to make the content specific and relevant.`,
         opts.onProgress?.('generating_images', { style: opts.imageStyle });
         logger.info('[content-loop] generating images', { type: opts.type, style: opts.imageStyle });
 
+        // Lazy import — imageGenerationService only needed for content-creation
+        const { imageGenerationService } = await import('./image-generation.service');
+
         try {
           // Generate infographic based on content topic with 30s timeout
           const infographicResult = await imageGenerationService.generateInfographic(
@@ -748,10 +751,10 @@ ${topMatches ? `Reference: ${topMatches}` : ''}`;
       if (!c?.name && !c?.firm) continue;
       try {
         await db.query(
-          `INSERT INTO investor_prospects (id, investor_profile, pitch_summary, contact_name, contact_email, firm, role, fit_reason, status, created_at)
-             VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, 'proposed', NOW())
+          `INSERT INTO investor_prospects (id, investor_profile, pitch_summary, status, created_at)
+             VALUES (gen_random_uuid()::text, $1, $2, 'proposed', NOW())
              ON CONFLICT (id) DO NOTHING`,
-          [opts.investorProfile, pitchSummary, c.name || '', c.email || '', c.firm || '', c.role || '', c.fit || ''],
+          [opts.investorProfile, pitchSummary],
         );
         created++;
       } catch (err: any) {

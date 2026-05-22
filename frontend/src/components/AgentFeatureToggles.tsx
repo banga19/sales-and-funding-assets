@@ -36,7 +36,7 @@ const UI_TO_BACKEND: Record<string, string> = {
   autonomousAgents: 'agentsEnabled',
   bulkSourcing:     'productSourcing',
   marketing:        'salesOutreach',
-  content:          'salesOutreach',
+  content:          'contentAgent',
   fundingPitch:     'fundingOutreach',
 };
 const BACKEND_TO_UI: Record<string, string> = Object.fromEntries(

@@ -11,6 +11,15 @@ import { db } from '../../database/db.client';
 import { agentConfig } from '../../config/agent.config';
 import { logger } from '../../utils/logger';
 import { contentAgent, type ContentRunOptions } from '../../services/content.agent';
+import { z } from 'zod';
+
+const ContentBodySchema = z.object({
+  type: z.enum(['blog', 'product_guide', 'company_profile']).optional(),
+  keywords: z.array(z.string().min(1).max(100)).optional().default([]),
+  productIds: z.array(z.string()).optional().default([]),
+  generateImage: z.boolean().optional().default(false),
+  imageStyle: z.enum(['modern', 'minimal', 'bold']).optional().default('modern'),
+});
 
 const router = Router();
 
@@ -20,18 +29,14 @@ const router = Router();
  */
 router.post('/content-creation', async (req: Request, res: Response) => {
   try {
-    let type = agentConfig.contentCreation.defaultType;
-    let keywords: string[] = [];
-    let productIds: string[] = [];
-
-    type = req.body?.type || agentConfig.contentCreation.defaultType;
-    keywords = req.body?.keywords ?? [];
-    productIds = req.body?.productIds ?? [];
-
-    const validTypes = new Set<string>(['blog', 'product_guide', 'company_profile']);
-    if (!validTypes.has(type as string)) {
-      return res.status(400).json({ success: false, error: `Invalid type "${type}". Valid: blog, product_guide, company_profile` });
+    const parsed = ContentBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message || 'Invalid request body' });
     }
+
+    let type = parsed.data.type || agentConfig.contentCreation.defaultType;
+    const keywords: string[] = parsed.data.keywords;
+    let productIds: string[] = parsed.data.productIds;
 
     if (type === 'product_guide' && (!Array.isArray(productIds) || productIds.length === 0)) {
       return res.status(400).json({ success: false, error: 'productIds are required when type is "product_guide"' });
@@ -41,8 +46,8 @@ router.post('/content-creation', async (req: Request, res: Response) => {
       type: type as any,
       keywords,
       productIds: productIds as string[],
-      generateImage: req.body?.generateImage === true,
-      imageStyle: req.body?.imageStyle || 'modern',
+      generateImage: parsed.data.generateImage,
+      imageStyle: parsed.data.imageStyle,
     };
 
     // Return immediately — process in background

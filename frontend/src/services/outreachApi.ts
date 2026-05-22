@@ -61,7 +61,13 @@ export async function fetchOutreachContacts(
     );
     const body = raw?.data ?? raw;
     const items: any[] = Array.isArray(body?.data) ? body.data : (Array.isArray(body) ? body : []);
-    onStateUpdate?.({ contacts: items, loading: false, contactsError: null });
+    // Deduplicate by contact id to prevent React "duplicate key" warnings
+    const seen = new Map<string, any>();
+    for (const item of items) {
+      const id = item?.id ?? item?.contact?.id;
+      if (id && !seen.has(id)) seen.set(id, item);
+    }
+    onStateUpdate?.({ contacts: [...seen.values()], loading: false, contactsError: null });
   } catch (err: any) {
     onStateUpdate?.({ contactsError: err?.message ?? 'Failed to load contacts.', loading: false });
   }

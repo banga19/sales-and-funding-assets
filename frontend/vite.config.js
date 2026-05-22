@@ -4,7 +4,7 @@ import path from 'path';
 // Vite loads .env*, .env.local, .env.[mode] before building the config object.
 // process.env.VITE_* is therefore already available at config evaluation time.
 var VITE_API_BASE_URL = process.env.VITE_API_BASE_URL || '/api';
-var VITE_API_TIMEOUT = process.env.VITE_API_TIMEOUT || '10000';
+var VITE_API_TIMEOUT = process.env.VITE_API_TIMEOUT || '30000';
 var API_TARGET = process.env.VITE_API_TARGET || 'http://localhost:3002';
 var BACKEND_TARGET = process.env.VITE_BACKEND_TARGET || 'http://localhost:3000';
 export default defineConfig({
@@ -22,30 +22,15 @@ export default defineConfig({
         port: 3001,
         strictPort: true,
         proxy: {
-            // ── /api/* → Agent (port 3002)
-            //    Agent owns /api/health, /api/status, /api/agent/*, /api/contacts/*
+            // ── /api/* → Agent (port 3002; /api prefix forwarded as-is)
+            //    Covers: /api/health, /api/status, /api/agent/*, /api/contacts/*,
+            //    /api/products, /api/products/stats, /api/products/:id, /api/products/scrape, etc.
             '/api': {
                 target: API_TARGET,
                 changeOrigin: true,
-            },
-            // ── /api/products → Backend (port 3000) — wins over /api catch-all above
-            //    because it is a more specific prefix match
-            '/api/products': {
-                target: BACKEND_TARGET,
-                changeOrigin: true,
-            },
-            '/api/contacts': {
-                target: BACKEND_TARGET,
-                changeOrigin: true,
-            },
-            // ── bare contacts/* → Backend (port 3000)  — matched by ContactsPanel via axios
-            '/contacts': {
-                target: BACKEND_TARGET,
-                changeOrigin: true,
-            },
-            '/api/metrics': {
-                target: BACKEND_TARGET,
-                changeOrigin: true,
+                // Agent health checks + AI calls can take up to 8–12 s; keep the Vite proxy
+                // gate wider so it does not reject a slow-but-healthy response mid-flight.
+                proxyTimeout: 20000,
             },
         },
     },

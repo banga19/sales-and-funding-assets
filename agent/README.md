@@ -76,9 +76,9 @@ npm start
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/sokogate` | PostgreSQL connection |
+| `DATABASE_URL` | `postgres://sokogate:sokogate-dev-change-me@localhost:5433/sokogate` | PostgreSQL connection |
 | `NVIDIA_API_KEY` | — | NVIDIA NIM API key (required for AI) |
-| `NVIDIA_API_URL` | `https://api.nvcf.nvidia.com/v1/chat/completions` | NVIDIA NIM endpoint |
+| `NVIDIA_API_URL` | `https://integrate.api.nvidia.com/v1/chat/completions` | NVIDIA NIM endpoint |
 | `NVIDIA_MODEL` | `nvidia/llama-3.1-nemotron-70b-instruct` | Model for all AI calls |
 | `RESEND_API_KEY` | — | Resend email delivery |
 | `RESEND_FROM_EMAIL` | — | Sender address for outbound emails |

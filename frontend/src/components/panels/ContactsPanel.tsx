@@ -73,17 +73,32 @@ export default function ContactsPanel() {
     try {
       const { data } = await axios.get('/api/contacts', { params: { pageSize: 500 } });
 
-      // ── Normalise response ──────────────────────────────────────────────────
+      // ── Normalise + deduplicate by id ─────────────────────────────────────────
       let list: Contact[];
       if (Array.isArray(data?.data)) {
         // New DB-backed shape:  { success, data: Contact[], total, … }
-        list = data.data.map(normalise);
+        const seen = new Map<string, Contact>();
+        for (const raw of data.data) {
+          const c = normalise(raw);
+          if (!seen.has(c.id)) seen.set(c.id, c);
+        }
+        list = [...seen.values()];
         setTotal(data.total ?? list.length);
       } else if (data instanceof Array) {
-        list = data.map(normalise);
+        const seen = new Map<string, Contact>();
+        for (const raw of data) {
+          const c = normalise(raw);
+          if (!seen.has(c.id)) seen.set(c.id, c);
+        }
+        list = [...seen.values()];
         setTotal(list.length);
       } else if (Array.isArray(data?.contacts)) {
-        list = data.contacts.map(normalise);
+        const seen = new Map<string, Contact>();
+        for (const raw of data.contacts) {
+          const c = normalise(raw);
+          if (!seen.has(c.id)) seen.set(c.id, c);
+        }
+        list = [...seen.values()];
         setTotal(data.total ?? list.length);
       } else {
         list = [];
