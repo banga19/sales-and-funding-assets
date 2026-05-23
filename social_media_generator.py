@@ -117,15 +117,16 @@ class SocialMediaContentGenerator:
         company = prospect.get('COMPANY', '').lower()
         location = prospect.get('LOCATION', '').lower()
         notes = prospect.get('NOTES', '').lower()
-        
-        # Simple keyword matching
-        if any(word in company or word in location or word in notes for word in ['construction', 'build', 'contract', 'engineering']):
+        combined = f"{company} {location} {notes}"
+
+        # Simple keyword matching — check all three fields collectively
+        if any(word in combined for word in ['construction', 'build', 'contract', 'engineering']):
             return 'construction'
-        elif any(word in company or word in location or word in notes for word in ['manufacturing', 'factory', 'production', 'industrial']):
+        elif any(word in combined for word in ['manufacturing', 'factory', 'production', 'industrial']):
             return 'manufacturing'
-        elif any(word in company or word in location or word in notes for word in ['retail', 'shop', 'store', 'trade', 'wholesale']):
+        elif any(word in combined for word in ['retail', 'shop', 'store', 'trade', 'wholesale']):
             return 'retail'
-        elif any(word in company or word in location or word in notes for word in ['health', 'medical', 'hospital', 'clinic', 'pharma']):
+        elif any(word in combined for word in ['health', 'medical', 'hospital', 'clinic', 'pharma']):
             return 'healthcare'
         else:
             # Default to construction since that's what we see in the data
@@ -188,6 +189,10 @@ class SocialMediaContentGenerator:
         ]
         return sample_products
     
+    def _safe_choice(self, items: list, fallback: str = "") -> str:
+        """Return a random choice from *items*, falling back to *fallback* when the list is empty."""
+        return random.choice(items) if items else fallback
+
     def generate_linkedin_post(self, prospect: Dict, product: Dict) -> str:
         """Generate LinkedIn post content"""
         industry = self.determine_industry(prospect)
@@ -202,14 +207,14 @@ class SocialMediaContentGenerator:
             prospect_company=prospect.get('COMPANY', 'your company'),
             prospect_location=prospect.get('LOCATION', 'your region'),
             prospect_industry=industry.title(),
-            key_benefit_1=random.choice(product['benefits']) if product['benefits'] else 'Cost savings',
-            key_benefit_2=random.choice([b for b in product['benefits'] if b != locals().get('key_benefit_1', '')]) if len(product['benefits']) > 1 else 'Improved quality',
-            key_benefit_3=random.choice([b for b in product['benefits'] if b not in [locals().get('key_benefit_1', ''), locals().get('key_benefit_2', '')]]) if len(product['benefits']) > 2 else 'Reliable supply',
-            feature_1=random.choice(product['features']) if product['features'] else 'Direct manufacturer access',
-            feature_2=random.choice([f for f in product['features'] if f != locals().get('feature_1', '')]) if len(product['features']) > 1 else 'Quality assurance',
-            result_1=random.choice(industry_info['benefits']) if industry_info['benefits'] else 'Cost reduction',
-            result_2=random.choice([b for b in industry_info['benefits'] if b != locals().get('result_1', '')]) if len(industry_info['benefits']) > 1 else 'Efficiency gains',
-            result_3=random.choice([b for b in industry_info['benefits'] if b not in [locals().get('result_1', ''), locals().get('result_2', '')]]) if len(industry_info['benefits']) > 2 else 'Better supplier relations',
+            key_benefit_1=self._safe_choice(product.get('benefits', []), 'Cost savings'),
+            key_benefit_2=self._safe_choice([b for b in product.get('benefits', []) if b != product.get('benefits', [''])[0]], 'Improved quality') if len(product.get('benefits', [])) > 1 else 'Improved quality',
+            key_benefit_3=self._safe_choice([b for b in product.get('benefits', []) if b not in [product.get('benefits', [''])[0], product.get('benefits', ['', ''])[1]]], 'Reliable supply') if len(product.get('benefits', [])) > 2 else 'Reliable supply',
+            feature_1=self._safe_choice(product.get('features', []), 'Direct manufacturer access'),
+            feature_2=self._safe_choice([f for f in product.get('features', []) if f != product.get('features', [''])[0]], 'Quality assurance') if len(product.get('features', [])) > 1 else 'Quality assurance',
+            result_1=self._safe_choice(industry_info.get('benefits', []), 'Cost reduction'),
+            result_2=self._safe_choice([b for b in industry_info.get('benefits', []) if b != industry_info.get('benefits', [''])[0]], 'Efficiency gains') if len(industry_info.get('benefits', [])) > 1 else 'Efficiency gains',
+            result_3=self._safe_choice([b for b in industry_info.get('benefits', []) if b not in [industry_info.get('benefits', [''])[0], industry_info.get('benefits', ['', ''])[1]]], 'Better supplier relations') if len(industry_info.get('benefits', [])) > 2 else 'Better supplier relations',
             savings_percent=random.randint(15, 25),
             time_reduction=random.randint(20, 40),
             reliability_improvement=random.randint(25, 45)
@@ -231,9 +236,9 @@ class SocialMediaContentGenerator:
             prospect_company=prospect.get('COMPANY', 'your company'),
             savings_percent=random.randint(15, 30),
             speed_improvement=random.randint(25, 50),
-            benefit_1=random.choice(product['benefits']) if product['benefits'] else 'Lower costs',
-            benefit_2=random.choice([b for b in product['benefits'] if b != locals().get('benefit_1', '')]) if len(product['benefits']) > 1 else 'Better quality',
-            benefit_3=random.choice([b for b in product['benefits'] if b not in [locals().get('benefit_1', ''), locals().get('benefit_2', '')]]) if len(product['benefits']) > 2 else 'Reliable supply'
+            benefit_1=self._safe_choice(product.get('benefits', []), 'Lower costs'),
+            benefit_2=self._safe_choice([b for b in product.get('benefits', []) if b != product.get('benefits', [''])[0]], 'Better quality') if len(product.get('benefits', [])) > 1 else 'Better quality',
+            benefit_3=self._safe_choice([b for b in product.get('benefits', []) if b not in [product.get('benefits', [''])[0], product.get('benefits', ['', ''])[1]]], 'Reliable supply') if len(product.get('benefits', [])) > 2 else 'Reliable supply'
         )
         
         # Truncate to Twitter character limit if needed
@@ -256,15 +261,15 @@ class SocialMediaContentGenerator:
             prospect_company=prospect.get('COMPANY', 'your company'),
             prospect_location=prospect.get('LOCATION', 'your region'),
             prospect_industry=industry.title(),
-            key_feature=random.choice(product['features']) if product['features'] else 'Direct manufacturer partnerships',
-            benefit_1=random.choice(product['benefits']) if product['benefits'] else 'Cost savings',
-            benefit_2=random.choice([b for b in product['benefits'] if b != locals().get('benefit_1', '')]) if len(product['benefits']) > 1 else 'Quality improvement',
-            benefit_3=random.choice([b for b in product['benefits'] if b not in [locals().get('benefit_1', ''), locals().get('benefit_2', '')]]) if len(product['benefits']) > 2 else 'Supply chain reliability',
+            key_feature=self._safe_choice(product.get('features', []), 'Direct manufacturer partnerships'),
+            benefit_1=self._safe_choice(product.get('benefits', []), 'Cost savings'),
+            benefit_2=self._safe_choice([b for b in product.get('benefits', []) if b != product.get('benefits', [''])[0]], 'Quality improvement') if len(product.get('benefits', [])) > 1 else 'Quality improvement',
+            benefit_3=self._safe_choice([b for b in product.get('benefits', []) if b not in [product.get('benefits', [''])[0], product.get('benefits', ['', ''])[1]]], 'Supply chain reliability') if len(product.get('benefits', [])) > 2 else 'Supply chain reliability',
             roi_timeframe=industry_info['roi_timeframe'],
-            pain_point=random.choice(industry_info['pain_points']) if industry_info['pain_points'] else 'supply chain inefficiencies',
-            solution_1=random.choice(industry_info['solutions']) if industry_info['solutions'] else 'direct sourcing',
-            solution_2=random.choice([s for s in industry_info['solutions'] if s != locals().get('solution_1', '')]) if len(industry_info['solutions']) > 1 else 'bulk purchasing',
-            solution_3=random.choice([s for s in industry_info['solutions'] if s not in [locals().get('solution_1', ''), locals().get('solution_2', '')]]) if len(industry_info['solutions']) > 2 else 'quality programs',
+            pain_point=self._safe_choice(industry_info.get('pain_points', []), 'supply chain inefficiencies'),
+            solution_1=self._safe_choice(industry_info.get('solutions', []), 'direct sourcing'),
+            solution_2=self._safe_choice([s for s in industry_info.get('solutions', []) if s != industry_info.get('solutions', [''])[0]], 'bulk purchasing') if len(industry_info.get('solutions', [])) > 1 else 'bulk purchasing',
+            solution_3=self._safe_choice([s for s in industry_info.get('solutions', []) if s not in [industry_info.get('solutions', [''])[0], industry_info.get('solutions', ['', ''])[1]]], 'quality programs') if len(industry_info.get('solutions', [])) > 2 else 'quality programs',
             overspend_percent=random.randint(20, 40)
         )
         

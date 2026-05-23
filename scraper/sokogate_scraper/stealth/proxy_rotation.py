@@ -92,7 +92,8 @@ class ProxyPool:
         """Record a successful request and reset the failure counter."""
         try:
             from ..db.postgres import get_engine, ProxyLogORM
-            engine = get_engine()
+            from ..config import settings
+            engine = get_engine(settings.database_url)
             with engine.connect() as conn:
                 from sqlalchemy import text
                 conn.execute(
@@ -116,7 +117,8 @@ class ProxyPool:
         """Record a failed request; ban the proxy after `_BAN_THRESHOLD` consecutive failures."""
         try:
             from ..db.postgres import get_engine
-            engine = get_engine()
+            from ..config import settings
+            engine = get_engine(settings.database_url)
             with engine.connect() as conn:
                 from sqlalchemy import text
                 conn.execute(

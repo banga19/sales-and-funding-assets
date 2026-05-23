@@ -36,7 +36,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from sokogate_scraper.config import settings
 from sokogate_scraper.db.postgres import (
-    get_engine, get_session_factory, ScrapeRunORM, ProductORM,
+    get_engine, get_session_factory, ScrapeRunORM, ProductORM, PriceHistoryORM,
 )
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import Session

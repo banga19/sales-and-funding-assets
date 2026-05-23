@@ -98,6 +98,9 @@ celery_app.conf.worker_max_tasks_per_child = 100   # restart worker process ever
 celery_app.conf.worker_prefetch_multiplier = 1     # fair scheduling when one product is heavy
 celery_app.conf.task_acks_late = True              # don't acknowledge until task finishes
 celery_app.conf.task_reject_on_worker_lost = True
+celery_app.conf.broker_transport_options   = {"visibility_timeout": 3600}  # prevent premature re-queue
+celery_app.conf.result_expires             = 3600  # clean up old results after 1 h
+celery_app.conf.worker_pool                = "threads"  # I/O-bound workload
 
 log = structlog.get_logger()
 

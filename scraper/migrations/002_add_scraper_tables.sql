@@ -238,3 +238,17 @@ WINDOW w AS (PARTITION BY p.id ORDER BY ph.observed_at DESC)
 QUALIFY ROW_NUMBER() OVER w = 1;
 
 RAISE NOTICE 'Migration 002: scraper schema (scraped_products) created / verified.';
+
+-- ─── 3. DB Index & constraint audit (idempotent) ───────────────────────────────
+-- 3.1 Unique constraint on SKU (prevents duplicate SKUs per product)
+ALTER TABLE scraped_products
+  ADD CONSTRAINT IF NOT EXISTS uq_scraped_products_sku UNIQUE (sku);
+
+-- 3.2 Additional indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_scraped_products_price      ON scraped_products(price_current);
+CREATE INDEX IF NOT EXISTS idx_scraped_products_created_at ON scraped_products(created_at DESC);
+
+-- 3.3 Composite index for price-alert queries (price_current + last_scraped_at)
+CREATE INDEX IF NOT EXISTS idx_scraped_products_price_last_scraped
+  ON scraped_products(price_current, last_scraped_at DESC)
+  WHERE is_active = TRUE;

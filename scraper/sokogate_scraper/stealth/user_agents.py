@@ -43,6 +43,7 @@ class UserAgentPool:
         self._rl_idx = 0          # round-robin cursor
         self._lock   = threading.Lock()
         self._last: Optional[str] = None  # used for 'once-per-crawl' strategy
+        self._pool_path: str | Path = pool_path  # store for reload()
         self._load(pool_path)
 
     # ── Loading ─────────────────────────────────────────────────────────────────
