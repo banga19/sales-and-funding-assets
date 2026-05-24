@@ -24,6 +24,7 @@ import { runBulkSourcingLoop }       from '../../services/agent-loop.factory';
 import { runSalesMarketingLoop }     from '../../services/agent-loop.factory';
 import { runContentCreationLoop }    from '../../services/agent-loop.factory';
 import { runFundingPitchLoop }       from '../../services/agent-loop.factory';
+import { limits } from '../middleware/rate-limit.middleware';
 
 const router = Router();
 
@@ -73,7 +74,7 @@ const FundingPitchLoopSchema: Record<string, unknown> = {
 // 1. Bulk sourcing loop
 // ══════════════════════════════════════════════════════════════════════════════════
 
-router.post('/bulk-sourcing', async (req: Request, res: Response) => {
+router.post('/bulk-sourcing', limits.scrape, async (req: Request, res: Response) => {
   const startedAt = new Date();
   const isSSE     = wantsStreaming(req);
   const ssId = (
@@ -137,7 +138,7 @@ router.post('/bulk-sourcing', async (req: Request, res: Response) => {
 // 2. Sales & marketing loop
 // ══════════════════════════════════════════════════════════════════════════════════
 
-router.post('/sales-marketing', async (req: Request, res: Response) => {
+router.post('/sales-marketing', limits.agentRun, async (req: Request, res: Response) => {
   const startedAt = new Date();
   const isSSE     = wantsStreaming(req);
   const ssId      = `loop-sm-${Date.now()}`;
@@ -194,7 +195,7 @@ router.post('/sales-marketing', async (req: Request, res: Response) => {
 // 3. Content-creation loop
 // ══════════════════════════════════════════════════════════════════════════════════
 
-router.post('/content-creation', async (req: Request, res: Response) => {
+router.post('/content-creation', limits.agentRun, async (req: Request, res: Response) => {
   const startedAt = new Date();
   const isSSE     = wantsStreaming(req);
   const ssId      = `loop-cc-${Date.now()}`;
@@ -259,7 +260,7 @@ router.post('/content-creation', async (req: Request, res: Response) => {
 // 4. Funding-pitch loop
 // ══════════════════════════════════════════════════════════════════════════════════
 
-router.post('/funding-pitch', async (req: Request, res: Response) => {
+router.post('/funding-pitch', limits.agentRun, async (req: Request, res: Response) => {
   const startedAt = new Date();
   const isSSE     = wantsStreaming(req);
   const ssId      = `loop-fp-${Date.now()}`;

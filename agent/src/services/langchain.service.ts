@@ -110,7 +110,7 @@ function parseJsonFromLLM<T>(raw: string, schema: z.ZodSchema<T>): T | null {
  * LangChain service singleton
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-class LangChainService {
+export class LangChainService {
   private llm: ChatOpenAI;
   private llmCache: Map<string, ChatOpenAI> = new Map();
   private lastHealthCheck: boolean = false;
@@ -658,9 +658,10 @@ Output EXACTLY this JSON — nothing else:
       return { llm: this.getLLM(temperature, maxTokens), fallback: false };
     }
     if (!this.lastHealthCheck && Date.now() - this.lastHealthCheckFailureTime < 30_000) {
-      // Stub: warm-pass phrase through to prevent data loss
-      const stub = new ChatOpenAI({ model: 'stub', temperature: 0, maxTokens: maxTokens ?? 512 });
-      return { llm: stub, fallback: true };
+      // Return the real LLM but flag it as degraded — callers can decide whether to persist output.
+      // We do NOT create a stub with model:'stub' as that throws at runtime (invalid model name).
+      logger.warn('[langchain] getHealthyLLM: returning degraded LLM (last health check failed)');
+      return { llm: this.getLLM(temperature, maxTokens), fallback: true };
     }
     // Trigger a live check (async, non-blocking)
     this.healthCheck().catch(() => {});

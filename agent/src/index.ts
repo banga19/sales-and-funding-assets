@@ -201,7 +201,12 @@ class SalesAgent {
         const ps = Math.min(100, Math.max(1, parseInt(String(pageSize), 10) || 20));
         const offset = (pg - 1) * ps;
         const countRow = await db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM contacts ${whereClause}`, params);
-        const dataRows = await db.query(`SELECT * FROM contacts ${whereClause} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]);
+        const limitParamIdx = params.length + 1;
+        const offsetParamIdx = params.length + 2;
+        const dataRows = await db.query(
+          `SELECT * FROM contacts ${whereClause} ORDER BY created_at DESC LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`,
+          [...params, ps, offset]
+        );
         const data = (dataRows.rows ?? []).map(mapContact);
         res.json({ data, total: +(countRow.rows[0]?.count || '0'), page: pg, pageSize: ps });
       } catch (error: any) {
@@ -318,17 +323,6 @@ class SalesAgent {
     // ── Logs ─────────────────────────────────────────────────────────────────────
     const LOG_BUFFER_MAX = 200;
     const logBuffer: { timestamp: string; level: string; message: string }[] = [];
-    const outreachEmailLogs: {
-      id: string;
-      contactId: string;
-      contactName: string;
-      to: string;
-      subject: string;
-      body: string;
-      status: 'sent' | 'failed';
-      error?: string;
-      sentAt: string;
-    }[] = [];
 
      const origInfo  = logger.info;
     const origWarn  = logger.warn;

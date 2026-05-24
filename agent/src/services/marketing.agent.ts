@@ -1,100 +1,98 @@
 /**
  * marketing.agent.ts
  *
- * LangChain-powered autonomous marketing campaign generator for Sokogate / Ultimo Trading Company Limited.
+ * Autonomous sales & marketing campaign generator for Sokogate / Ultimo Trading Company Limited.
  *
- * Pipeline per product:
- *   1. Fetch product from scraped_products
- *   2. Generate 4 asset types in parallel (email_sequence, social_post, ad_copy, landing_page)
- *   3. Each asset uses LangChain with system prompt, Zod schema validation, and caching
- *   4. Persist to marketing_assets table
+ * Goal: For each product in the catalog, generate a complete multi-channel marketing
+ *       campaign so the sales team has ready-to-use assets for email, social, ads, and
+ *       landing pages.
  *
- * LangChain classes used
- *   · ChatOpenAI          — LLM for all generation steps
- *   · ChatPromptTemplate  — prompt structure with system message for CoT suppression
+ * Pipeline
+ * ─────────
+ *   1. RETRIEVE  — RAGRetriever.fetchByIds() → fetchTrending() fallback
+ *                  Ensures we always have real product data to write about.
+ *   2. GENERATE  — For each product × channel, call ragService.complete() with a
+ *                  channel-specific prompt. Outputs are Zod-validated where structured
+ *                  (email subject+body) or used as-is (social, ad, landing page).
+ *   3. CACHE     — Redis cache per (product_id, channel) — 1 h TTL.
+ *   4. PERSIST   — INSERT into marketing_assets table.
+ *
+ * LLM strategy: ragService.complete() — direct NVIDIA API, no LangChain overhead.
+ *               LangChain is reserved for the email personalization / intent chains
+ *               in langchain.service.ts (CRM pipeline, not this agent).
+ * Concurrency:  All channel types for one product run in parallel (Promise.allSettled).
  */
 
-import { ChatPromptTemplate } from '@langchain/core/prompts';
-import type { BaseMessage } from '@langchain/core/messages';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
 import { agentConfig } from '../config/agent.config';
-import { langchainService, parseJsonFromLLM, MarketingAssetSchema } from './langchain.service';
+import { ragService, RAGRetriever, MarketingAssetSchema, type CatalogProduct } from './rag.service';
 import { getCached, setCached } from './response-cache.service';
 
-const ASSET_TYPES = ['email_sequence', 'social_post', 'ad_copy', 'landing_page'] as const;
-type AssetType = typeof ASSET_TYPES[number];
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-const ASSET_PROMPTS: Record<AssetType, string> = {
-  email_sequence: `You are head of marketing at Sokogate/Ultimo Trading Company Limited, an AI-powered B2B e-commerce platform for construction and industrial goods in East and West Africa.
+export type AssetType = 'email_sequence' | 'social_post' | 'ad_copy' | 'landing_page';
 
-Product: {name}
-Category: {category}
-Description: {description}
-
-Generate a cold-email outreach sequence with:
-1. A compelling subject line (max 60 characters)
-2. Opening paragraph that names the product and its key benefit
-3. Body paragraph with 2-3 specific value propositions
-4. Clear call-to-action to browse sokogate.com
-
-Audience: B2B procurement managers at construction companies.
-Tone: Professional, warm, benefit-driven. Keep the full email under 200 words.`,
-
-  social_post: `You are the social media manager for Sokogate/Ultimo Trading Company Limited, a Kenyan B2B construction-materials marketplace.
-
-Product: {name}
-Category: {category}
-Description: {description}
-
-Write an engaging LinkedIn post about this product that:
-1. Opens with a hook relevant to B2B procurement
-2. Highlights 2-3 key benefits or use cases
-3. Ends with a clear call-to-action and 2-3 relevant hashtags
-
-Keep it under 400 characters total. Professional but conversational tone.`,
-
-  ad_copy: `You are a performance marketing specialist for Sokogate/Ultimo Trading Company Limited, a B2B e-commerce platform for construction materials.
-
-Product: {name}
-Category: {category}
-Description: {description}
-
-Write a Facebook/Google Ads ad copy with:
-1. HEADLINE: A punchy, benefit-driven headline (max 40 characters)
-2. COPY: 2-3 sentences highlighting the product's value for B2B buyers
-3. CTA: A clear call-to-action phrase
-
-Audience: Procurement managers and construction company buyers.
-Tone: Direct, benefit-focused, urgency-driven.`,
-
-  landing_page: `You are a conversion-focused copywriter for Sokogate/Ultimo Trading Company Limited, a B2B construction-materials marketplace serving East and West Africa.
-
-Product: {name}
-Category: {category}
-Description: {description}
-
-Write a landing-page hero section with:
-1. H1: A compelling hero headline (max 70 characters)
-2. BULLETS: 3 key benefits, one per line, each starting with a checkmark emoji
-3. CTA: A clear call-to-action button text
-
-Audience: B2B buyers evaluating suppliers.
-Tone: Professional, trustworthy, conversion-optimised.`,
-};
-
-const MARKETING_SYSTEM = 'You are a professional marketing copywriter. You must output ONLY the final marketing text. Do NOT show any thinking, reasoning, planning, or internal monologue. Do NOT use markdown fences.';
+export interface GeneratedAsset {
+  subject?: string;
+  body:     string;
+  type:     AssetType;
+}
 
 export type MarketingStatus = {
-  phase: 'fetching' | 'generating' | 'persisting' | 'complete' | 'error';
+  phase:           'fetching' | 'generating' | 'persisting' | 'complete' | 'error';
   currentProduct?: number;
-  totalProducts?: number;
-  currentAsset?: AssetType;
-  assetsCreated?: number;
-  error?: string;
+  totalProducts?:  number;
+  currentAsset?:   AssetType;
+  assetsCreated?:  number;
+  message?:        string;
+  error?:          string;
 };
 
 type StatusCallback = (status: MarketingStatus) => void;
+
+// ── System prompt ─────────────────────────────────────────────────────────────
+
+const MARKETING_SYSTEM =
+  'You are a professional marketing copywriter for Sokogate / Ultimo Trading Company Limited, ' +
+  'a B2B construction-materials marketplace in East and West Africa. ' +
+  'Output ONLY the final marketing text. No thinking, no planning, no markdown fences.';
+
+// ── Per-channel prompt builders ───────────────────────────────────────────────
+
+const CHANNEL_PROMPTS: Record<AssetType, (p: CatalogProduct) => string> = {
+  email_sequence: p =>
+    `Product: ${p.name}\nCategory: ${p.category}\nDescription: ${p.description.slice(0, 400)}\n\n` +
+    `Write a cold-email outreach for B2B procurement managers at construction companies.\n` +
+    `Include: subject line (max 60 chars), opening paragraph naming the product, 2-3 value propositions, CTA to sokogate.com.\n` +
+    `Keep the full email under 200 words. Output ONLY the email text.`,
+
+  social_post: p =>
+    `Product: ${p.name}\nDescription: ${p.description.slice(0, 300)}\n\n` +
+    `Write an engaging LinkedIn post for B2B procurement audiences.\n` +
+    `Hook → 2-3 key benefits → CTA → 2-3 hashtags. Max 400 characters. Output ONLY the post text.`,
+
+  ad_copy: p =>
+    `Product: ${p.name}\nDescription: ${p.description.slice(0, 300)}\n\n` +
+    `Write Facebook/Google Ads copy for construction procurement buyers.\n` +
+    `Format: HEADLINE (max 40 chars) on line 1, then COPY (90-125 chars). Output ONLY the ad text.`,
+
+  landing_page: p =>
+    `Product: ${p.name}\nDescription: ${p.description.slice(0, 300)}\n\n` +
+    `Write a landing-page hero section for B2B buyers evaluating suppliers.\n` +
+    `Format: H1 headline (max 70 chars), then 3 benefit bullets (✓ prefix), then CTA button text. Output ONLY the hero text.`,
+};
+
+// ── Channel → asset type mapping ──────────────────────────────────────────────
+
+const CHANNEL_TO_TYPES: Record<string, AssetType[]> = {
+  all:    ['email_sequence', 'social_post', 'ad_copy', 'landing_page'],
+  email:  ['email_sequence'],
+  social: ['social_post'],
+  ads:    ['ad_copy'],
+};
+
+// ── MarketingAgent ────────────────────────────────────────────────────────────
 
 export class MarketingAgent {
   private listeners: Set<StatusCallback> = new Set();
@@ -110,104 +108,132 @@ export class MarketingAgent {
     }
   }
 
-  async run(productIds: string[], targetChannel: string = 'all') {
-    const start = Date.now();
+  /**
+   * run — generate marketing assets for the given products and channel.
+   * @param productIds    UUIDs of products to generate assets for (empty = use trending)
+   * @param targetChannel 'all' | 'email' | 'social' | 'ads'
+   */
+  async run(productIds: string[], targetChannel = 'all') {
+    const start  = Date.now();
     const errors: string[] = [];
 
-    // Maps documented API channel names → internal asset-type names
-    const CHANNEL_TO_ASSET: Record<string, string[]> = {
-      email: ['email_sequence'],
-      social: ['social_post'],
-      ads: ['ad_copy'],
-      all: ['email_sequence', 'social_post', 'ad_copy', 'landing_page'],
-    };
-
-    if (!CHANNEL_TO_ASSET[targetChannel]) {
-      throw new Error(`Invalid targetChannel "${targetChannel}". Must be one of: email, social, ads, all`);
+    const assetTypes = CHANNEL_TO_TYPES[targetChannel];
+    if (!assetTypes) {
+      throw new Error(`Invalid targetChannel "${targetChannel}". Must be one of: ${Object.keys(CHANNEL_TO_TYPES).join(', ')}`);
     }
 
-    this.emit({ phase: 'fetching' });
+    // ── Step 1: Retrieve products (RAG) ─────────────────────────────────────
+    this.emit({ phase: 'fetching', message: 'Fetching catalog products…' });
 
-    const { rows: products } = await db.query(
-      `SELECT id, name, description, category FROM scraped_products WHERE id = ANY($1::uuid[]) AND is_active = TRUE LIMIT $2`,
-      [productIds, agentConfig.salesMarketing.maxProducts],
-    );
-
-    if (products.length === 0) {
-      logger.warn('[marketing-agent] no matching products found', { productIds });
-      return { productsProcessed: 0, assetsCreated: 0, errors: ['No matching active products found'], durationMs: Date.now() - start };
+    let products = await RAGRetriever.fetchByIds(productIds, agentConfig.salesMarketing.maxProducts);
+    if (!products.length) {
+      // No specific IDs — fall back to trending products
+      products = await RAGRetriever.fetchTrending(agentConfig.salesMarketing.maxProducts);
+    }
+    if (!products.length) {
+      logger.warn('[marketing-agent] no products found', { productIds });
+      return { productsProcessed: 0, assetsCreated: 0, errors: ['No active products in catalog. Run Bulk Sourcing first.'], durationMs: Date.now() - start };
     }
 
-    this.emit({ phase: 'generating', totalProducts: products.length });
+    this.emit({ phase: 'generating', totalProducts: products.length, message: `Generating assets for ${products.length} product(s)…` });
 
+    // ── Step 2: Generate + persist per product ───────────────────────────────
     let assetsCreated = 0;
-      const channelsToGenerate = CHANNEL_TO_ASSET[targetChannel]!;
 
     for (let pi = 0; pi < products.length; pi++) {
       const product = products[pi];
-      this.emit({ phase: 'generating', currentProduct: pi + 1, totalProducts: products.length });
+      this.emit({ phase: 'generating', currentProduct: pi + 1, totalProducts: products.length, message: `${product.name} (${pi + 1}/${products.length})` });
 
+      // Generate all asset types for this product in parallel
       const assetResults = await Promise.allSettled(
-        channelsToGenerate.map(async (type) => {
-          const cacheKey = `marketing:${product.id}:${type}`;
-          const cached = await getCached<{ subject: string; body: string }>('marketing', cacheKey);
-          if (cached) return cached;
-
-          const prompt = ASSET_PROMPTS[type]
-            .replace('{name}', (product.name || 'Unknown').slice(0, 200))
-            .replace('{category}', (product.category || 'General').slice(0, 100))
-            .replace('{description}', ((product.description || 'No description available') as string).slice(0, 500));
-
-          const promptTemplate = ChatPromptTemplate.fromMessages([
-            ['system', MARKETING_SYSTEM],
-            ['human', prompt],
-          ]);
-
-          const chain = promptTemplate.pipe(langchainService.getLLM(0.5, 1024));
-          const result = await langchainService.withRetry(() => chain.invoke({}));
-          const content = (result as BaseMessage).content?.toString().trim();
-          if (!content) throw new Error('Empty LLM response');
-
-          const parsed = parseJsonFromLLM(content, MarketingAssetSchema);
-          const asset = parsed
-            ? { subject: parsed.subject, body: parsed.body }
-            : { subject: `${product.name} — ${type}`, body: content };
-
-          await setCached('marketing', cacheKey, asset, 3600);
-          return asset;
-        }),
+        assetTypes.map(type => this._generateAsset(product, type)),
       );
 
+      // Persist each successfully generated asset
       this.emit({ phase: 'persisting', currentProduct: pi + 1, totalProducts: products.length });
 
-      for (let ai = 0; ai < channelsToGenerate.length; ai++) {
-        const type = channelsToGenerate[ai] as AssetType;
-        const assetResult = assetResults[ai];
+      for (let ai = 0; ai < assetTypes.length; ai++) {
+        const type   = assetTypes[ai];
+        const result = assetResults[ai];
 
-        if (assetResult.status === 'fulfilled') {
-          try {
-            const asset = assetResult.value;
-            const fullContent = asset.subject ? `SUBJECT: ${asset.subject}\n\n${asset.body}` : asset.body;
-            await db.query(
-              `INSERT INTO marketing_assets (id, product_id, type, content, created_at)
-               VALUES (gen_random_uuid()::text, $1::uuid, $2, $3, NOW())`,
-              [product.id, type, fullContent],
-            );
-            assetsCreated++;
-            this.emit({ phase: 'persisting', currentAsset: type, assetsCreated });
-          } catch (err: any) {
-            errors.push(`${product.name}/${type}: ${err.message}`);
-          }
-        } else {
-          errors.push(`${product.name}/${type}: ${assetResult.reason}`);
+        if (result.status === 'rejected') {
+          errors.push(`${product.name}/${type}: ${result.reason}`);
+          continue;
+        }
+
+        const asset = result.value;
+        const fullContent = asset.subject
+          ? `SUBJECT: ${asset.subject}\n\n${asset.body}`
+          : asset.body;
+
+        try {
+          await db.query(
+            `INSERT INTO marketing_assets (id, product_id, type, content, created_at)
+             VALUES (gen_random_uuid()::text, $1::uuid, $2, $3, NOW())`,
+            [product.id, type, fullContent],
+          );
+          assetsCreated++;
+          this.emit({ phase: 'persisting', currentAsset: type, assetsCreated });
+        } catch (err: any) {
+          errors.push(`${product.name}/${type} persist: ${err.message}`);
         }
       }
     }
 
-    this.emit({ phase: 'complete', assetsCreated });
+    this.emit({ phase: 'complete', assetsCreated, message: `Generated ${assetsCreated} assets` });
+    logger.info('[marketing-agent] complete', { products: products.length, assetsCreated, errors: errors.length });
 
-    logger.info('[marketing-agent] run complete', { products: products.length, assetsCreated, errors: errors.length });
-    return { productsProcessed: products.length, assetsCreated, errors, durationMs: Date.now() - start };
+    return {
+      productsProcessed: products.length,
+      assetsCreated,
+      errors,
+      durationMs: Date.now() - start,
+    };
+  }
+
+  // ── Private: generate one asset ─────────────────────────────────────────────
+
+  private async _generateAsset(product: CatalogProduct, type: AssetType): Promise<GeneratedAsset> {
+    const cacheKey = `marketing:${product.id}:${type}`;
+    const cached = await getCached<GeneratedAsset>('marketing', cacheKey);
+    if (cached) return cached;
+
+    const raw = await ragService.withRetry(() =>
+      ragService.complete(
+        [
+          { role: 'system', content: MARKETING_SYSTEM },
+          { role: 'user',   content: CHANNEL_PROMPTS[type](product) },
+        ],
+        { temperature: 0.5, maxTokens: 1024 },
+      ),
+    );
+
+    if (!raw) throw new Error('Empty LLM response');
+
+    // For email_sequence, try to parse structured subject+body
+    if (type === 'email_sequence') {
+      const parsed = ragService.parseJson(raw, MarketingAssetSchema);
+      if (parsed) {
+        const asset: GeneratedAsset = { subject: parsed.subject, body: parsed.body, type };
+        await setCached('marketing', cacheKey, asset, 3600);
+        return asset;
+      }
+      // Fallback: extract subject from first line if it starts with SUBJECT:
+      const subjectMatch = raw.match(/^SUBJECT\s*:?\s*(.+?)(?:\n|$)/i);
+      if (subjectMatch) {
+        const asset: GeneratedAsset = {
+          subject: subjectMatch[1].trim(),
+          body:    raw.replace(/^SUBJECT.*?\n/, '').trim(),
+          type,
+        };
+        await setCached('marketing', cacheKey, asset, 3600);
+        return asset;
+      }
+    }
+
+    const asset: GeneratedAsset = { body: raw, type };
+    await setCached('marketing', cacheKey, asset, 3600);
+    return asset;
   }
 }
 

@@ -1,11 +1,3 @@
-/**
- * LogsDrawer
- *
- * Slides in from the right and streams agent log lines via WebSocket
- * at ws://localhost:3002/ws/agent (connected lazily when the drawer opens).
- * Falls back to GET /api/logs on first open so there is always a snapshot.
- */
-
 import { useEffect, useState, useRef } from 'react';
 import { X, Loader2, Activity, WifiOff } from 'lucide-react';
 
@@ -16,7 +8,21 @@ interface LogEntry {
   sentAt: string;
 }
 
-const WS_URL = 'ws://localhost:3002/ws/agent';
+/**
+ * Compute the WebSocket URL for the agent.
+ * Uses the same host as the current window location (for dev) but allows override via env vars.
+ * Protocol is derived from window.location.protocol (ws/wss).
+ * Port and host can be overridden via VITE_WS_PORT and VITE_WS_HOST.
+ */
+const getWsUrl = (): string => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // Allow override of host via env, else use window.location.hostname
+  const host = import.meta.env.VITE_WS_HOST ?? window.location.hostname;
+  const port = import.meta.env.VITE_WS_PORT ?? '3002';
+  return `${protocol}//${host}:${port}/ws/agent`;
+};
+
+const WS_URL = getWsUrl(); // Note: This is computed at module load time, but uses import.meta.env (available) and window (not available in SSR, but we are in browser).
 const MAX_LINES = 200;
 
 export default function LogsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -76,7 +82,7 @@ export default function LogsDrawer({ open, onClose }: { open: boolean; onClose: 
     return () => {
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     };
-  }, [open]);
+  }, [open]); // Note: WS_URL is computed at module level, so if env vars change, we need to reload. Acceptable for dev.
 
   if (!open) return null;
 

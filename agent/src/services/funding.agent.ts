@@ -1,33 +1,95 @@
 /**
  * funding.agent.ts
  *
- * LangChain-powered autonomous investor research and pitch generation agent
- * for Ultimo Trading Company Limited (Sokogate).
+ * Autonomous investor research and pitch generation agent for Sokogate / Ultimo Trading Company Limited.
  *
- * Pipeline:
- *   Step 1  Research — LLM generates investor contacts
- *   Step 2  Pitch — Generate pitch as plain text
- *   Step 3  Persist — INSERT investor_prospects + return prospects array for UI
+ * Goal: Identify the right investors for Sokogate's Series A raise, generate a tailored
+ *       pitch for each investor profile, and build a prospect pipeline ready for outreach.
+ *
+ * Pipeline
+ * ─────────
+ *   1. RESEARCH  — LLM generates investor profile characteristics for the requested type
+ *                  (angel / vc / bank / government). Results are Redis-cached (24 h TTL)
+ *                  so repeated runs for the same profile don't waste API calls.
+ *
+ *   2. PITCH     — LLM synthesises a 150-250 word pitch tailored to the investor type,
+ *                  grounded in Sokogate's real metrics ($600K+ ARR, 10K+ customers).
+ *                  stripThinking: true removes NVIDIA Nemotron CoT preamble.
+ *
+ *   3. CONTACTS  — LLM suggests 3 specific people/firms to contact, returning structured
+ *                  JSON validated against FundingContactsSchema. Falls back to the
+ *                  research contacts if the contacts step fails.
+ *
+ *   4. PERSIST   — INSERT into investor_prospects with all columns (contact_name,
+ *                  contact_email, firm, fit_reason) — migration 011 added these.
+ *
+ * LLM strategy: ragService.complete() for all steps.
+ *               LangChain is NOT used here — it is reserved for the CRM email chains.
+ * RAG retrieval: NOT used — this agent generates investor data, it doesn't retrieve
+ *               product catalog rows. The pitch is grounded in static company facts.
  */
 
-import { ChatPromptTemplate } from '@langchain/core/prompts';
-import type { BaseMessage } from '@langchain/core/messages';
 import { db } from '../database/db.client';
 import { logger } from '../utils/logger';
-import { langchainService, parseJsonFromLLM, FundingResearchSchema } from './langchain.service';
+import { ragService, FundingResearchSchema, FundingContactsSchema } from './rag.service';
 import { getCached, setCached } from './response-cache.service';
 
-const RESEARCH_SYSTEM = 'Output ONLY JSON. No thinking. No explanation.';
-const PITCH_SYSTEM = 'Write ONLY the pitch text. No thinking. No planning. No word count. No preamble. Start directly with the pitch.';
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export type InvestorProfile = 'angel' | 'vc' | 'bank' | 'government';
 
 export type FundingStatus = {
-  phase: 'researching' | 'synthesizing' | 'persisting' | 'complete' | 'error';
-  contactsFound?: number;
-  prospectsCreated?: number;
-  error?: string;
+  phase:              'researching' | 'synthesizing' | 'persisting' | 'complete' | 'error';
+  contactsFound?:     number;
+  prospectsCreated?:  number;
+  message?:           string;
+  error?:             string;
 };
 
+export interface FundingRunResult {
+  pitchSummary:     string;
+  prospectsCreated: number;
+  prospects:        ProspectRecord[];
+  researchError:    string | null;
+  synthesisError:   string | null;
+  durationMs:       number;
+}
+
+export interface ProspectRecord {
+  id:             string;
+  contact:        { name: string };
+  name:           string;
+  email:          string;
+  firm:           string;
+  fit:            string;
+  investorProfile: InvestorProfile;
+  status:         'proposed';
+  pitchSummary:   string;
+}
+
 type StatusCallback = (status: FundingStatus) => void;
+
+// ── Company context (static — grounded in real Sokogate metrics) ──────────────
+
+const COMPANY_CONTEXT =
+  'Ultimo Trading Company Limited (sokogate.com) — Kenyan B2B construction-materials marketplace.\n' +
+  'Metrics: 10,000+ customers, $600K+ ARR, 90%+ repeat rate.\n' +
+  'Markets: Kenya, Nigeria, Ghana, Senegal.\n' +
+  'Stage: Series A fundraise.';
+
+// ── System prompts ────────────────────────────────────────────────────────────
+
+const RESEARCH_SYSTEM =
+  'You are a fundraising research analyst. Output ONLY a valid JSON object. No thinking, no explanation.';
+
+const PITCH_SYSTEM =
+  'You are a startup founder writing an investor pitch. ' +
+  'Output ONLY the pitch text. No JSON, no markdown, no preamble, no word count.';
+
+const CONTACTS_SYSTEM =
+  'You are a fundraising advisor. Output ONLY a valid JSON object. No thinking, no explanation.';
+
+// ── FundingPitchAgent ─────────────────────────────────────────────────────────
 
 export class FundingPitchAgent {
   private listeners: Set<StatusCallback> = new Set();
@@ -43,80 +105,87 @@ export class FundingPitchAgent {
     }
   }
 
-  async run(investorProfile: 'angel' | 'vc' | 'bank' | 'government', companyDetails: Record<string, any>) {
+  /**
+   * run — execute the full funding pitch pipeline.
+   * @param investorProfile  Type of investor to target
+   * @param companyDetails   Optional overrides for company context (e.g. custom ARR)
+   */
+  async run(
+    investorProfile: InvestorProfile,
+    companyDetails:  Record<string, any> = {},
+  ): Promise<FundingRunResult> {
     const start = Date.now();
 
-    this.emit({ phase: 'researching' });
+    // ── Step 1: Research ────────────────────────────────────────────────────
+    this.emit({ phase: 'researching', message: `Researching ${investorProfile} investor profile…` });
 
-    const cacheKey = `funding:research:${investorProfile}`;
-    let contacts: any[] = [];
+    let contacts: any[]         = [];
     let researchError: string | null = null;
 
-    try {
-      const cached = await getCached<any[]>('funding', cacheKey);
-      if (cached) {
-        contacts = cached;
-        logger.info('[funding-agent] research cache hit', { investorProfile });
-      } else {
-        const researchPrompt = `Identify characteristics of ${investorProfile} investors who fund B2B e-commerce and construction-tech in East Africa.
+    const researchCacheKey = `funding:research:${investorProfile}`;
+    const cachedContacts   = await getCached<any[]>('funding', researchCacheKey);
 
-Return ONLY JSON:
-{"contacts":[{"name":"Fund Name","email":"","firm":"Firm","fit":"Why they fit"}]}`;
+    if (cachedContacts) {
+      contacts = cachedContacts;
+      logger.info('[funding-agent] research cache hit', { investorProfile });
+    } else {
+      try {
+        const researchPrompt =
+          `Identify the key characteristics of ${investorProfile} investors who fund ` +
+          `B2B e-commerce or construction-tech companies in East Africa.\n\n` +
+          `Return ONLY valid JSON:\n` +
+          `{"contacts":[{"name":"Fund Name","email":"","firm":"Firm Name","fit":"Why they fit Sokogate"}]}`;
 
-        const promptTemplate = ChatPromptTemplate.fromMessages([
-          ['system', RESEARCH_SYSTEM],
-          ['human', researchPrompt],
-        ]);
+        const raw    = await ragService.withRetry(() =>
+          ragService.complete(
+            [{ role: 'system', content: RESEARCH_SYSTEM }, { role: 'user', content: researchPrompt }],
+            { temperature: 0.5, maxTokens: 512 },
+          ),
+        );
+        const parsed = ragService.parseJson(raw, FundingResearchSchema);
 
-        const raw = await langchainService.withRetry(() =>
-          promptTemplate.pipe(langchainService.getLLM(0.5, 512)).invoke({}));
-        const text = (raw as BaseMessage).content?.toString().trim() || '';
-        const parsed = parseJsonFromLLM(text, FundingResearchSchema);
         if (parsed?.contacts?.length) {
           contacts = parsed.contacts;
-          await setCached('funding', cacheKey, contacts, 86400);
+          await setCached('funding', researchCacheKey, contacts, 86400);
         } else {
           researchError = 'LLM returned no valid investor contacts';
+          logger.warn('[funding-agent] research returned no contacts', { investorProfile });
         }
+      } catch (err: any) {
+        researchError = err.message;
+        logger.warn('[funding-agent] research step failed', { error: err.message });
       }
-    } catch (err: any) {
-      researchError = err.message;
-      logger.warn('[funding-agent] research step failed', { error: err.message });
     }
 
-    this.emit({ phase: 'synthesizing', contactsFound: contacts.length });
+    this.emit({ phase: 'synthesizing', contactsFound: contacts.length, message: 'Synthesising pitch…' });
 
-    let pitchSummary = '';
+    // ── Step 2: Pitch synthesis ─────────────────────────────────────────────
+    let pitchSummary   = '';
     let synthesisError: string | null = null;
 
-    const companyStr = JSON.stringify(companyDetails).slice(0, 200).replace(/\{/g, '{{').replace(/\}/g, '}}');
+    const topMatches = contacts.slice(0, 5)
+      .map((c: any) => `- ${c.firm || c.name}: ${c.fit}`)
+      .join('\n');
+
+    const companyOverride = Object.keys(companyDetails).length
+      ? `\nAdditional details: ${JSON.stringify(companyDetails).slice(0, 200)}`
+      : '';
 
     try {
-      const pitchPrompt = `Write a 180-word pitch for a ${investorProfile} investor about Sokogate.
+      const pitchPrompt =
+        `Write a 150-250 word pitch for a ${investorProfile} investor about Sokogate.\n\n` +
+        `${COMPANY_CONTEXT}${companyOverride}\n\n` +
+        (topMatches ? `Investor context (do not name these directly in the pitch):\n${topMatches}\n\n` : '') +
+        `Write the pitch directly. Start with a strong hook. No preamble.`;
 
-Company: Ultimo Trading Company Limited (sokogate.com)
-Kenyan B2B construction-materials marketplace, 10,000+ customers, 600K+ ARR.
-Details: ${companyStr}
+      const raw = await ragService.withRetry(() =>
+        ragService.complete(
+          [{ role: 'system', content: PITCH_SYSTEM }, { role: 'user', content: pitchPrompt }],
+          { temperature: 0.3, maxTokens: 1024, stripThinking: true },
+        ),
+      );
 
-Write the pitch directly. No preamble.`;
-
-      const pitchTemplate = ChatPromptTemplate.fromMessages([
-        ['system', PITCH_SYSTEM],
-        ['human', pitchPrompt],
-      ]);
-
-      const raw = await langchainService.withRetry(() =>
-        pitchTemplate.pipe(langchainService.getLLM(0.3, 512)).invoke({}));
-      let text = (raw as BaseMessage).content?.toString().trim() || '';
-      // Remove planning/thinking lines
-      const lines = text.split('\n').filter(l => {
-        const trimmed = l.trim();
-        if (!trimmed) return false;
-        if (/^(let|we need|count|draft|ensure|must|should|likely|around|word|now|first|second|third|step|note|actually|ok|okay)\b/i.test(trimmed)) return false;
-        if (trimmed.length < 30) return false;
-        return true;
-      });
-      pitchSummary = lines.join('\n').trim() || text;
+      pitchSummary = raw.trim();
       if (!pitchSummary) synthesisError = 'Pitch generation returned empty text';
     } catch (err: any) {
       synthesisError = `Pitch generation failed: ${err.message}`;
@@ -124,53 +193,80 @@ Write the pitch directly. No preamble.`;
     }
 
     if (!pitchSummary && synthesisError) {
-      pitchSummary = `Pitch generation encountered issues. ${synthesisError}`;
+      pitchSummary = `[Pitch generation encountered issues: ${synthesisError}]`;
     }
 
-    this.emit({ phase: 'persisting' });
+    // ── Step 3: Suggested contacts ──────────────────────────────────────────
+    let suggestedContacts: any[] = [];
 
-    // Build prospects array for UI display
-    const prospects = contacts.slice(0, 5).map((c: any) => ({
-      id: `prospect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      contact: { name: c.name || 'Unnamed Contact' },
-      name: c.name || '',
-      email: c.email || '',
-      firm: c.firm || '',
-      fit: c.fit || '',
+    try {
+      const contactsPrompt =
+        `Suggest 3 specific people or firms to contact for ${investorProfile} investment in Sokogate.\n\n` +
+        `${COMPANY_CONTEXT}\n\n` +
+        `Return ONLY valid JSON:\n` +
+        `{"contacts":[{"name":"Person Name","email":"email@example.com","firm":"Firm Name","role":"Partner","fit":"one-line fit reason"}]}\n` +
+        (topMatches ? `\nResearch context:\n${topMatches}` : '');
+
+      const raw    = await ragService.withRetry(() =>
+        ragService.complete(
+          [{ role: 'system', content: CONTACTS_SYSTEM }, { role: 'user', content: contactsPrompt }],
+          { temperature: 0.5, maxTokens: 512 },
+        ),
+      );
+      const parsed = ragService.parseJson(raw, FundingContactsSchema);
+      if (parsed?.contacts?.length) suggestedContacts = parsed.contacts;
+    } catch (err: any) {
+      logger.warn('[funding-agent] contacts step failed', { error: err.message });
+    }
+
+    // Fallback: use research contacts if contacts step failed
+    if (!suggestedContacts.length && contacts.length) {
+      suggestedContacts = contacts.slice(0, 5).map((c: any) => ({
+        name:  c.name  || 'Unknown',
+        email: c.email || '',
+        firm:  c.firm  || c.name || 'Unknown Firm',
+        role:  'Investor',
+        fit:   c.fit   || 'Matched by research',
+      }));
+    }
+
+    // ── Step 4: Persist ─────────────────────────────────────────────────────
+    this.emit({ phase: 'persisting', message: 'Saving prospects…' });
+
+    const prospects: ProspectRecord[] = suggestedContacts.slice(0, 5).map((c: any) => ({
+      id:              `prospect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      contact:         { name: c.name || 'Unnamed Contact' },
+      name:            c.name  || '',
+      email:           c.email || '',
+      firm:            c.firm  || '',
+      fit:             c.fit   || '',
       investorProfile,
-      status: 'proposed',
+      status:          'proposed' as const,
       pitchSummary,
     }));
 
-    // Persist each prospect
     let created = 0;
     for (const p of prospects) {
       try {
         await db.query(
-          `INSERT INTO investor_prospects (id, investor_profile, pitch_summary, contact_name, contact_email, firm, fit_reason, status, created_at)
+          `INSERT INTO investor_prospects
+             (id, investor_profile, pitch_summary, contact_name, contact_email, firm, fit_reason, status, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 'proposed', NOW())
            ON CONFLICT (id) DO NOTHING`,
           [p.id, investorProfile, pitchSummary, p.name, p.email, p.firm, p.fit],
         );
         created++;
       } catch (err: any) {
-        logger.warn('[funding-agent] persist failed for prospect', { name: p.name, error: err.message });
+        logger.warn('[funding-agent] persist failed', { name: p.name, error: err.message });
       }
     }
 
-    this.emit({ phase: 'complete', prospectsCreated: created });
+    this.emit({ phase: 'complete', prospectsCreated: created, message: `Created ${created} prospect(s)` });
 
     const durationMs = Date.now() - start;
-    logger.info('[funding-agent] run complete', { investorProfile, prospectsCreated: created, durationMs });
+    logger.info('[funding-agent] complete', { investorProfile, prospectsCreated: created, durationMs });
 
-    return {
-      pitchSummary,
-      prospectsCreated: created,
-      prospects,
-      researchError,
-      synthesisError,
-      durationMs,
-    };
+    return { pitchSummary, prospectsCreated: created, prospects, researchError, synthesisError, durationMs };
   }
 }
 

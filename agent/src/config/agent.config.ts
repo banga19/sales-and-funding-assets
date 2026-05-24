@@ -53,9 +53,13 @@ export const agentConfig = {
       semanticSearch:      process.env.ENABLE_SEMANTIC_SEARCH !== 'false',
       memorySummaries:     process.env.ENABLE_MEMORY_SUMMARIES !== 'false',
       bulkSourcing:        process.env.ENABLE_SOURCING_AGENT !== 'false',
+      // Canonical keys used by frontend AgentStatus.features and feature_flags table:
+      marketing:           process.env.ENABLE_MARKETING_AGENT !== 'false',
+      content:             process.env.ENABLE_CONTENT_AGENT !== 'false',
+      fundingPitch:        process.env.ENABLE_FUNDING_PITCH_AGENT !== 'false',
+      // Legacy aliases kept for backward-compat with any code that reads these keys:
       marketingAgent:      process.env.ENABLE_MARKETING_AGENT !== 'false',
       contentAgent:        process.env.ENABLE_CONTENT_AGENT !== 'false',
-      fundingPitch:        process.env.ENABLE_FUNDING_PITCH_AGENT !== 'false',
       searchTool:          !!(process.env.SEARCH_API_KEY && process.env.SEARCH_API_KEY.length > 0),
     },
 
