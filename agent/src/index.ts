@@ -25,6 +25,7 @@ import { initializeFollowUpCheckJob } from './jobs/followup-check.job';
 import { initializeMetricsSyncJob } from './jobs/metrics-sync.job';
 import outreachBatchRoutes from './api/routes/outreach-batch.routes';
 import batchSendRoutes from './api/routes/batch-send.routes';
+import { seedCsvContacts } from './services/seed-csv-contacts';
 import masterSwitchRoutes from './api/routes/master-switch.routes';
 import agentLoopRoutes from './api/routes/agent-loop.routes';
 import productsRoutes from './api/routes/products.routes';
@@ -276,6 +277,17 @@ class SalesAgent {
       } catch (error: any) {
         logger.warn('Bulk contact import failed', { error: error.message });
         res.status(500).json({ success: false, error: 'Import failed' });
+      }
+    });
+
+    // ── CSV Seeding ──────────────────────────────────────────────────────────────
+    this.app.post('/api/contacts/seed-csv', async (_req: Request, res: Response) => {
+      try {
+        const result = await seedCsvContacts(db);
+        res.json({ success: true, imported: result.imported, total: result.total });
+      } catch (error: any) {
+        logger.warn('CSV seed failed', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
       }
     });
 
@@ -895,6 +907,16 @@ class SalesAgent {
     }
 
     logger.info('Database connection verified successfully');
+
+    // Seed CSV contacts on startup (updates existing, inserts new)
+    try {
+      const result = await seedCsvContacts(db);
+      if (result.imported > 0) {
+        logger.info('CSV contacts seeded', { imported: result.imported, total: result.total });
+      }
+    } catch (err: any) {
+      logger.warn('CSV contact seeding failed (non-fatal)', { error: err.message });
+    }
   }
 
   /**
