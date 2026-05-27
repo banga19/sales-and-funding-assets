@@ -123,8 +123,17 @@ app.get('/health', async (_req: express.Request, res: express.Response) => {
       catch { return { healthy: false }; }
     })(), HEALTH_TIMEOUT_MS),
     withTimeout((async () => {
-      try { const { Redis } = await import('ioredis'); const r = new Redis(process.env.REDIS_URL || 'redis://localhost:6379'); await r.ping(); await r.quit(); return true; }
-      catch { return false; }
+      try {
+        const { Redis } = await import('ioredis');
+        const r = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+        await r.ping();
+        await r.quit();
+        return true;
+      }
+      catch {
+        // Redis not available - this is OK for development
+        return false;
+      }
     })(), HEALTH_TIMEOUT_MS),
   ]);
 

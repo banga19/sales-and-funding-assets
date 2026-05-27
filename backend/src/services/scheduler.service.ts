@@ -4,10 +4,17 @@ import { Redis } from 'ioredis';
 // ─── Redis connection factory ──────────────────────────────────────────────────
 
 function makeRedisConnection(): Redis {
-  return new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  if (!redisUrl) {
+    throw new Error('REDIS_URL is required');
+  }
+
+  return new Redis(redisUrl, {
     password:    process.env.REDIS_PASSWORD || '',
     db:          parseInt(process.env.REDIS_DB || '0', 10),
     lazyConnect: true,
+    enableReadyCheck: false,
+    connectTimeout: 10000,
   });
 }
 
@@ -26,14 +33,44 @@ const DEFAULT_SCHEDULE_TZ  = process.env.SCRAPER_SCHEDULE_TZ   || 'UTC';
 
 // ─── Job Queue ─────────────────────────────────────────────────────────────────
 
-export const scrapeQueue = new Queue(QUEUE_NAME, {
-  connection: makeRedisConnection(),
-  defaultJobOptions: {
-    attempts:     parseInt(process.env.SCRAPER_JOB_MAX_RETRIES    || '3',    10),
-    backoff:      { type: 'exponential', delay: parseInt(process.env.SCRAPER_JOB_RETRY_DELAY_MS || '60000', 10) },
-    removeOnComplete: { count: 100,  age: 86_400_000 },
-    removeOnFail:     { count: 500 },
-  },
+let scrapeQueueInstance: Queue | null = null;
+
+function getScrapeQueue(): Queue {
+  if (!scrapeQueueInstance) {
+    try {
+      scrapeQueueInstance = new Queue(QUEUE_NAME, {
+        connection: makeRedisConnection(),
+        defaultJobOptions: {
+          attempts:     parseInt(process.env.SCRAPER_JOB_MAX_RETRIES    || '3',    10),
+          backoff:      { type: 'exponential', delay: parseInt(process.env.SCRAPER_JOB_RETRY_DELAY_MS || '60000', 10) },
+          removeOnComplete: { count: 100,  age: 86_400_000 },
+          removeOnFail:     { count: 500 },
+        },
+      });
+    } catch (error: any) {
+      console.warn('Failed to initialize Redis queue:', error.message);
+      console.warn('Queue functionality will be limited until Redis is available');
+      // Return a mock queue that fails gracefully
+      scrapeQueueInstance = new Queue(QUEUE_NAME, {
+        connection: makeRedisConnection(),
+        defaultJobOptions: {
+          attempts:     0,
+          backoff:      { type: 'exponential', delay: 1000 },
+          removeOnComplete: { count: 0 },
+          removeOnFail:     { count: 0 },
+        },
+      });
+    }
+  }
+  return scrapeQueueInstance;
+}
+
+// Export a proxy that behaves like the queue but handles initialization
+export const scrapeQueue = new Proxy({} as Queue, {
+  get(target, prop: keyof Queue) {
+    const queue = getScrapeQueue();
+    return (queue as any)[prop];
+  }
 });
 
 // ─── Status relay ──────────────────────────────────────────────────────────────
@@ -54,13 +91,13 @@ export function broadcastStatus(phase: string, message: string, productCount?: n
 
 // ─── Worker factory (exported so routes can start a worker on demand) ───────────
 
-export async function makeWorker(): Promise<Worker> {
+export async function makeWorker(): Promise<Worker<any, any, string>> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { scrapeWithPlaywright } = await import('./playwright-scraper.service.js');
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { upsertProduct }        = await import('../database/repositories/product.repository.js');
 
-  async function handler(job: Job<Record<string, unknown>>): Promise<any> {
+  async function handler(job: Job<any, any, string>): Promise<any> {
     const { baseUrl = DEFAULT_BASE, maxPages = DEFAULT_MAX_PAGES, maxProducts = DEFAULT_MAX_PRODUCTS } = job.data as any;
 
     registerStatusCallback(job.id!, (phase, message, prodCount) => {
@@ -80,11 +117,25 @@ export async function makeWorker(): Promise<Worker> {
     }
   }
 
-  return new Worker(QUEUE_NAME, handler, {
-    connection:    makeRedisConnection(),
-    concurrency:  DEFAULT_CONCURRENCY,
-    removeOnComplete: { count: 200 },
-  });
+  try {
+    return new Worker<any, any, string>(QUEUE_NAME, handler, {
+      connection:    makeRedisConnection(),
+      concurrency:  DEFAULT_CONCURRENCY,
+      removeOnComplete: { count: 200 },
+    });
+  } catch (error: any) {
+    console.warn('Failed to create Redis worker:', error.message);
+    console.warn('Worker will be unavailable until Redis is connected');
+    // Return a worker that will fail gracefully - this allows the app to start
+    // even when Redis is not available
+    return new Worker<any, any, string>(QUEUE_NAME, async () => {
+      throw new Error('Redis connection not available');
+    }, {
+      connection:    makeRedisConnection(),
+      concurrency:  1,
+      removeOnComplete: { count: 1 },
+    });
+  }
 }
 
 // ─── Job enqueue helper ────────────────────────────────────────────────────────

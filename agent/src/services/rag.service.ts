@@ -200,7 +200,8 @@ class RAGService {
         const status: number | undefined =
           err?.status ?? err?.statusCode ?? err?.response?.status;
 
-        if (status && !RETRYABLE_CODES.has(status)) {
+        // Fail fast on connection errors (no status) or non-retryable codes
+        if (!status || !RETRYABLE_CODES.has(status)) {
           logger.error('[rag] non-retryable error', { status, message: lastErr.message });
           throw lastErr;
         }

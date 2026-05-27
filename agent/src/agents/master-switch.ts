@@ -35,6 +35,8 @@ import { bulkSourcingAgent }                    from '../services/bulk-sourcing.
 import { marketingAgent } from '../services/marketing.agent';
 import { contentAgent }                         from '../services/content.agent';
 import { fundingPitchAgent }                    from '../services/funding.agent';
+import { preSeedFundingAgent }                  from '../services/preseed-funding.agent';
+import { preSeedOutreachRunner }                from '../services/preseed-outreach-runner.service';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -49,6 +51,8 @@ export type SubAgentName =
   | 'salesMarketing'
   | 'contentCreation'
   | 'fundingPitch'
+  | 'preSeedFunding'
+  | 'preseedOutreach'
   | 'dailyOutreach'
   | 'followupCheck'
   | 'metricsSync';
@@ -178,7 +182,42 @@ class MasterSwitch {
       },
     });
 
-    // ─── 5. Daily Outreach (investor batch) ────────────────────────────────
+    // ─── 5. Pre-Seed Funding Pitch ─────────────────────────────────────────
+    this.agents.push({
+      name:            'preSeedFunding',
+      featureFlag:     'fundingPitch',
+      cooldownSeconds: 15 * 60,         // 15 minutes
+      lastRunAt:       null,
+      run:             async () => {
+        logger.info('[master-switch/pre-seed-funding] run()', { investorType: 'all' });
+        const result = await preSeedFundingAgent.run('all');
+        return {
+          success:    result.prospectsCreated > 0,
+          message:    `${result.prospectsCreated} pre-seed prospects created (${result.errors.length} errors)`,
+          durationMs: result.durationMs,
+        };
+      },
+    });
+
+    // ─── 6. Pre-Seed Automated Outreach ────────────────────────────────────
+    this.agents.push({
+      name:            'preseedOutreach',
+      featureFlag:     'investorOutreach',
+      cooldownSeconds: 4 * 60 * 60,     // 4 hours (same cadence as daily outreach)
+      lastRunAt:       null,
+      run:             async () => {
+        const dryRun = agentConfig.dryRun;
+        logger.info('[master-switch/preseed-outreach] run()', { dryRun });
+        const result = await preSeedOutreachRunner.run(5, dryRun);
+        return {
+          success:    result.sent > 0,
+          message:    `${result.sent} sent / ${result.failed} failed / ${result.skipped} skipped (dryRun: ${dryRun})`,
+          durationMs: result.durationMs,
+        };
+      },
+    });
+
+    // ─── 7. Daily Outreach (investor batch) ────────────────────────────────
     this.agents.push({
       name:            'dailyOutreach',
       featureFlag:     'investorOutreach',
@@ -195,7 +234,7 @@ class MasterSwitch {
       },
     });
 
-    // ─── 6. Follow-up Check ────────────────────────────────────────────────
+    // ─── 8. Follow-up Check ────────────────────────────────────────────────
     this.agents.push({
       name:            'followupCheck',
       featureFlag:     'autoFollowup',
@@ -213,7 +252,7 @@ class MasterSwitch {
       },
     });
 
-    // ─── 7. Metrics Sync ───────────────────────────────────────────────────
+    // ─── 9. Metrics Sync ───────────────────────────────────────────────────
     this.agents.push({
       name:            'metricsSync',
       featureFlag:     'agentsEnabled',
@@ -226,6 +265,7 @@ class MasterSwitch {
         return { success: true, message: 'Metrics sync triggered', durationMs: 0 };
       },
     });
+
   }
 
   // ── Core execution ──────────────────────────────────────────────────────────
